@@ -1877,15 +1877,34 @@ input[type="radio"] {
 /* ---------------------------------------------------------------- sign in */
 .auth {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  /* Navy at every shape of screen, so the maker's lockup at the foot always sits on the dark. */
+  background: var(--navy);
+  background-image: radial-gradient(150% 55% at 50% 0%, var(--navy-2) 0%, var(--navy) 62%);
+}
+.auth-middle {
+  flex: 1;
   display: grid;
   place-items: center;
-  padding: 32px 16px;
-  background: var(--navy);
-  background-image: radial-gradient(120% 70% at 50% 0%, var(--navy-2) 0%, var(--navy) 55%), linear-gradient(180deg, var(--navy) 0, var(--navy) 58%, var(--bg) 58%);
-  background-blend-mode: normal;
+  width: 100%;
+  padding: 32px 16px 16px;
 }
 .auth-panel {
   width: min(400px, 100%);
+}
+/* Who makes it, at the foot of the screen; the product's own logo is at the top. */
+.brand-foot {
+  padding: 8px 16px calc(26px + var(--safe-bottom));
+  display: flex;
+  justify-content: center;
+}
+.brand-foot img {
+  width: 190px;
+  max-width: 60%;
+  height: auto;
+  display: block;
 }
 .auth-brand {
   display: flex;
@@ -3511,10 +3530,12 @@ input[type="radio"] {
   }
 
   /* ---- sign in */
-  .auth {
-    place-items: start center;
-    padding: calc(var(--safe-top) + 28px) 16px calc(var(--safe-bottom) + 24px);
-    background-image: linear-gradient(180deg, var(--navy) 0, var(--navy) 250px, var(--bg) 250px);
+  .auth-middle {
+    align-items: start;
+    padding: calc(var(--safe-top) + 24px) 16px 8px;
+  }
+  .brand-foot img {
+    width: 170px;
   }
   .auth-card {
     padding: 18px;

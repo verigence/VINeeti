@@ -3,6 +3,7 @@
 // and what has been done here. No dealership's customers, bookings or stock are reachable from it.
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, errorMessage } from "../api";
+import { BrandFoot } from "../components/Brand";
 import { Dialog } from "../components/Dialog";
 import { Button, Card, Chip, DataTable, Empty, Field, Notice, Stat, type Column } from "../components/ui";
 import { fmtDateTime, fmtNumber } from "../format";
@@ -59,12 +60,15 @@ export function PlatformConsole() {
 function Frame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="auth">
-      <div className="auth-panel">
-        <div className="auth-brand">
-          <img src="/brand/lockup-light.png" alt={`${PRODUCT}. A product by JBR Consulting.`} className="auth-lockup" />
+      <div className="auth-middle">
+        <div className="auth-panel">
+          <div className="auth-brand">
+            <img src="/brand/wordmark-tagline-light.png" alt={`${PRODUCT}. Fair allocation, smarter inventory.`} className="auth-lockup" />
+          </div>
+          <Card title={title}>{children}</Card>
         </div>
-        <Card title={title}>{children}</Card>
       </div>
+      <BrandFoot />
     </div>
   );
 }
@@ -88,7 +92,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     }
   };
   return (
-    <Frame title="Platform sign-in">
+    <Frame title="Sign in">
       <form onSubmit={submit} className="form-grid">
         <Field label="Mobile number" hint="The platform administrator's number, as set on the deployment.">
           <input type="tel" inputMode="tel" autoComplete="username" value={mobile} onChange={(e) => setMobile(e.target.value)} required />

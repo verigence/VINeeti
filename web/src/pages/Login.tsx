@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, errorMessage } from "../api";
 import { StatusBars } from "../components/AppBars";
+import { BrandFoot } from "../components/Brand";
 import { useToast } from "../components/Toast";
 import { Button, Card, Disclosure, Field, Notice } from "../components/ui";
 import { PRODUCT, productName } from "../product";
@@ -33,12 +34,15 @@ function AuthFrame({ children }: { children: ReactNode }) {
   return (
     <div className="auth">
       <StatusBars />
-      <div className="auth-panel">
-        <div className="auth-brand">
-          <img src="/brand/lockup-light.png" alt={`${PRODUCT}. Fair allocation, smarter inventory. A product by JBR Consulting.`} className="auth-lockup" />
+      <div className="auth-middle">
+        <div className="auth-panel">
+          <div className="auth-brand">
+            <img src="/brand/wordmark-tagline-light.png" alt={`${PRODUCT}. Fair allocation, smarter inventory.`} className="auth-lockup" />
+          </div>
+          {children}
         </div>
-        {children}
       </div>
+      <BrandFoot />
     </div>
   );
 }
@@ -316,23 +320,26 @@ export function ChangePasswordScreen() {
   return (
     <div className="auth">
       <StatusBars />
-      <div className="auth-panel">
-        <div className="auth-brand">
-          <img src="/brand/wordmark-light.png" alt={productName(me.app_name)} className="auth-wordmark" />
-          <span className="auth-tagline">
-            {me.tenant.name} · {me.tenant.oem}
-          </span>
-        </div>
-        <Card title="Set a new password">
-          <p className="lead">Welcome, {me.user.name}. Before you continue, replace the password you were given with one only you know.</p>
-          <ChangePasswordForm forced />
-          <div className="auth-foot">
-            <Button variant="ghost" icon="logout" onClick={() => void signOut()}>
-              Sign out
-            </Button>
+      <div className="auth-middle">
+        <div className="auth-panel">
+          <div className="auth-brand">
+            <img src="/brand/wordmark-light.png" alt={productName(me.app_name)} className="auth-wordmark" />
+            <span className="auth-tagline">
+              {me.tenant.name} · {me.tenant.oem}
+            </span>
           </div>
-        </Card>
+          <Card title="Set a new password">
+            <p className="lead">Welcome, {me.user.name}. Before you continue, replace the password you were given with one only you know.</p>
+            <ChangePasswordForm forced />
+            <div className="auth-foot">
+              <Button variant="ghost" icon="logout" onClick={() => void signOut()}>
+                Sign out
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
+      <BrandFoot />
     </div>
   );
 }

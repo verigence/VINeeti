@@ -13,7 +13,7 @@ const ASSET_CACHE = `vineeti-assets-${VERSION}`;
 // Caches written under the product's earlier name are cleared along with older versions.
 const CACHE_PREFIXES = ["vineeti-", "allot-"];
 const SHELL_URL = "/";
-const SHELL_FILES = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png", "/icons/favicon-32.png", "/brand/lockup.png", "/brand/lockup-light.png", "/brand/wordmark.png", "/brand/wordmark-light.png", "/brand/mark-light.png"];
+const SHELL_FILES = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png", "/icons/favicon-32.png", "/brand/lockup.png", "/brand/wordmark-light.png", "/brand/wordmark-tagline-light.png", "/brand/jbr-light.png", "/brand/mark.png", "/brand/mark-light.png"];
 
 /** A copy without the "redirected" flag, which browsers refuse as the answer to a navigation. */
 async function plainCopy(response) {
