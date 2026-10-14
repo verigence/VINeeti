@@ -1,62 +1,110 @@
-# Tests the code and deploys Verigence VINeeti to Cloudflare (Workers + D1).
+##############################################################################
+# deploy.yml — Verigence VINeeti to Cloudflare Workers + D1
 #
-# Runs on every push to main, and by hand from the Actions tab ("Run workflow").
+# Deployment happens here, not by hand: every push to `main` runs the checks and
+# then deploys. It can also be started from the Actions tab, with a dry run that
+# changes nothing.
 #
-# Repository secrets needed (Settings > Secrets and variables > Actions):
-#   CLOUDFLARE_API_TOKEN   API token with the permissions "Workers Scripts: Edit" and "D1: Edit" on the account
-#   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account ID
-#   ANDROID_CERT_SHA256    optional: SHA-256 fingerprint of the Android signing certificate (printed by the Android build)
+# Secrets (Settings → Secrets and variables → Actions; organization secrets of
+# the same names also work, as for the other Verigence deployments):
+#   CLOUDFLARE_API_TOKEN   — CF API token with Workers Scripts: Edit + D1: Edit
+#   CLOUDFLARE_ACCOUNT_ID  — CF account ID (a1e15a39a0a8f86dc1ca9c6a8726e428)
+#   ANDROID_CERT_SHA256    — optional; the Android app's signing certificate
+#                            fingerprint, printed by the Android build workflow
 #
-# The first run creates the D1 database and the application's own secrets; later runs apply new database
-# migrations and deploy the new version. See scripts/deploy.mjs.
+# The first run creates the D1 database "verigence-vineeti" and the application's
+# own secrets (SESSION_SECRET, DATA_KEY, PLATFORM_ADMIN_TOKEN); later runs apply
+# new migrations and deploy the new version. Everything goes through the
+# project's Wrangler, so the token needs no permission beyond Wrangler's own.
+# See scripts/deploy.mjs.
+##############################################################################
 
 name: Deploy to Cloudflare
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run only (say what would happen, change nothing)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: read
 
-# One deployment at a time; a newer push waits for the one in progress rather than cancelling it mid-way.
 concurrency:
   group: deploy-production
-  cancel-in-progress: false
+  cancel-in-progress: false # never cancel a running deploy — wait for it
+
+env:
+  # The account's workers.dev subdomain: the address the app is served on.
+  WORKERS_SUBDOMAIN: jbrconsulting-it
+  VINEETI_URL: https://verigence-vineeti.jbrconsulting-it.workers.dev
 
 jobs:
-  test:
+  check:
     name: Type check and tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: '22'
+          cache: 'npm'
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
 
   deploy:
-    name: Deploy
-    needs: test
-    if: github.ref == 'refs/heads/main'
+    name: Deploy Worker
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    needs: check
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: '22'
+          cache: 'npm'
       - run: npm ci
-      - name: Deploy (database, migrations, Worker, health check)
-        run: node scripts/deploy.mjs
+
+      - name: Dry run (database, Worker and secrets, without changing anything)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Optional: the Android app's signing certificate fingerprint(s), once the app is built (see android.yml).
+        run: node scripts/deploy.mjs --dry-run
+
+      # Database, web build, migrations, Worker with its secrets, health check.
+      - name: Deploy
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+        run: node scripts/deploy.mjs
+
+  smoke:
+    name: Post-deploy checks
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # No credentials: every check here is unauthenticated, or proves that a sign-in is required.
+      - name: Live checks
+        run: node scripts/post-deploy-check.mjs "$VINEETI_URL"
+      - name: Say where it is
+        run: echo "Deployed → $VINEETI_URL" >> "$GITHUB_STEP_SUMMARY"

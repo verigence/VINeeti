@@ -15,8 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       host:
-        description: "Address the app opens, without https:// (e.g. verigence-vineeti.<subdomain>.workers.dev)"
+        description: "Address the app opens, without https://"
         required: true
+        default: "verigence-vineeti.jbrconsulting-it.workers.dev"
         type: string
       version_name:
         description: "Version shown to users (e.g. 1.0.0)"

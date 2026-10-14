@@ -35,12 +35,15 @@ on:
         required: true
         type: string
       address:
-        description: "Address of the deployment, if not the workers.dev address (e.g. https://vineeti.example.com)"
+        description: "Address of the deployment, only if it is not the workers.dev one (e.g. https://vineeti.example.com)"
         required: false
         type: string
 
 permissions:
   contents: read
+
+env:
+  WORKERS_SUBDOMAIN: jbrconsulting-it
 
 concurrency:
   group: deploy-production

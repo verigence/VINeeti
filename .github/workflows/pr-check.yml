@@ -1,0 +1,75 @@
+##############################################################################
+# pr-check.yml — validate a pull request before it reaches `main`
+#
+# Everything that would run on a deployment, except the deployment itself:
+# type checks, tests, the web build, a Wrangler dry run, and a look for
+# anything secret-shaped in the code. No credentials are used.
+##############################################################################
+
+name: PR Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build the web app
+        run: npm run build:web
+
+      - name: Wrangler builds the Worker (no upload, no credentials)
+        run: |
+          node -e "
+            const fs = require('fs');
+            let txt = fs.readFileSync('wrangler.jsonc', 'utf8');
+            txt = txt.replace(/(\"(?:[^\"\\\\]|\\\\.)*\")|\/\/[^\n]*/g, (m, str) => str || '');
+            txt = txt.replace(/,(\s*[}\]])/g, '\$1');
+            const cfg = JSON.parse(txt);
+            cfg.d1_databases[0].database_id = '00000000-0000-0000-0000-000000000000';
+            fs.writeFileSync('wrangler.deploy.json', JSON.stringify(cfg, null, 2));
+            console.log('wrangler.jsonc OK');
+          "
+          npx wrangler deploy --dry-run --config wrangler.deploy.json --outdir /tmp/vineeti-build
+          rm -f wrangler.deploy.json
+
+      - name: Migrations are present and not empty
+        run: |
+          shopt -s nullglob
+          files=(migrations/*.sql)
+          if [ ${#files[@]} -eq 0 ]; then echo "ERROR: no migration files found"; exit 1; fi
+          for f in "${files[@]}"; do
+            [ -s "$f" ] || { echo "ERROR: $f is empty"; exit 1; }
+            echo "ok $f"
+          done
+
+      - name: No credentials in the code
+        run: |
+          # Cloudflare API tokens, Meta access tokens, and this application's own end-of-day keys.
+          if grep -rEn "(cfat_[A-Za-z0-9_-]{20,}|EAA[A-Za-z0-9]{40,}|vne_[0-9a-f]{48})" \
+               --include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.json" --include="*.jsonc" --include="*.yml" --include="*.md" \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.wrangler .; then
+            echo "ERROR: something that looks like a credential is in the source"
+            exit 1
+          fi
+          echo "No credentials found in the source."

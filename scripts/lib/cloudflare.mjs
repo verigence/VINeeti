@@ -1,7 +1,10 @@
-// What the deployment scripts need from Cloudflare: the REST API for look-ups, and Wrangler (the project's
-// own copy) for everything that changes the account. Credentials come from the environment only:
-//   CLOUDFLARE_API_TOKEN   an API token with Workers Scripts: Edit and D1: Edit on the account
+// What the deployment scripts need from Cloudflare. Everything goes through the project's own Wrangler,
+// never the REST API, so a token with the permissions Wrangler itself needs ("Edit Cloudflare Workers"
+// plus D1: Edit) is enough — the same token the other Verigence deployments use.
+//
+//   CLOUDFLARE_API_TOKEN   API token with Workers Scripts: Edit and D1: Edit on the account
 //   CLOUDFLARE_ACCOUNT_ID  the account to deploy to
+//
 // Nothing here prints or stores a secret.
 
 import { spawn } from "node:child_process";
@@ -9,72 +12,100 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 export const ROOT = new URL("../../", import.meta.url).pathname;
-// Wrangler reads the same variable, so a test or a proxy can stand in for the Cloudflare API in both.
-const API = (process.env.CLOUDFLARE_API_BASE_URL ?? "https://api.cloudflare.com/client/v4").replace(/\/$/, "");
+
+/** An error whose message is for the person reading the pipeline log: printed without a stack trace. */
+export class Stop extends Error {}
 
 export function credentials() {
   const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
   const account = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-  if (!token || !account) throw new Stop("Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (in GitHub: repository secrets with those names).");
+  if (!token || !account) throw new Stop("Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (in GitHub: repository or organization secrets with those names).");
   if (!/^[0-9a-f]{32}$/.test(account)) throw new Stop("CLOUDFLARE_ACCOUNT_ID should be the 32-character account ID shown in the Cloudflare dashboard.");
   return { token, account };
 }
 
-/** An error whose message is for the person running the script: printed without a stack trace. */
-export class Stop extends Error {}
-
-/** Calls the Cloudflare API. Returns `{ ok, status, result, errors }`; never throws for an API-level refusal. */
-export async function cf(method, path, body) {
-  const { token } = credentials();
-  let res;
-  try {
-    res = await fetch(`${API}${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  } catch (e) {
-    throw new Stop(`Could not reach the Cloudflare API: ${e.message}`);
-  }
-  const json = await res.json().catch(() => ({}));
-  return { ok: res.ok && json.success !== false, status: res.status, result: json.result, errors: json.errors ?? [] };
+/**
+ * Runs the project's Wrangler. By default its output goes straight to the log; with `capture` it is
+ * collected and returned as well (and still shown), so a step can read what Wrangler printed.
+ */
+export function wrangler(args, { input, capture = false, quiet = false, allowFailure = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("npx", ["--no-install", "wrangler", ...args], {
+      cwd: ROOT,
+      stdio: [input === undefined ? "ignore" : "pipe", capture ? "pipe" : "inherit", capture ? "pipe" : "inherit"],
+      env: { ...process.env, CI: process.env.CI ?? "true", WRANGLER_SEND_METRICS: "false" },
+    });
+    let out = "", err = "";
+    if (capture) {
+      // `quiet` keeps a look-up's output out of the log; it is printed only if the command fails unexpectedly.
+      child.stdout.on("data", (d) => ((out += d), quiet || process.stdout.write(d)));
+      child.stderr.on("data", (d) => ((err += d), quiet || process.stderr.write(d)));
+    }
+    if (input !== undefined) child.stdin.end(input);
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0 || allowFailure) resolve({ code, out, err });
+      else reject(new Stop(`wrangler ${args.filter((a) => !a.startsWith("--secrets-file")).slice(0, 3).join(" ")} failed (exit ${code}). The lines above say why.`));
+    });
+  });
 }
-const why = (r) => r.errors.map((e) => `${e.message} (${e.code})`).join("; ") || `HTTP ${r.status}`;
 
-/** Confirms the token is live. Account-owned tokens and user-owned tokens are verified at different addresses. */
-export async function verifyToken() {
-  const { account } = credentials();
-  for (const path of [`/accounts/${account}/tokens/verify`, `/user/tokens/verify`]) {
-    const r = await cf("GET", path);
-    if (r.ok && r.result?.status === "active") return;
-  }
-  throw new Stop("Cloudflare did not accept the API token. Check that CLOUDFLARE_API_TOKEN is the whole token, that it has not been revoked, and that CLOUDFLARE_ACCOUNT_ID is the account it belongs to.");
+/** Runs a command of the project (an npm script). */
+export function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd: ROOT, stdio: "inherit" });
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Stop(`${cmd} ${args.join(" ")} failed (exit ${code}).`))));
+  });
 }
 
-/** The D1 database with this name, created if it does not exist (unless `create` is false: then null). */
+/** The first JSON value in Wrangler's output (it prints a banner first). */
+function jsonFrom(text) {
+  const start = text.search(/[[{]/);
+  if (start < 0) return null;
+  for (let end = text.length; end > start; end--) {
+    try {
+      return JSON.parse(text.slice(start, end));
+    } catch {
+      /* keep trimming */
+    }
+  }
+  return null;
+}
+
+/**
+ * The D1 database with this name, created if it does not exist (unless `create` is false: then null).
+ * Both steps go through Wrangler, so they need no permission beyond the deployment's own.
+ */
 export async function ensureDatabase(name, location, { create = true } = {}) {
-  const { account } = credentials();
-  const list = await cf("GET", `/accounts/${account}/d1/database?name=${encodeURIComponent(name)}&per_page=100`);
-  if (!list.ok) throw new Stop(`The API token cannot read D1 databases: ${why(list)}. The token needs the permission "D1: Edit" on this account.`);
-  const found = (list.result ?? []).find((d) => d.name === name);
+  const find = async () => {
+    const { code, out, err } = await wrangler(["d1", "list", "--json"], { capture: true, quiet: true, allowFailure: true });
+    const list = code === 0 ? jsonFrom(out) : null;
+    if (!Array.isArray(list)) {
+      process.stderr.write(`${out}${err}`);
+      throw new Stop('Could not read the list of D1 databases (see above). The API token needs the permission "D1: Edit" on this account.');
+    }
+    return list.find((d) => d.name === name) ?? null;
+  };
+  const found = await find();
   if (found) return { id: found.uuid, created: false };
   if (!create) return null;
-  const made = await cf("POST", `/accounts/${account}/d1/database`, { name, ...(location ? { primary_location_hint: location } : {}) });
-  if (!made.ok) throw new Stop(`The D1 database "${name}" could not be created: ${why(made)}. The token needs the permission "D1: Edit" on this account.`);
-  return { id: made.result.uuid, created: true };
+  await wrangler(["d1", "create", name, ...(location ? ["--location", location] : [])]);
+  const made = await find();
+  if (!made) throw new Stop(`The D1 database "${name}" was created but could not be read back. Run the workflow again.`);
+  return { id: made.uuid, created: true };
 }
 
 /** Names of the secrets the Worker already has; null when the Worker has not been deployed yet. */
 export async function workerSecrets(worker) {
-  const { account } = credentials();
-  const r = await cf("GET", `/accounts/${account}/workers/scripts/${worker}/secrets`);
-  if (r.ok) return (r.result ?? []).map((s) => s.name);
-  if (r.status === 404 || r.errors.some((e) => e.code === 10007)) return null;
-  throw new Stop(`The API token cannot read the Worker "${worker}": ${why(r)}. The token needs the permission "Workers Scripts: Edit" on this account.`);
-}
-
-/** The Worker's address on workers.dev. */
-export async function workerUrl(worker) {
-  const { account } = credentials();
-  const r = await cf("GET", `/accounts/${account}/workers/subdomain`);
-  if (!r.ok || !r.result?.subdomain) throw new Stop("This Cloudflare account has no workers.dev subdomain yet. Open Workers & Pages in the Cloudflare dashboard once (it asks you to choose the subdomain), then run this again.");
-  return `https://${worker}.${r.result.subdomain}.workers.dev`;
+  const { code, out, err } = await wrangler(["secret", "list", "--name", worker, "--format", "json"], { capture: true, quiet: true, allowFailure: true });
+  if (code !== 0) {
+    if (/not found|does not exist|10007|10090/i.test(`${out}${err}`)) return null; // no Worker of that name yet
+    process.stderr.write(`${out}${err}`);
+    throw new Stop('Could not read the Worker\'s secrets (see above). The API token needs the permission "Workers Scripts: Edit" on this account.');
+  }
+  const list = jsonFrom(out);
+  return Array.isArray(list) ? list.map((s) => s.name) : [];
 }
 
 /** Reads wrangler.jsonc (JSON with comments). */
@@ -95,26 +126,23 @@ export function readConfig(file = `${ROOT}wrangler.jsonc`) {
   return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
 }
 
-/** Runs the project's Wrangler. Output goes to the terminal; `input` is written to its standard input (for a secret's value). */
-export function wrangler(args, { input } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("npx", ["--no-install", "wrangler", ...args], { cwd: ROOT, stdio: [input === undefined ? "ignore" : "pipe", "inherit", "inherit"], env: { ...process.env, CI: process.env.CI ?? "true", WRANGLER_SEND_METRICS: "false" } });
-    if (input !== undefined) child.stdin.end(input);
-    child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Stop(`wrangler ${args[0]} ${args[1] ?? ""} failed (exit ${code}). The lines above say why.`))));
-  });
-}
-
-/** Runs any command of the project (npm scripts). */
-export function run(cmd, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: ROOT, stdio: "inherit" });
-    child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Stop(`${cmd} ${args.join(" ")} failed (exit ${code}).`))));
-  });
-}
-
 export const randomSecret = (bytes = 32) => randomBytes(bytes).toString("base64url");
+
+/** The workers.dev address in Wrangler's deployment output. */
+export function urlFromDeployOutput(text, worker) {
+  const m = new RegExp(`https://[\\w.-]*${worker.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}[\\w.-]*\\.workers\\.dev`).exec(text) ?? /https:\/\/[\w.-]+\.workers\.dev/.exec(text);
+  return m ? m[0] : null;
+}
+
+/**
+ * The Worker's address on workers.dev. The account's subdomain is fixed for the account, so it is a
+ * setting (WORKERS_SUBDOMAIN) rather than a look-up that would need a wider API token; a custom domain
+ * is given to the scripts as an address instead.
+ */
+export function workerUrl(worker) {
+  const sub = (process.env.WORKERS_SUBDOMAIN ?? "jbrconsulting-it").trim();
+  return `https://${worker}.${sub}.workers.dev`;
+}
 
 /** Waits until the address answers its health check. */
 export async function waitHealthy(base, seconds = 120) {

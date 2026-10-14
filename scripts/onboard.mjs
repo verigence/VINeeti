@@ -30,7 +30,7 @@ main(async () => {
 
   if (rotate) {
     const worker = readConfig().name;
-    base ??= await workerUrl(worker);
+    base ??= workerUrl(worker);
     token = randomSecret();
     console.log(`Setting a fresh platform token on the Worker "${worker}"`);
     await wrangler(["secret", "put", "PLATFORM_ADMIN_TOKEN", "--name", worker], { input: token });
