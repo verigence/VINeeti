@@ -1,0 +1,16 @@
+{
+  "slug": "sample-mahindra",
+  "name": "Sample Motors",
+  "oem": "Mahindra",
+  "timezone": "Asia/Kolkata",
+  "admin": { "name": "System Administrator", "mobile": "9000000001", "password": "ChangeMe123" },
+  "settings": {
+    "reminder_days": 3,
+    "escalation_days": 5,
+    "reallocate_days": 6,
+    "booking_approver_roles": ["SALES_MANAGER", "BUSINESS_HEAD"],
+    "exception_approver_roles": ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
+    "alarm_roles": ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
+    "data_stale_days": 3
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "verigence-vineeti",
+  "version": "0.1.0",
+  "description": "Verigence VINeeti by JBR Consulting: booking-to-delivery control for car dealerships",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:web && wrangler dev",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "deploy": "node scripts/deploy.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "test": "vitest run",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "onboard": "node scripts/onboard.mjs",
+    "deploy:check": "node scripts/deploy.mjs --check",
+    "eod:push": "node scripts/eod-push.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261013.1",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.150.0"
+  }
+}

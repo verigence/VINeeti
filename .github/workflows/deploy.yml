@@ -1,0 +1,59 @@
+# Tests the code and deploys Verigence VINeeti to Cloudflare (Workers + D1).
+#
+# Runs on every push to main, and by hand from the Actions tab ("Run workflow").
+#
+# Repository secrets needed (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN   API token with the permissions "Workers Scripts: Edit" and "D1: Edit" on the account
+#   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account ID
+#
+# The first run creates the D1 database and the application's own secrets; later runs apply new database
+# migrations and deploy the new version. See scripts/deploy.mjs.
+
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer push waits for the one in progress rather than cancelling it mid-way.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Type check and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    name: Deploy
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Deploy (database, migrations, Worker, health check)
+        run: node scripts/deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

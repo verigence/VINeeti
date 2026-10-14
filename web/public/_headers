@@ -1,0 +1,11 @@
+# Read by Cloudflare Workers static assets.
+# The service worker and the manifest must always be revalidated, so a new release is picked up at once.
+/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+# Build files carry a content hash in their name and never change.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

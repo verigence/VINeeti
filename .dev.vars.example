@@ -1,0 +1,4 @@
+# Local development secrets. Copy this file to .dev.vars. In production these are set with `wrangler secret put`.
+SESSION_SECRET=dev-session-secret-change-me-0123456789abcdef
+DATA_KEY=dev-data-key-change-me-0123456789abcdef0123
+PLATFORM_ADMIN_TOKEN=dev-platform-token

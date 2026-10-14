@@ -1,0 +1,82 @@
+# Creates a dealership on the deployment: its dealer code, name and first System Admin.
+# Run by hand from the Actions tab after the first deployment, once per dealership.
+#
+# Uses the same two repository secrets as the deployment. A fresh platform token is set on the Worker for
+# this run only, so there is no third secret to keep. See scripts/onboard.mjs.
+
+name: Onboard a dealership
+
+on:
+  workflow_dispatch:
+    inputs:
+      dealer_code:
+        description: "Dealer code: 3-40 lowercase letters, digits and hyphens (e.g. sample-mahindra)"
+        required: true
+        type: string
+      dealership_name:
+        description: "Dealership name"
+        required: true
+        type: string
+      oem:
+        description: "Manufacturer"
+        required: true
+        default: "Mahindra"
+        type: string
+      admin_name:
+        description: "System Admin: name"
+        required: true
+        type: string
+      admin_mobile:
+        description: "System Admin: mobile number (this is the sign-in ID)"
+        required: true
+        type: string
+      first_password:
+        description: "First password (8+ characters, a letter and a number). Must be changed at first sign-in."
+        required: true
+        type: string
+      address:
+        description: "Address of the deployment, if not the workers.dev address (e.g. https://vineeti.example.com)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  onboard:
+    name: Create the dealership
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Create the dealership
+        # Inputs are passed through the environment, never pasted into the command line.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEALER_CODE: ${{ inputs.dealer_code }}
+          DEALERSHIP_NAME: ${{ inputs.dealership_name }}
+          OEM: ${{ inputs.oem }}
+          ADMIN_NAME: ${{ inputs.admin_name }}
+          ADMIN_MOBILE: ${{ inputs.admin_mobile }}
+          FIRST_PASSWORD: ${{ inputs.first_password }}
+          ADDRESS: ${{ inputs.address }}
+        run: |
+          echo "::add-mask::$FIRST_PASSWORD"
+          umask 077
+          node -e 'const e = process.env; require("fs").writeFileSync(e.RUNNER_TEMP + "/dealer.json", JSON.stringify({ slug: e.DEALER_CODE, name: e.DEALERSHIP_NAME, oem: e.OEM, admin: { name: e.ADMIN_NAME, mobile: e.ADMIN_MOBILE, password: e.FIRST_PASSWORD } }))'
+          if [ -n "$ADDRESS" ]; then
+            node scripts/onboard.mjs --rotate-token "$ADDRESS" "$RUNNER_TEMP/dealer.json"
+          else
+            node scripts/onboard.mjs --rotate-token "$RUNNER_TEMP/dealer.json"
+          fi
+          rm -f "$RUNNER_TEMP/dealer.json"
