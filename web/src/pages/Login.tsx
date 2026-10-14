@@ -4,6 +4,7 @@ import { StatusBars } from "../components/AppBars";
 import { BrandFoot } from "../components/Brand";
 import { useToast } from "../components/Toast";
 import { Button, Card, Disclosure, Field, Notice } from "../components/ui";
+import { personName } from "../labels";
 import { PRODUCT, productName } from "../product";
 import { useSession } from "../session";
 
@@ -37,7 +38,7 @@ function AuthFrame({ children }: { children: ReactNode }) {
       <div className="auth-middle">
         <div className="auth-panel">
           <div className="auth-brand">
-            <img src="/brand/wordmark-tagline-light.png" alt={`${PRODUCT}. Fair allocation, smarter inventory.`} className="auth-lockup" />
+            <img src="/brand/wordmark-light.png" alt={PRODUCT} className="auth-lockup" />
           </div>
           {children}
         </div>
@@ -329,7 +330,7 @@ export function ChangePasswordScreen() {
             </span>
           </div>
           <Card title="Set a new password">
-            <p className="lead">Welcome, {me.user.name}. Before you continue, replace the password you were given with one only you know.</p>
+            <p className="lead">Welcome, {personName(me.user.name)}. Before you continue, replace the password you were given with one only you know.</p>
             <ChangePasswordForm forced />
             <div className="auth-foot">
               <Button variant="ghost" icon="logout" onClick={() => void signOut()}>

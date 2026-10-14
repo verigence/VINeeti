@@ -31,7 +31,7 @@ export interface AlertsState {
   unreadAlarms: number;
   loading: boolean;
   error: string | null;
-  /** Bookings and exception requests waiting for a decision this user may take. */
+  /** Bookings and special requests waiting for a decision this user may take. */
   pendingApprovals: number;
   /** Re-reads the alerts and the approvals count; called after every action so the badges stay true. */
   reload: () => Promise<void>;

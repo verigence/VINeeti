@@ -204,7 +204,7 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
           <PaymentCard d={d} />
 
           <Card
-            title="Exception requests"
+            title="Special requests"
             note="Anything outside the normal queue order: priority, skipping, deferring, outlet change, manual allocation, more time to pay."
             actions={
               canRequest ? (

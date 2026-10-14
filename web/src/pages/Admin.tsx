@@ -22,7 +22,7 @@ export function AdminPage({ tab }: { tab: Tab }) {
   ];
   return (
     <>
-      <PageHeader title="Administration" />
+      <PageHeader title="Settings" subtitle="The people who use VINeeti here, the outlets, and the rules the system follows." />
       <Tabs current={`/admin/${tab}`} tabs={tabs} />
       {tab === "outlets" && <OutletsTab />}
       {tab === "users" && <UsersTab />}

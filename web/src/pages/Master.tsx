@@ -20,7 +20,7 @@ export function MasterPage({ tab }: { tab: "variants" | "colours" }) {
   const load = useLoad(() => api.master(), "master");
   return (
     <>
-      <PageHeader title="Vehicle master" subtitle="Variants are registered from the DMS files. What a DMS description does not state stays blank until it is filled in." />
+      <PageHeader title="Models & colours" subtitle="Variants are registered from the DMS files. What a DMS description does not state stays blank until it is filled in." />
       <Tabs
         current={tab === "variants" ? "/master" : "/master/colours"}
         tabs={[

@@ -25,15 +25,15 @@ export const DESTINATIONS: Destination[] = [
   { to: "/bookings", label: "Bookings", icon: "bookings", allowed: (can) => can("booking.view") },
   { to: "/approvals", label: "Approvals", icon: "approvals", allowed: canApprove, badge: "approvals" },
   { to: "/payments", label: "Payments", icon: "payments", allowed: canSeePayments },
-  { to: "/owner", label: "Owner", icon: "owner", allowed: (can) => can("owner.view") },
-  { to: "/dashboards", label: "Dashboards", icon: "dashboards", allowed: (can) => can("dashboards.view") },
-  { to: "/analytics", label: "Analytics", icon: "analytics", allowed: (can) => can("dashboards.view") },
-  { to: "/eod", label: "End of day", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
-  { to: "/recon", label: "Reconciliation", icon: "recon", allowed: (can) => can("recon.view") },
-  { to: "/master", label: "Vehicle master", icon: "master", allowed: (can) => can("master.manage") },
+  { to: "/owner", label: "Owner's view", icon: "owner", allowed: (can) => can("owner.view") },
+  { to: "/dashboards", label: "Day's work", icon: "dashboards", allowed: (can) => can("dashboards.view") },
+  { to: "/analytics", label: "Reports", icon: "analytics", allowed: (can) => can("dashboards.view") },
+  { to: "/eod", label: "Daily update", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
+  { to: "/recon", label: "Day-end check", icon: "recon", allowed: (can) => can("recon.view") },
+  { to: "/master", label: "Models & colours", icon: "master", allowed: (can) => can("master.manage") },
   { to: "/whatsapp", label: "WhatsApp", icon: "whatsapp", allowed: (can) => can("wa.view") },
-  { to: "/admin", label: "Administration", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },
-  { to: "/audit", label: "Audit trail", icon: "audit", allowed: (can) => can("audit.view") },
+  { to: "/admin", label: "Settings", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },
+  { to: "/audit", label: "History", icon: "audit", allowed: (can) => can("audit.view") },
 ];
 
 export const destinationsFor = (can: Can) => DESTINATIONS.filter((d) => d.allowed(can));

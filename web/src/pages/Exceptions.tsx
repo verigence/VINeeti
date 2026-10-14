@@ -1,4 +1,4 @@
-// Exception requests: the list item, the approve / reject dialog and the "Raise a request" form.
+// Special requests: the list item, the approve / reject dialog and the "Raise a request" form.
 // Used on the booking page and on the Approvals screen.
 
 import { useState } from "react";

@@ -23,7 +23,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
   ];
   return (
     <>
-      <PageHeader title="Analytics" subtitle="Worked out from the stock report and the booking sheet by fixed rules; the same files always give the same answer." />
+      <PageHeader title="Reports" subtitle="Worked out from the stock report and the booking sheet by fixed rules, so the same files always give the same answer." />
       <DataSource />
       <Tabs current={`/analytics/${tab}`} tabs={tabs} />
       {tab === "ageing" && <Ageing />}

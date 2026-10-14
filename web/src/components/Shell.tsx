@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "../api";
+import { personName } from "../labels";
 import { canApprove, destinationsFor, isActive, tabsFor, type Destination } from "../nav";
 import { PRODUCT_BYLINE, productName } from "../product";
 import { Link, useRouter } from "../router";
@@ -113,7 +114,7 @@ export function Shell() {
             </Link>
             <div className="topbar-user">
               <div className="user-id">
-                <span className="user-name">{me.user.name}</span>
+                <span className="user-name">{personName(me.user.name)}</span>
                 <span className="user-role">{roleLabel(me.user.role)}</span>
               </div>
               <Link to="/account/password" className="user-link">
@@ -177,9 +178,9 @@ export function Shell() {
             }
           >
             <div className="more-user">
-              <span className="user-name">{me.user.name}</span>
+              <span className="user-name">{personName(me.user.name)}</span>
               <span className="user-role">
-                {roleLabel(me.user.role)} · {me.tenant.name} {me.tenant.oem}
+                {roleLabel(me.user.role)} · {me.tenant.name}
               </span>
             </div>
             <ul className="more-list">

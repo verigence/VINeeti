@@ -136,7 +136,7 @@ export const api = {
   verifyPayment: (id: string, p: T.PaymentInput) => post<T.Booking>(`/api/bookings/${enc(id)}/payment-received`, p),
   paymentNotReceived: (id: string, note: string) => post<T.Booking>(`/api/bookings/${enc(id)}/payment-not-received`, { note }),
 
-  // ---- exception requests
+  // ---- special requests
   exceptions: (status?: string) => get<T.ExceptionRow[]>("/api/exceptions", { status }),
   requestException: (input: T.ExceptionInput) => post<T.ExceptionRow>("/api/exceptions", input),
   decideException: (id: string, decision: "approve" | "reject", remarks?: string) => post<T.ExceptionRow>(`/api/exceptions/${enc(id)}/${decision}`, { remarks: remarks || undefined }),

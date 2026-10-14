@@ -72,7 +72,7 @@ export function AllocationCard({ d }: { d: BookingDetail }) {
   const rule = allocationRule(a.rule_trace?.rule);
 
   return (
-    <Card title="Allocated car">
+    <Card title="Car reserved">
       <div className="chips chips-row">
         <Chip tone="teal">{a.source === "DMS" ? "Allotted in DMS" : allocationType(a.type)}</Chip>
         <StatusChip label={vehicleStatus(a.vehicle_status)} />

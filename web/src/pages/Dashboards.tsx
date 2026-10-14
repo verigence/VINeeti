@@ -17,7 +17,7 @@ type Tab = "allocation" | "orders" | "delayed" | "offers";
 export function DashboardsPage({ tab }: { tab: Tab }) {
   return (
     <>
-      <PageHeader title="Dashboards" />
+      <PageHeader title="Day's work" subtitle="Who is waiting, what to order, and which deliveries are running late." />
       <DataSource />
       <Tabs
         current={`/dashboards/${tab}`}
@@ -75,7 +75,7 @@ function AllocationDashboard() {
     { header: "Car", cell: (r) => <CarCell r={r} /> },
     { header: "Outlet", cell: (r) => r.outlet },
     {
-      header: "Allocated car",
+      header: "Car reserved",
       cell: (r) => (
         <>
           {can("stock.view") ? (
@@ -313,7 +313,7 @@ function DelayedDashboard() {
     { header: "Delay", num: true, cell: (r) => <span className="strong danger">{plural(r.delay_days, "day")}</span> },
     { header: "Reason", cell: (r) => r.reason },
     { header: "Status", status: true, cell: (r) => <StatusChip label={bookingStatus(r.status, r.on_hold)} /> },
-    { header: "Allocated car", cell: (r) => (r.vin ? <span className="mono">{r.vin}</span> : <span className="muted">None</span>), hideIfEmpty: (r) => !r.vin },
+    { header: "Car reserved", cell: (r) => (r.vin ? <span className="mono">{r.vin}</span> : <span className="muted">None</span>), hideIfEmpty: (r) => !r.vin },
   ];
   return (
     <Card title="Bookings past their promised delivery date" note="Open bookings that are late, and cars delivered late in the last 45 days." flush>

@@ -79,7 +79,7 @@ export function eodRoutes(app: App) {
       steps: [
         { key: "BOOKINGS", label: "Booking sheet read", done: Boolean(loadedToday("BOOKINGS")), load: loadedToday("BOOKINGS") },
         { key: "STOCK", label: "Stock report read", done: Boolean(loadedToday("STOCK")), load: loadedToday("STOCK") },
-        { key: "RECONCILIATION", label: "Reconciliation run", done: Boolean(lastRun && lastRun.business_date === today && (!loads[0] || lastRun.started_at >= loads[0].at)), run: lastRun ? { id: lastRun.id, business_date: lastRun.business_date, started_at: lastRun.started_at, by: lastRun.trigger === "SCHEDULED" ? "Scheduled" : lastRun.trigger === "EOD" ? "End-of-day feed" : "A user", open_items: lastRun.open_items, items: safeJson<any>(lastRun.summary_json, {}).items ?? null } : null },
+        { key: "RECONCILIATION", label: "Day-end check run", done: Boolean(lastRun && lastRun.business_date === today && (!loads[0] || lastRun.started_at >= loads[0].at)), run: lastRun ? { id: lastRun.id, business_date: lastRun.business_date, started_at: lastRun.started_at, by: lastRun.trigger === "SCHEDULED" ? "Scheduled" : lastRun.trigger === "EOD" ? "End-of-day feed" : "A user", open_items: lastRun.open_items, items: safeJson<any>(lastRun.summary_json, {}).items ?? null } : null },
       ],
       loads_today: loads.map((l) => ({ ...l, uploaded_by_name: l.uploaded_by === "EOD" ? "End-of-day feed" : l.uploaded_by_name })),
       feed: { key_set_at: key?.eod_key_set_at ?? null, stock_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/stock`, bookings_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/bookings`, run_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/run` },

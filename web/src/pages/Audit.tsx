@@ -72,7 +72,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="Audit trail" subtitle="Every change, who made it and when. Entries cannot be edited or deleted." />
+      <PageHeader title="History" subtitle="Every change, who made it and when. Entries cannot be edited or deleted." />
       <FilterBar active={[entityType, actionKey, from].filter(Boolean).length} onClear={() => setQuery({ entity_type: null, action: null, from: null })}>
         <Filter label="Record type">
           <Select value={entityType} onChange={(v) => setQuery({ entity_type: v })} options={ENTITY_OPTIONS} placeholder="Any record" />

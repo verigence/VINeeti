@@ -20,7 +20,7 @@ type Tab = "overview" | "out-of-turn" | "measures";
 export function OwnerPage({ tab }: { tab: Tab }) {
   return (
     <>
-      <PageHeader title="Owner" subtitle="Fairness, ageing and what is at risk." />
+      <PageHeader title="Owner's view" subtitle="Who is waiting, which cars nobody has taken, and anything given out of turn." />
       <Tabs
         current={tab === "overview" ? "/owner" : `/owner/${tab}`}
         tabs={[
@@ -43,13 +43,13 @@ export function OwnerTiles({ o }: { o: OwnerView }) {
   return (
     <div className="tiles">
       <Stat label="Customers waiting" value={fmtNumber(o.customers_waiting)} to={can("booking.view") ? "/bookings?view=waiting" : undefined} />
-      <Stat label="Cars not matched" value={fmtNumber(o.cars_not_matched)} to={can("stock.view") ? "/stock/cars?commitment=FREE" : undefined} />
+      <Stat label="Cars nobody has booked" value={fmtNumber(o.cars_not_matched)} to={can("stock.view") ? "/stock/cars?commitment=FREE" : undefined} />
       <Stat label="Delivery dates at risk" value={fmtNumber(o.delivery_dates_at_risk.count)} to="/owner#at-risk" tone={o.delivery_dates_at_risk.count ? "danger" : undefined} hint={o.delivery_dates_at_risk.overdue ? `${fmtNumber(o.delivery_dates_at_risk.overdue)} already past` : undefined} />
-      <Stat label="Out-of-turn allocations this month" value={fmtNumber(o.out_of_turn.this_month)} to="/owner/out-of-turn" tone={o.out_of_turn.this_month ? "warn" : undefined} />
-      <Stat label="Out-of-turn, under review" value={fmtNumber(o.out_of_turn.under_review)} to="/owner/out-of-turn" tone={o.out_of_turn.under_review ? "danger" : undefined} />
-      <Stat label="Payments awaiting" value={fmtNumber(o.payments.awaiting_payment)} to={payments} />
-      <Stat label="Payments to verify" value={fmtNumber(o.payments.to_verify)} to={payments} tone={o.payments.to_verify ? "warn" : undefined} />
-      <Stat label="Unsold stock" value={fmtNumber(o.unsold_by_age.total)} to="/owner#unsold" />
+      <Stat label="Given out of turn this month" value={fmtNumber(o.out_of_turn.this_month)} to="/owner/out-of-turn" tone={o.out_of_turn.this_month ? "warn" : undefined} />
+      <Stat label="Out of turn, not looked at" value={fmtNumber(o.out_of_turn.under_review)} to="/owner/out-of-turn" tone={o.out_of_turn.under_review ? "danger" : undefined} />
+      <Stat label="Waiting for payment" value={fmtNumber(o.payments.awaiting_payment)} to={payments} />
+      <Stat label="Payments to check" value={fmtNumber(o.payments.to_verify)} to={payments} tone={o.payments.to_verify ? "warn" : undefined} />
+      <Stat label="Cars with no customer" value={fmtNumber(o.unsold_by_age.total)} to="/owner#unsold" />
     </div>
   );
 }

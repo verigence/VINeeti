@@ -19,7 +19,7 @@ export function ReconPage() {
   const action = useAction();
 
   const runNow = async () => {
-    const res = await action.run(() => api.runRecon(), { success: (r) => `Reconciliation complete: ${plural(r.summary.items.total, "finding")}.` });
+    const res = await action.run(() => api.runRecon(), { success: (r) => `The day-end check is done: ${plural(r.summary.items.total, "finding")}.` });
     if (res) navigate(`/recon/${res.run_id}`);
   };
 
@@ -55,7 +55,7 @@ export function ReconPage() {
   return (
     <>
       <PageHeader
-        title="Day-end reconciliation"
+        title="Day-end check"
         subtitle={`Checks that stock, bookings and allocations agree, and lists every difference for someone to resolve. Runs automatically at ${me.settings.day_end_time} every day.`}
         primary={
           can("recon.manage") ? (
@@ -66,8 +66,8 @@ export function ReconPage() {
         }
       />
       <Card flush>
-        <Async load={load} empty={<Empty title="No reconciliation has run yet" hint={can("recon.manage") ? "Run it now to check today's position." : "The first run happens at day end."} />}>
-          {(rows) => <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Reconciliation runs" />}
+        <Async load={load} empty={<Empty title="No day-end check has run yet" hint={can("recon.manage") ? "Run it now to check today's position." : "The first run happens at day end."} />}>
+          {(rows) => <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Day-end checks" />}
         </Async>
       </Card>
     </>
@@ -77,7 +77,7 @@ export function ReconPage() {
 export function ReconDetailPage({ id }: { id: string }) {
   const load = useLoad(() => api.reconRun(id), `recon:${id}`);
   return (
-    <Async load={load} isEmpty={() => false} loadingLabel="Loading reconciliation">
+    <Async load={load} isEmpty={() => false} loadingLabel="Loading the day-end check">
       {(run) => <RunView run={run} reload={load.reload} />}
     </Async>
   );
@@ -108,8 +108,8 @@ function RunView({ run, reload }: { run: ReconRunDetail; reload: () => Promise<v
   return (
     <>
       <PageHeader
-        back={{ to: "/recon", label: "Day-end reconciliation" }}
-        title={`Reconciliation for ${fmtDate(run.business_date)}`}
+        back={{ to: "/recon", label: "Day-end check" }}
+        title={`Day-end check for ${fmtDate(run.business_date)}`}
         subtitle={`${run.trigger === "SCHEDULED" ? "Automatic, at day end" : "Run on request"} · ${fmtDateTime(run.started_at)}`}
         actions={
           <a className="btn btn-secondary" href={api.reconCsvUrl(run.id)} download>
@@ -130,7 +130,7 @@ function RunView({ run, reload }: { run: ReconRunDetail; reload: () => Promise<v
               <Stat label="Waiting for a car" value={fmtNumber(s.bookings.waiting)} />
               <Stat label="On hold" value={fmtNumber(s.bookings.on_hold)} />
               <Stat label="Allocated" value={fmtNumber(s.bookings.allocated)} />
-              <Stat label="Awaiting approval" value={fmtNumber(s.bookings.awaiting_approval)} />
+              <Stat label="Waiting for approval" value={fmtNumber(s.bookings.awaiting_approval)} />
               <Stat label="Invoiced that day" value={fmtNumber(s.bookings.invoiced_today)} />
               <Stat label="Delivered that day" value={fmtNumber(s.bookings.delivered_today)} />
               <Stat label="Cancelled that day" value={fmtNumber(s.bookings.cancelled_today)} />

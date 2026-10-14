@@ -63,7 +63,7 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
       <div className="auth-middle">
         <div className="auth-panel">
           <div className="auth-brand">
-            <img src="/brand/wordmark-tagline-light.png" alt={`${PRODUCT}. Fair allocation, smarter inventory.`} className="auth-lockup" />
+            <img src="/brand/wordmark-light.png" alt={PRODUCT} className="auth-lockup" />
           </div>
           <Card title={title}>{children}</Card>
         </div>

@@ -40,7 +40,7 @@ export function EodPage() {
 
   return (
     <>
-      <PageHeader title="End of day" subtitle={`Read the booking sheet and the stock report, then run the reconciliation. The day ends at ${status.data?.day_end_time ?? me.settings.day_end_time}.`} />
+      <PageHeader title="Daily update" subtitle={`Read the booking sheet and the stock report, then run the reconciliation. The day ends at ${status.data?.day_end_time ?? me.settings.day_end_time}.`} />
       {/* The status carries the same file dates; re-read after every load so the line never lags behind. */}
       <DataSource key={status.data ? `${status.data.files.stock?.upload_id}:${status.data.files.bookings?.upload_id}` : "none"} status={status.data?.files} />
       {can("recon.view") && (
@@ -71,13 +71,13 @@ function StepsCard({ status, onRun }: { status: EodStatus; onRun: () => void }) 
   const run = status.steps.find((s) => s.key === "RECONCILIATION")?.run ?? null;
 
   const runNow = async () => {
-    const res = await action.run(() => api.runRecon(), { success: (r) => `Reconciliation complete: ${plural(r.summary.items.total, "finding")}.` });
+    const res = await action.run(() => api.runRecon(), { success: (r) => `The day-end check is done: ${plural(r.summary.items.total, "finding")}.` });
     if (res) onRun();
   };
 
   const detail = (s: EodStep) => {
     if (s.key === "RECONCILIATION") {
-      if (!s.run) return "No reconciliation has run yet.";
+      if (!s.run) return "No day-end check has run yet.";
       const when = `${s.run.by}, ${fmtWhen(s.run.started_at)}`;
       return s.done ? `${when} · ${plural(s.run.open_items, "finding")} open` : `Last run: ${when}, for ${fmtDate(s.run.business_date)}. Not yet run on today's files.`;
     }
@@ -86,7 +86,7 @@ function StepsCard({ status, onRun }: { status: EodStatus; onRun: () => void }) 
   };
 
   return (
-    <Card title={`Steps for ${fmtDate(status.business_date)}`} note={`The reconciliation also runs by itself at ${status.day_end_time}.`}>
+    <Card title={`Steps for ${fmtDate(status.business_date)}`} note={`The check also runs by itself at ${status.day_end_time}.`}>
       <ol className="eod-steps">
         {status.steps.map((s, i) => (
           <li key={s.key} className={`eod-step${s.done ? " eod-done" : ""}`}>
@@ -105,7 +105,7 @@ function StepsCard({ status, onRun }: { status: EodStatus; onRun: () => void }) 
       <div className="form-actions">
         {can("recon.manage") && (
           <Button variant="primary" icon="refresh" busy={action.busy} onClick={() => void runNow()}>
-            Run reconciliation now
+            Run the day-end check now
           </Button>
         )}
         {run && (
@@ -426,7 +426,7 @@ function FeedCard({ feed, reload }: { feed: EodStatus["feed"]; reload: () => Pro
         <div className="form-grid">
           <CopyField label="Booking sheet is sent to" value={feed.bookings_url} wide={false} />
           <CopyField label="Stock report is sent to" value={feed.stock_url} wide={false} />
-          <CopyField label="Reconciliation is asked for at" value={feed.run_url} wide={false} />
+          <CopyField label="The day-end check is asked for at" value={feed.run_url} wide={false} />
         </div>
         <p>{feed.key_set_at ? <>A key was created on {fmtDateTime(feed.key_set_at)}.</> : "No key has been created, so the feed is switched off."}</p>
         {key && (

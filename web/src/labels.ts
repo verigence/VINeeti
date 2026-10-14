@@ -21,7 +21,7 @@ const pick = (map: Record<string, Label>, code: string | null | undefined): Labe
 // ---------------------------------------------------------------- bookings
 const BOOKING_STATUS: Record<string, Label> = {
   DRAFT: { text: "Draft", tone: "grey" },
-  SUBMITTED: { text: "Awaiting approval", tone: "amber" },
+  SUBMITTED: { text: "Waiting for approval", tone: "amber" },
   APPROVED: { text: "Waiting for car", tone: "blue" },
   REJECTED: { text: "Rejected", tone: "red" },
   ALLOCATED: { text: "Allocated", tone: "teal" },
@@ -154,7 +154,7 @@ export function allocationMessage(allocations: AllocationOutcome[] | undefined |
   return `${allocations.length} cars allocated: ${list}${allocations.length > 4 ? " and more" : ""}.`;
 }
 
-// ---------------------------------------------------------------- exception requests
+// ---------------------------------------------------------------- special requests
 const EXCEPTION_TYPE: Record<ExceptionType, string> = {
   PRIORITY_CHANGE: "Change of priority",
   SKIP_ALLOCATION: "Skip allocation",
@@ -182,7 +182,7 @@ const EXCEPTION_STATUS: Record<string, Label> = {
 };
 export const exceptionStatus = (s: string) => pick(EXCEPTION_STATUS, s);
 
-/** What an exception request asks for, in a sentence. */
+/** What an special request asks for, in a sentence. */
 export function exceptionDetail(e: Pick<ExceptionRow, "type" | "payload" | "vin" | "before_booking_no" | "to_outlet">, outletName: (id: string) => string): string {
   const p = e.payload ?? {};
   switch (e.type) {
@@ -288,11 +288,23 @@ const CODE_WORDS: [RegExp, string][] = [
   [/\b(is|status|to|from) REMOVED\b/g, "$1 removed from stock"],
   [/\b(is|status|to|from) APPROVED\b/g, "$1 waiting for a car"],
   [/\b(is|status|to|from) ALLOCATED\b/g, "$1 allocated"],
-  [/\b(is|status|to|from) SUBMITTED\b/g, "$1 awaiting approval"],
+  [/\b(is|status|to|from) SUBMITTED\b/g, "$1 waiting for approval"],
   [/\b(is|status|to|from) DRAFT\b/g, "$1 a draft"],
   [/\b(is|status|to|from) REJECTED\b/g, "$1 rejected"],
   [/\b(is|status|to|from) CANCELLED\b/g, "$1 cancelled"],
 ];
+/**
+ * The signed-in person's own name, for greeting them and for the top bar. The DMS holds staff names in
+ * capitals, and "Good morning, RAJESH" reads like a shout, so a name that is entirely in capitals is
+ * written the ordinary way. A name with any lower-case letter in it is left exactly as it was entered,
+ * and a customer's name is never passed through here: that is a record, shown as the DMS has it.
+ */
+export function personName(name: string | null | undefined): string {
+  const s = String(name ?? "").trim();
+  if (!s || s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+  return s.toLowerCase().replace(/(^|[\s.'\-/])([a-z])/g, (_m, before: string, letter: string) => before + letter.toUpperCase());
+}
+
 export function plainText(message: string | null | undefined): string {
   let s = String(message ?? "");
   for (const [re, to] of CODE_WORDS) s = s.replace(re, to);
@@ -348,7 +360,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   HOLD_LIFTED: "Hold lifted",
   ALLOCATED: "Car allocated",
   ALLOCATION_RELEASED: "Car released",
-  STOCK_RECEIVED: "Allocated car received",
+  STOCK_RECEIVED: "Reserved car arrived",
   PAYMENT_REMINDER_SENT: "Payment reminder sent",
   PAYMENT_ESCALATED: "Payment escalated",
   EXCEPTION_REQUESTED: "Request raised",
@@ -378,7 +390,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   INVOICED_OUTSIDE_ALLOCATION: "Car billed without an allocation",
   ORDER_PLACED: "Manufacturer order recorded",
   ORDER_UPDATED: "Manufacturer order updated",
-  RECON_ITEM_RESOLVED: "Reconciliation finding closed",
+  RECON_ITEM_RESOLVED: "Day-end check finding closed",
   USER_CREATED: "User added",
   USER_UPDATED: "User changed",
   PASSWORD_CHANGED: "Password changed",
@@ -395,7 +407,7 @@ export const AUDIT_ENTITIES: Record<string, string> = {
   booking: "Booking",
   vehicle: "Car",
   order: "Manufacturer order",
-  recon_item: "Reconciliation finding",
+  recon_item: "Day-end check finding",
   user: "User",
   outlet: "Outlet",
   tenant: "Dealership settings",
@@ -454,7 +466,7 @@ export function auditSentence(action: string, d: Record<string, unknown>, outlet
       return `Car released because ${releaseReason(s(d.reason))}.${hold ? ` Booking put on hold${hold.until ? ` until ${fmtDate(hold.until)}` : ""}.` : ""}`;
     }
     case "STOCK_RECEIVED":
-      return `Allocated car ${s(d.vin)} reached the dealership. The payment window has started.`;
+      return `The reserved car ${s(d.vin)} reached the dealership. The payment window has started.`;
     case "PAYMENT_REMINDER_SENT":
       return `Payment reminder sent to the customer (day ${s(d.day)}).`;
     case "PAYMENT_ESCALATED":
@@ -489,7 +501,7 @@ export function auditSentence(action: string, d: Record<string, unknown>, outlet
     case "ORDER_UPDATED":
       return "Manufacturer order updated.";
     case "RECON_ITEM_RESOLVED":
-      return `Reconciliation finding closed${tail(d.note)}.`;
+      return `Day-end check finding closed${tail(d.note)}.`;
     case "USER_CREATED":
       return `User added: ${s(d.name)} (${roleLabel(s(d.role))}).`;
     case "USER_UPDATED":
@@ -593,7 +605,7 @@ export function fieldLabel(key: string): string {
     in_transit_eta_text: "Arrival wording without a date",
     approval_sla_hours: "Approval time limit (hours)",
     booking_approver_roles: "Who approves bookings",
-    exception_approver_roles: "Who approves exception requests",
+    exception_approver_roles: "Who approves special requests",
     required_documents: "Booking checklist",
     alarm_roles: "Alarm recipients",
     data_stale_days: "DMS files expected every (days)",

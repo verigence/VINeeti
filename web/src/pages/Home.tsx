@@ -7,13 +7,55 @@ import { InstallHint } from "../components/InstallHint";
 import { Async, Button, Card, Chip, DataTable, Disclosure, Empty, ErrorBox, Loading, PageHeader, Stat, StatusChip, type Column } from "../components/ui";
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural, today } from "../format";
 import { useAction, useHashScroll, useLoad } from "../hooks";
-import { bookingStatus, plainText } from "../labels";
+import { bookingStatus, personName, plainText } from "../labels";
 import { canLoadFiles } from "../nav";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
-import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, PaymentRow } from "../types";
+import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
 import { AvailabilityCheck } from "./Availability";
-import { OwnerTiles } from "./Owner";
+import { HeadlineBand, MessagesBoard, MoneyBoard, OwnerBoard, QueueBoard } from "./HomeBoards";
+
+/**
+ * The three or four figures that go across the top, chosen for the person looking at them: an owner
+ * wants the business, finance wants the money, a sales executive wants their own customers. Only
+ * figures the server has already sent are used; nothing is worked out here.
+ */
+function headlines({ o, owner, payments, failed, can, ownOnly }: { o: Overview | null; owner: OwnerView | null; payments: PaymentRow[] | null; failed: number; can: (p: Permission) => boolean; ownOnly: boolean }) {
+  const items: { label: string; value: string; sub?: string; to?: string; tone?: "warn" | "danger" }[] = [];
+  if (can("booking.payment") && payments) {
+    const toVerify = payments.filter((p) => p.state === "TO_VERIFY").length;
+    const awaiting = payments.filter((p) => p.state === "AWAITING_PAYMENT").length;
+    items.push({ label: "Payments to check", value: fmtNumber(toVerify), to: "/payments", tone: toVerify ? "warn" : undefined });
+    items.push({ label: "Customers yet to pay", value: fmtNumber(awaiting), to: "/payments" });
+    if (owner) items.push({ label: "Checked, waiting to be billed", value: fmtNumber(owner.payments.verified_not_invoiced), to: "/payments" });
+    return items;
+  }
+  if (can("owner.view") && owner) {
+    items.push({ label: "Customers waiting for a car", value: fmtNumber(owner.customers_waiting), to: "/bookings?view=waiting" });
+    items.push({ label: "Cars nobody has booked", value: fmtNumber(owner.unsold_by_age.total), sub: `${fmtNumber(owner.unsold_by_age.buckets.at(-1)?.cars ?? 0)} here the longest`, to: "/owner/unsold" });
+    items.push({ label: "Delivery dates at risk", value: fmtNumber(owner.delivery_dates_at_risk.count), sub: `${fmtNumber(owner.delivery_dates_at_risk.overdue)} already past`, to: "/dashboards/delayed", tone: owner.delivery_dates_at_risk.overdue ? "danger" : undefined });
+    items.push({ label: "Given out of turn this month", value: fmtNumber(owner.out_of_turn.this_month), sub: `${fmtNumber(owner.out_of_turn.under_review)} not looked at`, to: "/owner/out-of-turn", tone: owner.out_of_turn.under_review ? "warn" : undefined });
+    return items;
+  }
+  if (!o) return items;
+  if (ownOnly) {
+    items.push({ label: "My customers waiting for a car", value: fmtNumber(o.bookings.waiting), to: "/bookings?view=waiting" });
+    items.push({ label: "Cars reserved for my customers", value: fmtNumber(o.bookings.allocated), to: "/bookings?status=ALLOCATED" });
+    items.push({ label: "Billed, still to hand over", value: fmtNumber(o.bookings.invoiced), to: "/bookings?status=INVOICED" });
+    return items;
+  }
+  if (can("wa.resend") || can("wa.manage")) {
+    items.push({ label: "Messages that did not go", value: fmtNumber(failed), to: "/whatsapp/log?status=FAILED", tone: failed ? "danger" : undefined });
+    items.push({ label: "Bookings on hold", value: fmtNumber(o.bookings.on_hold), to: "/bookings?view=hold", tone: o.bookings.on_hold ? "warn" : undefined });
+    items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/dashboards/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
+    return items;
+  }
+  items.push({ label: "Customers waiting for a car", value: fmtNumber(o.bookings.waiting), to: "/bookings?view=waiting" });
+  items.push({ label: "Cars free in the yard", value: fmtNumber(o.stock.yard_free), to: can("stock.view") ? "/stock/cars?status=RECEIVED&commitment=FREE" : undefined });
+  items.push({ label: "Waiting for your approval", value: fmtNumber(o.bookings.awaiting_approval + o.approvals.exceptions_pending), to: "/approvals", tone: o.bookings.awaiting_approval + o.approvals.exceptions_pending ? "warn" : undefined });
+  items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/dashboards/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
+  return items;
+}
 
 export function HomePage() {
   const { me, can } = useSession();
@@ -34,10 +76,17 @@ export function HomePage() {
 
   return (
     <>
-      <PageHeader title="Home" subtitle={`${fmtDate(today())} · ${me.tenant.name} ${me.tenant.oem}`} />
+      <PageHeader title={`Good ${partOfDay()}, ${personName(me.user.name).split(" ")[0]}`} subtitle={`${fmtDate(today())} · ${me.tenant.name}`} />
       <InstallHint />
       {status.data && <DataSource status={status.data} />}
       {me.receives_alarms && <AlarmsCard />}
+      <HeadlineBand items={headlines({ o, owner: owner.data ?? null, payments: payments.data ?? null, failed: failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0, can, ownOnly })} />
+      <NeedsYou overview={o} payments={payments.data ?? null} owner={owner.data ?? null} status={status.data ?? null} failed={failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0} />
+
+      {can("owner.view") && !verifies && <OwnerBoard owner={owner.data ?? null} />}
+      {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
+      {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
+      {o && !ownOnly && !can("owner.view") && can("dashboards.view") && <QueueBoard o={o} />}
 
       {verifies && (
         <Async load={payments} isEmpty={() => false}>
@@ -49,17 +98,6 @@ export function HomePage() {
       {ownOnly && <MyBookings />}
       {ownOnly && can("dashboards.view") && <MyOffers />}
 
-      {can("owner.view") && (
-        <section className="tile-group home-group" aria-labelledby="tg-owner">
-          <h2 id="tg-owner" className="group-title">
-            Owner's numbers
-          </h2>
-          <Async load={owner} isEmpty={() => false}>
-            {(v) => (v ? <OwnerTiles o={v} /> : null)}
-          </Async>
-        </section>
-      )}
-
       {overview.loading ? (
         <Loading />
       ) : !o ? (
@@ -67,58 +105,73 @@ export function HomePage() {
       ) : (
         <div className="tile-groups">
           {canApprove && (
-            <section className="tile-group" aria-labelledby="tg-approvals">
-              <h2 id="tg-approvals" className="group-title">
-                Approvals waiting
-              </h2>
-              <div className="tiles">
-                {can("booking.approve") && <Stat label="Bookings awaiting approval" value={fmtNumber(o.bookings.awaiting_approval)} to="/approvals" tone={o.bookings.awaiting_approval ? "warn" : undefined} />}
-                <Stat label="Exception requests pending" value={fmtNumber(o.approvals.exceptions_pending)} to="/approvals" tone={o.approvals.exceptions_pending ? "warn" : undefined} />
-              </div>
-            </section>
+            <TileGroup
+              id="approvals"
+              title="Waiting for your approval"
+              clear="Nothing is waiting for your approval."
+              tiles={[
+                can("booking.approve") && { label: "Bookings", n: o.bookings.awaiting_approval, to: "/approvals", tone: "warn" as const },
+                { label: "Special requests", n: o.approvals.exceptions_pending, to: "/approvals", tone: "warn" as const },
+              ]}
+            />
           )}
 
           {followsMessages && (
-            <section className="tile-group" aria-labelledby="tg-contact">
-              <h2 id="tg-contact" className="group-title">
-                Customer contact
-              </h2>
-              <div className="tiles">
-                {failed.data && <Stat label="Failed customer messages" value={fmtNumber(failed.data.counts.find((c) => c.status === "FAILED")?.n ?? 0)} to="/whatsapp/log?status=FAILED" tone={failed.data.counts.find((c) => c.status === "FAILED")?.n ? "danger" : undefined} />}
-                {can("booking.ready") && <Stat label="Bookings on hold" value={fmtNumber(o.bookings.on_hold)} to={bookingLink("view=hold")} tone={o.bookings.on_hold ? "warn" : undefined} />}
-                <Stat label="Delayed deliveries" value={fmtNumber(o.bookings.delivery_overdue)} to="/dashboards/delayed" tone={o.bookings.delivery_overdue ? "danger" : undefined} />
-              </div>
-            </section>
+            <TileGroup
+              id="contact"
+              title="Customers to contact"
+              clear="Every customer has been told what they need to know."
+              tiles={[
+                failed.data && { label: "Messages that did not go", n: failed.data.counts.find((c) => c.status === "FAILED")?.n ?? 0, to: "/whatsapp/log?status=FAILED", tone: "danger" as const },
+                can("booking.ready") && { label: "Bookings on hold", n: o.bookings.on_hold, to: bookingLink("view=hold"), tone: "warn" as const },
+                { label: "Deliveries running late", n: o.bookings.delivery_overdue, to: "/dashboards/delayed", tone: "danger" as const },
+              ]}
+            />
           )}
 
-          {can("booking.view") && <BookingTiles o={o} title={ownOnly ? "My bookings" : me.user.allOutlets ? "Bookings" : "Team bookings"} bookingLink={bookingLink} hideContact={followsMessages} showApproval={!canApprove} />}
+          {can("booking.view") && !ownOnly && (
+            <TileGroup
+              id="bookings"
+              title={ownOnly ? "My bookings" : me.user.allOutlets ? "Bookings" : "Team bookings"}
+              clear="No open bookings."
+              tiles={[
+                { label: "Still being written", n: o.bookings.draft, to: bookingLink("status=DRAFT") },
+                !canApprove && { label: "Waiting for approval", n: o.bookings.awaiting_approval, to: bookingLink("status=SUBMITTED") },
+                { label: "Waiting for a car", n: o.bookings.waiting, to: bookingLink("view=waiting") },
+                !followsMessages && { label: "On hold", n: o.bookings.on_hold, to: bookingLink("view=hold") },
+                { label: "Car reserved", n: o.bookings.allocated, to: bookingLink("status=ALLOCATED") },
+                { label: "Billed, to deliver", n: o.bookings.invoiced, to: bookingLink("status=INVOICED") },
+                !followsMessages && { label: "Past the promised date", n: o.bookings.delivery_overdue, to: can("dashboards.view") ? "/dashboards/delayed" : undefined, tone: "danger" as const },
+              ]}
+            />
+          )}
 
           {reports && payments.data && (
-            <section className="tile-group" aria-labelledby="tg-payments">
-              <h2 id="tg-payments" className="group-title">
-                Payments
-              </h2>
-              <div className="tiles">
-                <Stat label="Reported, waiting for Finance" value={fmtNumber(payments.data.filter((p) => p.state === "TO_VERIFY").length)} to="/payments" />
-                <Stat label="Awaiting payment" value={fmtNumber(payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length)} to="/payments" />
-              </div>
-            </section>
+            <TileGroup
+              id="payments"
+              title="Payments"
+              clear="No payment is outstanding."
+              tiles={[
+                { label: "Paid, waiting for Finance", n: payments.data.filter((p) => p.state === "TO_VERIFY").length, to: "/payments" },
+                { label: "Waiting for payment", n: payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length, to: "/payments" },
+              ]}
+            />
           )}
 
-          {can("stock.view") && (
-            <section className="tile-group" aria-labelledby="tg-stock">
-              <h2 id="tg-stock" className="group-title">
-                Stock
-              </h2>
-              <div className="tiles">
-                <Stat label="Free in yard" value={fmtNumber(o.stock.yard_free)} to={stockLink("status=RECEIVED&commitment=FREE")} />
-                <Stat label="Reserved in yard" value={fmtNumber(o.stock.yard_allocated)} to={stockLink("status=RECEIVED&commitment=ALLOCATED")} />
-                <Stat label="Free in transit" value={fmtNumber(o.stock.transit_free)} to={stockLink("status=IN_TRANSIT&commitment=FREE")} />
-                <Stat label="Reserved in transit" value={fmtNumber(o.stock.transit_allocated)} to={stockLink("status=IN_TRANSIT&commitment=ALLOCATED")} />
-                <Stat label="Blocked" value={fmtNumber(o.stock.blocked)} to={stockLink("commitment=BLOCKED")} tone={o.stock.blocked ? "warn" : undefined} />
-                <Stat label="Overdue in transit" value={fmtNumber(o.stock.transit_overdue)} to={stockLink("status=IN_TRANSIT&overdue=1")} tone={o.stock.transit_overdue ? "danger" : undefined} />
-              </div>
-            </section>
+          {can("stock.view") && !ownOnly && (
+            <TileGroup
+              id="stock"
+              title="Cars in stock"
+              clear="No car in the latest stock report."
+              tiles={[
+                { label: "Free in the yard", n: o.stock.yard_free, to: stockLink("status=RECEIVED&commitment=FREE") },
+                { label: "Reserved in the yard", n: o.stock.yard_allocated, to: stockLink("status=RECEIVED&commitment=ALLOCATED") },
+                { label: "Free, on the way", n: o.stock.transit_free, to: stockLink("status=IN_TRANSIT&commitment=FREE") },
+                { label: "Reserved, on the way", n: o.stock.transit_allocated, to: stockLink("status=IN_TRANSIT&commitment=ALLOCATED") },
+                { label: "Blocked or demo", n: o.stock.blocked, to: stockLink("commitment=BLOCKED"), tone: "warn" as const },
+                { label: "Late in transit", n: o.stock.transit_overdue, to: stockLink("status=IN_TRANSIT&overdue=1"), tone: "danger" as const },
+              ]}
+            />
           )}
         </div>
       )}
@@ -129,22 +182,94 @@ export function HomePage() {
   );
 }
 
-function BookingTiles({ o, title, bookingLink, hideContact, showApproval }: { o: Overview; title: string; bookingLink: (q: string) => string | undefined; hideContact: boolean; showApproval: boolean }) {
+/** Morning, afternoon or evening at the dealership, for the greeting. */
+function partOfDay(): string {
+  const h = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Kolkata" }).format(new Date()));
+  return h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+}
+
+interface Todo {
+  text: string;
+  to: string;
+  action: string;
+  tone?: "warn" | "danger";
+}
+
+/**
+ * What this person has to do today, in one short list and in plain words. Only what is actually waiting
+ * is shown, most pressing first; the numbers below are for looking things up, this is for acting.
+ */
+function NeedsYou({ overview, payments, owner, status, failed }: { overview: Overview | null; payments: PaymentRow[] | null; owner: OwnerView | null; status: DataStatus | null; failed: number }) {
   const { can } = useSession();
+  const items: Todo[] = [];
+  const add = (n: number, one: string, many: string, to: string, action: string, tone?: Todo["tone"]) => {
+    if (n > 0) items.push({ text: n === 1 ? one : many.replace("{n}", fmtNumber(n)), to, action, tone });
+  };
+
+  if (status?.stale && (canLoadFiles(can) || can("recon.view"))) {
+    const which = status.stale_files.length === 2 ? "The stock report and the booking sheet are" : status.stale_files[0] === "STOCK" ? "The stock report is" : "The booking sheet is";
+    items.push({ text: `${which} out of date. Until today's file is loaded, nobody's place in the queue can change.`, to: "/eod", action: "Load the files", tone: "danger" });
+  }
+  if (can("booking.payment") && payments) add(payments.filter((p) => p.state === "TO_VERIFY").length, "One payment is waiting for you to check it against the bank.", "{n} payments are waiting for you to check them against the bank.", "/payments", "Check payments", "warn");
+  if (can("booking.approve") && overview) add(overview.bookings.awaiting_approval, "One booking is waiting for your approval.", "{n} bookings are waiting for your approval.", "/approvals", "Approve bookings", "warn");
+  if (can("exception.decide") && overview) add(overview.approvals.exceptions_pending, "One special request is waiting for your decision.", "{n} special requests are waiting for your decision.", "/approvals", "Decide", "warn");
+  if (can("owner.view") && owner) add(owner.out_of_turn.under_review, "One car was given out of turn and nobody has looked at it yet.", "{n} cars were given out of turn and nobody has looked at them yet.", "/owner/out-of-turn", "Look at them", "warn");
+  if (can("booking.payment_report") && !can("booking.payment") && payments) add(payments.filter((p) => p.state === "AWAITING_PAYMENT").length, "One customer has a car reserved and has not paid yet.", "{n} customers have a car reserved and have not paid yet.", "/payments", "See who");
+  if (can("wa.resend")) add(failed, "One message to a customer did not go through.", "{n} messages to customers did not go through.", "/whatsapp/log?status=FAILED", "See the messages", "warn");
+  if (can("dashboards.view") && overview) add(overview.bookings.delivery_overdue, "One delivery is past the date promised to the customer.", "{n} deliveries are past the date promised to the customer.", "/dashboards/delayed", "See them", "danger");
+  if (can("stock.manage") && overview) add(overview.stock.transit_overdue, "One car in transit is later than expected.", "{n} cars in transit are later than expected.", "/stock/cars?status=IN_TRANSIT&overdue=1", "See the cars");
+
+  if (!overview && !payments && !owner) return null;
+  // Nothing waiting is good news, and good news does not need a card of its own: one line says it.
+  if (!items.length) return <p className="todo-clear-line">Nothing is waiting for you right now. The numbers below show how the day stands.</p>;
   return (
-    <section className="tile-group" aria-labelledby="tg-bookings">
-      <h2 id="tg-bookings" className="group-title">
+    <Card title="What needs you today" className="needs-you">
+      {items.length ? (
+        <ul className="todo-list">
+          {items.slice(0, 5).map((t) => (
+            <li key={`${t.to}:${t.text}`} className={`todo${t.tone ? ` todo-${t.tone}` : ""}`}>
+              <span className="todo-text">{t.text}</span>
+              <Link to={t.to} className="btn btn-secondary btn-sm">
+                <span>{t.action}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="todo-clear">Nothing is waiting for you right now. The numbers below show how the day stands.</p>
+      )}
+    </Card>
+  );
+}
+
+interface Tile {
+  label: string;
+  n: number;
+  to?: string;
+  tone?: "warn" | "danger";
+}
+
+/**
+ * A group of figures. A figure at zero is left out: a screen of zeroes tells nobody anything, and the
+ * eye has to read every one of them to find the one that is not. When the whole group is at zero that
+ * is itself the news, so it is said in one line instead of six empty boxes.
+ */
+function TileGroup({ id, title, tiles, clear }: { id: string; title: string; tiles: (Tile | false | null | undefined)[]; clear: string }) {
+  const shown = tiles.filter((x): x is Tile => Boolean(x) && (x as Tile).n > 0);
+  return (
+    <section className="tile-group" aria-labelledby={`tg-${id}`}>
+      <h2 id={`tg-${id}`} className="group-title">
         {title}
       </h2>
-      <div className="tiles">
-        <Stat label="Drafts" value={fmtNumber(o.bookings.draft)} to={bookingLink("status=DRAFT")} />
-        {showApproval && <Stat label="Awaiting approval" value={fmtNumber(o.bookings.awaiting_approval)} to={bookingLink("status=SUBMITTED")} />}
-        <Stat label="Waiting for a car" value={fmtNumber(o.bookings.waiting)} to={bookingLink("view=waiting")} />
-        {!hideContact && <Stat label="On hold" value={fmtNumber(o.bookings.on_hold)} to={bookingLink("view=hold")} />}
-        <Stat label="Allocated" value={fmtNumber(o.bookings.allocated)} to={bookingLink("status=ALLOCATED")} />
-        <Stat label="Invoiced, to deliver" value={fmtNumber(o.bookings.invoiced)} to={bookingLink("status=INVOICED")} />
-        {!hideContact && <Stat label="Past delivery date" value={fmtNumber(o.bookings.delivery_overdue)} to={can("dashboards.view") ? "/dashboards/delayed" : undefined} tone={o.bookings.delivery_overdue ? "danger" : undefined} />}
-      </div>
+      {shown.length ? (
+        <div className="tiles">
+          {shown.map((s) => (
+            <Stat key={s.label} label={s.label} value={fmtNumber(s.n)} to={s.to} tone={s.tone} />
+          ))}
+        </div>
+      ) : (
+        <p className="group-clear">{clear}</p>
+      )}
     </section>
   );
 }
@@ -178,8 +303,8 @@ function PaymentsToVerify({ rows }: { rows: PaymentRow[] }) {
   ];
   return (
     <Card
-      title={`Payments to verify (${fmtNumber(list.length)})`}
-      note="Reported by sales and waiting for Finance."
+      title={`Payments to check (${fmtNumber(list.length)})`}
+      note="Sales says the customer has paid; check it against the bank."
       actions={
         <Link to="/payments" className="btn btn-secondary btn-sm">
           <span>Open Payments</span>
@@ -187,7 +312,7 @@ function PaymentsToVerify({ rows }: { rows: PaymentRow[] }) {
       }
       flush
     >
-      {list.length ? <DataTable columns={columns} rows={list.slice(0, 8)} rowKey={(r) => r.booking_id} caption="Payments to verify" /> : <Empty title="No reported payment is waiting for Finance" />}
+      {list.length ? <DataTable columns={columns} rows={list.slice(0, 8)} rowKey={(r) => r.booking_id} caption="Payments to check" /> : <Empty title="No payment is waiting to be checked" />}
       {list.length > 8 && <p className="list-count">The first 8 are shown. Open Payments for the rest.</p>}
     </Card>
   );
@@ -351,19 +476,31 @@ function alertLink(a: AlertRow, can: (p: "booking.view" | "stock.view" | "recon.
 function AlertItems({ rows, busy, onRead }: { rows: AlertRow[]; busy: boolean; onRead: (ids: string[], message: string) => void }) {
   const { can } = useSession();
   const canApprove = can("booking.approve") || can("exception.decide");
+  // The same thing happening eight times is one piece of news, not eight: identical alerts are shown
+  // once, with how many times it happened and when it last did. Marking that one as read marks them all.
+  const groups: { key: string; rows: AlertRow[] }[] = [];
+  for (const a of rows) {
+    const key = `${a.title}\u0000${a.body}`;
+    const g = groups.find((x) => x.key === key);
+    if (g) g.rows.push(a);
+    else groups.push({ key, rows: [a] });
+  }
   return (
     <ul className="alert-list">
-      {rows.map((a) => {
+      {groups.map(({ key, rows: same }) => {
+        const a = same[0];
         const link = alertLink(a, can, canApprove);
+        const unread = same.filter((x) => !x.read_at);
         return (
-          <li key={a.id} className={`alert-item${a.read_at ? "" : " alert-unread"}`}>
+          <li key={key} className={`alert-item${a.read_at ? "" : " alert-unread"}`}>
             <div className="alert-main">
               <p className="alert-title">
                 {!a.read_at && <span className="unread-tag">New</span>}
                 {a.title}
+                {same.length > 1 && <span className="alert-count">{fmtNumber(same.length)} times</span>}
               </p>
               <p className="alert-body">{sentenceCase(plainText(a.body))}</p>
-              <p className="meta">{fmtDateTime(a.created_at)}</p>
+              <p className="meta">{same.length > 1 ? `Last at ${fmtDateTime(a.created_at)}` : fmtDateTime(a.created_at)}</p>
             </div>
             <div className="alert-actions">
               {link && (
@@ -371,8 +508,8 @@ function AlertItems({ rows, busy, onRead }: { rows: AlertRow[]; busy: boolean; o
                   <span>{link.label}</span>
                 </Link>
               )}
-              {!a.read_at && (
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => onRead([a.id], a.is_alarm ? "Alarm marked as read." : "Alert marked as read.")}>
+              {unread.length > 0 && (
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => onRead(unread.map((x) => x.id), a.is_alarm ? "Alarm marked as read." : "Alert marked as read.")}>
                   Mark as read
                 </Button>
               )}
@@ -392,6 +529,8 @@ function AlarmsCard() {
   const rows = load.data ?? [];
   const unread = rows.filter((a) => !a.read_at);
   const read = rows.filter((a) => a.read_at);
+  // An empty alarms card at the top of every morning is noise: it appears only when there is something in it.
+  if (!load.loading && !load.error && rows.length === 0) return null;
 
   const markRead = (ids: string[], message: string) =>
     void action
@@ -444,6 +583,8 @@ function AlertsCard() {
   // People who receive alarms see them in their own panel above, not twice.
   const alerts = me.receives_alarms ? all.filter((a) => !a.is_alarm) : all;
   const unread = alerts.filter((a) => !a.read_at).length;
+  // Nothing to say is not worth a card: an empty alerts box at the foot of every screen is furniture.
+  if (!loading && !error && !alerts.length) return null;
 
   const markRead = (ids: string[], message: string) =>
     void action

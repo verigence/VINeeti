@@ -1901,10 +1901,13 @@ input[type="radio"] {
   justify-content: center;
 }
 .brand-foot img {
-  width: 190px;
-  max-width: 60%;
+  /* The lockup is a wide strip ("A Product by" over a rule, then the JBR mark and name), so it is
+     given room: too small and the tagline under the name turns to mush. */
+  width: 330px;
+  max-width: 82%;
   height: auto;
   display: block;
+  opacity: 0.95;
 }
 .auth-brand {
   display: flex;
@@ -3535,7 +3538,7 @@ input[type="radio"] {
     padding: calc(var(--safe-top) + 24px) 16px 8px;
   }
   .brand-foot img {
-    width: 170px;
+    width: 280px;
   }
   .auth-card {
     padding: 18px;
@@ -3760,4 +3763,249 @@ button.primary {
   .platform-main {
     padding: 12px;
   }
+}
+
+/* ---------------------------------------------------------------- what needs you today */
+.needs-you {
+  border-left: 4px solid var(--teal);
+}
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.todo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--teal);
+  border-radius: var(--radius);
+  background: #fbfdfe;
+}
+.todo-warn {
+  border-left-color: #c98a2e;
+  background: #fffaf0;
+}
+.todo-danger {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+}
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.todo .btn {
+  flex: none;
+}
+.todo-clear {
+  color: var(--muted);
+  font-size: 14.5px;
+}
+@media (max-width: 860px) {
+  .todo {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .todo .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+  .todo-text {
+    font-size: 15.5px;
+  }
+}
+
+/* ---------------------------------------------------------------- a calmer, brand-coloured surface */
+.card {
+  box-shadow: 0 1px 2px rgba(0, 40, 88, 0.05);
+}
+.group-title,
+.section-title {
+  color: var(--navy);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+}
+.stat-value {
+  font-size: 30px;
+}
+.stat-label {
+  color: #4a5a6a;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.stat-link:hover {
+  border-color: var(--teal);
+  box-shadow: 0 1px 0 var(--teal);
+}
+.stat-warn {
+  border-left: 3px solid #c98a2e;
+}
+.stat-danger {
+  border-left: 3px solid var(--danger);
+}
+
+/* ---------------------------------------------------------------- the headline band
+   The three or four numbers the person came to see, before any list. Navy, from the mark, so the
+   screen opens on the product's own colour and the eye lands on the figures. */
+.headline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 1px;
+  background: var(--navy-line);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 10px rgba(0, 40, 88, 0.14);
+}
+.headline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px 18px;
+  background-image: linear-gradient(150deg, var(--navy) 0, var(--navy-2) 100%);
+  color: #fff;
+  text-decoration: none;
+  min-width: 0;
+}
+.headline-value {
+  font-size: 34px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+.headline-label {
+  font-size: 13px;
+  color: #cfe3ef;
+  line-height: 1.3;
+}
+.headline-sub {
+  font-size: 12px;
+  color: #8fb6cf;
+}
+.headline-link {
+  position: relative;
+  transition: background-color 0.12s;
+}
+.headline-link::after {
+  /* A hairline in the logo's teal: the figure is a way in, not just a number. */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--teal);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.headline-link:hover {
+  color: #fff;
+}
+.headline-link:hover::after {
+  opacity: 1;
+}
+.headline-warn .headline-value {
+  color: #ffd98a;
+}
+.headline-danger .headline-value {
+  color: #ffb3a7;
+}
+
+/* ---------------------------------------------------------------- the picture of the day */
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+/* One chart on its own does not become a billboard: it keeps a chart's width and sits at the left. */
+.board:has(> .card:only-child) {
+  grid-template-columns: minmax(330px, 560px);
+}
+.board > .card {
+  margin-bottom: 0;
+}
+.board .chart-card > .card-body {
+  padding: 10px 12px 6px;
+}
+
+@media (max-width: 860px) {
+  .headline {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .headline-item {
+    padding: 14px;
+  }
+  .headline-value {
+    font-size: 28px;
+  }
+  .board {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 380px) {
+  .headline {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The sentence that says how a chart was counted: there to be opened, not to crowd the picture. */
+.chart-basis {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+.chart-basis > summary {
+  cursor: pointer;
+  color: var(--gold-text);
+  font-size: 11.5px;
+  list-style: none;
+}
+.chart-basis > summary::-webkit-details-marker {
+  display: none;
+}
+.chart-basis > summary::before {
+  content: "ⓘ ";
+}
+.chart-basis > p {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin: 6px 0 2px;
+}
+/* A group of figures that is entirely at zero says so in one quiet line. */
+.group-clear {
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  margin: 0;
+}
+.alert-count {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--gold-soft);
+  color: var(--gold-text);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Nothing waiting: one quiet line, not an empty card. */
+.todo-clear-line {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 16px;
+  padding-left: 12px;
+  border-left: 3px solid var(--teal);
 }

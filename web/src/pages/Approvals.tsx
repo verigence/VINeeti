@@ -14,7 +14,7 @@ export function ApprovalsPage() {
   const { can } = useSession();
   return (
     <>
-      <PageHeader title="Approvals" subtitle="Bookings and exception requests waiting for a decision. You cannot decide something you created or raised yourself." />
+      <PageHeader title="Approvals" subtitle="Bookings and special requests waiting for a decision. You cannot decide something you created or raised yourself." />
       {can("booking.approve") && <BookingApprovals />}
       {(can("exception.decide") || can("exception.request")) && <ExceptionApprovals />}
     </>
@@ -93,9 +93,9 @@ function BookingApprovals() {
   ];
 
   return (
-    <Card title="Bookings awaiting approval" flush>
+    <Card title="Bookings waiting for approval" flush>
       <Async load={load} empty={<Empty title="No bookings are waiting for approval" />}>
-        {(rows) => <DataTable columns={columns} rows={rows} rowKey={(b) => b.id} caption="Bookings awaiting approval" />}
+        {(rows) => <DataTable columns={columns} rows={rows} rowKey={(b) => b.id} caption="Bookings waiting for approval" />}
       </Async>
       {target && (
         <ConfirmDialog
@@ -140,7 +140,7 @@ function ExceptionApprovals() {
 
   return (
     <Card
-      title="Exception requests"
+      title="Special requests"
       note={can("exception.decide") ? "Approving a request applies the change immediately." : "Requests you have raised."}
       actions={
         <Segments
