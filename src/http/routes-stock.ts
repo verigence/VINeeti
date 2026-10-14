@@ -2,6 +2,7 @@ import { all, first } from "../lib/db";
 import { can } from "../lib/permissions";
 import { bad, forbidden, likeText, norm, notFound, parseDate, safeJson } from "../lib/util";
 import { allocateAll } from "../domain/allocation";
+import { alternatives } from "../domain/alternatives";
 import { FACETS, browseStock } from "../domain/browse";
 import { availabilityAnswer } from "../domain/dashboards";
 import { dataStatus } from "../domain/data-status";
@@ -61,6 +62,19 @@ export function stockRoutes(app: App) {
     const pick: Record<string, string> = {};
     for (const f of FACETS) if (q[f]) pick[f] = String(q[f]);
     return c.json(await browseStock(c.get("ctx"), { ...pick, show: q.show === "ALL" ? "ALL" : "FREE" }, null));
+  });
+
+  /**
+   * What else can be offered when the car asked for is not there. The suggestions are cars that exist,
+   * are spare after everyone already waiting for them, and are ordered by how small a compromise they ask.
+   */
+  app.get("/api/stock/alternatives", async (c) => {
+    need(c, "stock.view");
+    const ctx = c.get("ctx");
+    const q = c.req.query();
+    const cfg = await resolveConfig(ctx, { variant_id: q.variant_id, model: q.model, variant: q.variant, colour: q.colour }, { allowInactive: true });
+    const limit = Math.min(12, Math.max(1, Number(q.limit) || 6));
+    return c.json(await alternatives(ctx, cfg, q.outlet_id ?? null, { withValue: can(c.get("user"), ctx.settings, "stock.value"), limit }));
   });
 
   app.get("/api/stock/availability", async (c) => {

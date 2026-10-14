@@ -103,6 +103,7 @@ export const api = {
   stockSummary: (q: Query) => get<T.StockSummaryRow[]>("/api/stock/summary", q),
   availability: (q: { variant_id?: string; model?: string; variant?: string; colour: string; outlet_id?: string }) => get<T.Availability>("/api/stock/availability", q),
   browse: (q: Query) => get<T.BrowseResponse>("/api/stock/browse", q),
+  alternatives: (q: { model: string; variant: string; colour: string; outlet_id?: string }) => get<T.AlternativesResponse>("/api/stock/alternatives", q),
   vehicles: (q: Query) => get<T.VehicleListRow[]>("/api/vehicles", q),
   vehicle: (id: string) => get<T.VehicleDetail>(`/api/vehicles/${enc(id)}`),
   addVehicle: (v: T.VehicleInput) => post<{ id: string } & T.WithAllocations>("/api/vehicles", v),

@@ -4,12 +4,12 @@
 import { useState } from "react";
 import { api } from "../api";
 import { catalogEmpty, configInput, configReady, ConfigSelects, EMPTY_CONFIG, useCatalog, type CarConfig } from "../components/ConfigPicker";
-import { Async, Button, Card, Chip, DataTable, Empty, Field, Notice, Select, Stat } from "../components/ui";
+import { Async, Button, Card, Chip, DataTable, Empty, Field, Loading, Notice, Select, Stat } from "../components/ui";
 import { fmtDate, fmtNumber, plural } from "../format";
-import { useAction } from "../hooks";
+import { useAction, useLoad } from "../hooks";
 import { plainText, vehicleStatus } from "../labels";
 import { useSession } from "../session";
-import type { Availability, AvailabilityAnswer } from "../types";
+import type { Alternative, Availability, AvailabilityAnswer } from "../types";
 
 /** The four answers, in the dealership's words. */
 const ANSWERS: Record<AvailabilityAnswer, { text: string; tone: "green" | "blue" | "amber" | "red" }> = {
@@ -72,7 +72,11 @@ export function AvailabilityCheck({ compact }: { compact?: boolean }) {
 
       <div aria-live="polite">
         {result ? (
-          <AvailabilityAnswerCard r={result} />
+          <>
+            <AvailabilityAnswerCard r={result} />
+            {/* When the car asked for cannot be given today, what else is actually there. */}
+            {result.answer !== "AVAILABLE_NOW" && <WhatElse want={{ model: result.model, variant: result.variant, colour: result.colour }} outletId={outletId} />}
+          </>
         ) : compact ? null : (
           <Card>
             <Empty title="The answer appears here" hint="It is written so you can read it out to the customer." />
@@ -160,5 +164,85 @@ function AvailabilityAnswerCard({ r }: { r: Availability }) {
         {r.source.stale ? " · out of date" : ""}
       </p>
     </Card>
+  );
+}
+
+
+/**
+ * What else can be offered when the car asked for cannot be given today. Every card here is a real car
+ * in the stock report that is spare after everyone already waiting for it, with what is different about
+ * it spelled out so the consultant can say it rather than work it out.
+ */
+function WhatElse({ want, outletId }: { want: { model: string; variant: string; colour: string }; outletId: string }) {
+  const load = useLoad(() => api.alternatives({ ...want, outlet_id: outletId || undefined }), `alt:${want.model}|${want.variant}|${want.colour}|${outletId}`);
+  const d = load.data ?? null;
+  if (load.loading) return <Card title="What else can I offer?"><Loading label="Looking at what is free" /></Card>;
+  if (!d) return null;
+  if (!d.can_give_now.length && !d.on_the_way.length) {
+    return (
+      <Card title="What else can I offer?">
+        <Empty title="Nothing else is free to offer" hint="Every other car in stock is either held for a customer already waiting, or is a different kind of vehicle. The ordering desk can say what is on order." />
+      </Card>
+    );
+  }
+  return (
+    <Card title="What else can I offer?" note="Closest to what the customer asked for, first. Nothing here is reserved.">
+      {d.can_give_now.length > 0 && (
+        <>
+          <h3 className="section-title">Can be given now</h3>
+          <ul className="alts">
+            {d.can_give_now.map((a) => (
+              <AltCard key={`${a.model}|${a.variant}|${a.colour}`} a={a} />
+            ))}
+          </ul>
+        </>
+      )}
+      {d.on_the_way.length > 0 && (
+        <>
+          <h3 className="section-title">On the way</h3>
+          <ul className="alts">
+            {d.on_the_way.map((a) => (
+              <AltCard key={`${a.model}|${a.variant}|${a.colour}`} a={a} />
+            ))}
+          </ul>
+        </>
+      )}
+      <details className="chart-basis">
+        <summary>How these were chosen</summary>
+        <p>{d.basis}</p>
+      </details>
+    </Card>
+  );
+}
+
+function AltCard({ a }: { a: Alternative }) {
+  const spare = a.spare_in_yard + a.spare_in_transit;
+  return (
+    <li className="alt">
+      <p className="alt-car">
+        {a.model} <span className="alt-variant">{a.variant}</span>
+      </p>
+      <p className="alt-colour">{a.colour}</p>
+      <ul className="alt-differs">
+        {a.differs.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+      <p className="alt-have">
+        {a.spare_in_yard > 0 ? (
+          <Chip tone="green">{plural(a.spare_in_yard, "car")} free in the yard</Chip>
+        ) : (
+          <Chip tone="blue">
+            {plural(a.spare_in_transit, "car")} on the way
+            {a.soonest_arrival ? `, ${a.soonest_indicative ? "around" : "expected"} ${fmtDate(a.soonest_arrival)}` : ", no date yet"}
+          </Chip>
+        )}
+        {a.soonest_indicative && <Chip tone="amber">Indicative</Chip>}
+      </p>
+      <p className="alt-where">
+        {a.outlets.map((o) => `${o.outlet} (${o.cars})`).join(" · ")}
+        {a.waiting > 0 ? ` · ${plural(a.waiting, "customer is", "customers are")} already waiting for this one, and ${spare === 1 ? "this is the one" : `these ${spare} are the ones`} left over` : ""}
+      </p>
+    </li>
   );
 }

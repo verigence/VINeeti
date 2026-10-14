@@ -1203,3 +1203,24 @@ export interface BrowseResponse {
   source: { stock_as_on: string | null; bookings_as_on: string | null; stale: boolean };
   basis: string;
 }
+
+export interface Alternative {
+  model: string; variant: string; colour: string;
+  trim_level: string; transmission: string; fuel: string; seater: string;
+  spare_in_yard: number; spare_in_transit: number; waiting: number;
+  outlets: { outlet: string; cars: number; same_outlet: boolean }[];
+  soonest_arrival: string | null; soonest_indicative: boolean;
+  differs: string[];
+  headline: string;
+  price_gap: number | null;
+  closeness: number;
+}
+export interface AlternativesResponse {
+  asked: { model: string; variant: string; colour: string };
+  can_give_now: Alternative[];
+  on_the_way: Alternative[];
+  alternatives: Alternative[];
+  considered: number;
+  source: { stock_as_on: string | null; stale: boolean };
+  basis: string;
+}
