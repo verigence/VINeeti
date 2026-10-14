@@ -293,21 +293,36 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
           </div>
         </Card>
 
-        <Card title="Bookings entered here">
+        {/* The minimum used to be a rule about this app's own booking form, and it sat with the checklist
+            because of that. It is now what decides whether a booking takes a place in the queue at all,
+            whichever system the booking came from, so it is its own setting with its own warning: raise
+            it above what customers have actually paid and the queue empties. */}
+        <Card title="The booking amount and the queue">
           <div className="form-grid">
-            <fieldset className="radio-group">
-              <legend className="field-label">Booking checklist</legend>
-              <span className="hint">Items the person submitting a booking confirms are on file. Nothing is uploaded.</span>
-              {CHECKLIST_ITEMS.map((d) => (
-                <Check key={d.key} checked={s.required_documents.includes(d.key)} onChange={(on) => set("required_documents", on ? CHECKLIST_ITEMS.map((x) => x.key).filter((k) => k === d.key || s.required_documents.includes(k)) : s.required_documents.filter((k: ChecklistKey) => k !== d.key))}>
-                  {d.label}
-                </Check>
-              ))}
-            </fieldset>
-            <Field label="Minimum booking amount (₹)" hint="A booking below this amount cannot be submitted. Enter 0 for no minimum.">
+            <Field
+              label="Minimum booking amount (₹)"
+              hint="A booking that has not reached this amount takes no place in the queue — it stays on the books and the customer is listed on the sales lead's board so the rest can be collected, but no car is allotted to it. It is only ever applied to a customer who has not already been given a car: a booking that already holds a car is left alone. A booking entered here cannot be submitted below it. Enter 0 for no minimum."
+            >
               <input type="number" min={0} step={1} value={num(s.min_booking_amount)} onChange={(e) => set("min_booking_amount", int(e.target.value))} inputMode="numeric" />
             </Field>
+            {s.min_booking_amount > 0 && (
+              <p className="hint">
+                After saving, check <strong>Under the minimum</strong> on Today&apos;s board. That list is everyone this amount has taken out of the queue; if it is longer than expected, the amount is higher than customers here actually pay.
+              </p>
+            )}
           </div>
+        </Card>
+
+        <Card title="Bookings entered here">
+          <fieldset className="radio-group">
+            <legend className="field-label">Booking checklist</legend>
+            <span className="hint">Items the person submitting a booking confirms are on file. Nothing is uploaded.</span>
+            {CHECKLIST_ITEMS.map((d) => (
+              <Check key={d.key} checked={s.required_documents.includes(d.key)} onChange={(on) => set("required_documents", on ? CHECKLIST_ITEMS.map((x) => x.key).filter((k) => k === d.key || s.required_documents.includes(k)) : s.required_documents.filter((k: ChecklistKey) => k !== d.key))}>
+                {d.label}
+              </Check>
+            ))}
+          </fieldset>
         </Card>
 
         <Card title="Hours and messages">

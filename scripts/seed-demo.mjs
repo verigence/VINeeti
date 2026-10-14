@@ -51,7 +51,10 @@ async function load(kind, file, session, query = "") {
 }
 
 console.log(`Seeding ${BASE} as dealer code "${SLUG}"`);
-await call("POST", "/api/platform/tenants", { slug: SLUG, name: "Sample Motors", oem: "Mahindra", admin: { name: "Asha Mohanty", mobile: "9000000001", password: FIRST } }, undefined, { Authorization: `Bearer ${TOKEN}` });
+// The minimum booking amount is what a Mahindra dealership actually collects to confirm a booking, so
+// the demonstration shows the queue rule doing its job: the customers who have paid it are in the queue,
+// and the ones who have not are listed apart for collection rather than quietly disappearing.
+await call("POST", "/api/platform/tenants", { slug: SLUG, name: "Sample Motors", oem: "Mahindra", admin: { name: "Asha Mohanty", mobile: "9000000001", password: FIRST }, settings: { min_booking_amount: 21000 } }, undefined, { Authorization: `Bearer ${TOKEN}` });
 const admin = await signIn("9000000001", true);
 
 // The stock report is loaded as on today so the demonstration does not open with an "out of date" warning.

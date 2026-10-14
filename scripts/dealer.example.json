@@ -5,6 +5,7 @@
   "timezone": "Asia/Kolkata",
   "admin": { "name": "System Administrator", "mobile": "9000000001", "password": "ChangeMe123" },
   "settings": {
+    "min_booking_amount": 21000,
     "reminder_days": 3,
     "escalation_days": 5,
     "reallocate_days": 6,
