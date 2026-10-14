@@ -165,3 +165,31 @@ describe("how the month is going", () => {
     expect((await get(w, d, "/api/dashboards/month", "exec")).status).toBe(403);
   });
 });
+
+describe("finding a car", () => {
+  it("finds cars by model, by colour, and by both words together in any order", async () => {
+    const { w, d } = await start();
+    const find = async (q: string) => (await w.api("GET", `/api/vehicles?q=${encodeURIComponent(q)}`, undefined, d.users.exec.session)).body;
+    expect((await find("thar")).length).toBeGreaterThan(0);
+    expect((await find("thar")).every((v: any) => v.model === "THAR")).toBe(true);
+    // Both words must match, so this is the white Thars and not everything white or every Thar.
+    const whiteThar = await find("thar everest");
+    expect(whiteThar.length).toBeGreaterThan(0);
+    expect(whiteThar.every((v: any) => v.model === "THAR" && v.colour.includes("EVEREST"))).toBe(true);
+    // The order the words are typed in does not matter.
+    expect((await find("everest thar")).map((v: any) => v.vin).sort()).toEqual(whiteThar.map((v: any) => v.vin).sort());
+  });
+
+  it("still finds a car by part of its chassis number", async () => {
+    const { w, d } = await start();
+    const res = await w.api("GET", "/api/vehicles?q=0000000003", undefined, d.users.exec.session);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].vin).toBe("MA1THAR0000000003");
+  });
+
+  it("finds nothing rather than everything when the words match no car", async () => {
+    const { w, d } = await start();
+    const res = await w.api("GET", "/api/vehicles?q=thar%20purple", undefined, d.users.exec.session);
+    expect(res.body).toHaveLength(0);
+  });
+});

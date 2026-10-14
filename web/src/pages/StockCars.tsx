@@ -191,8 +191,8 @@ export function CarsTab() {
             setQuery({ model: null, variant: null, colour: null, outlet_id: null, status: null, commitment: null, dms_stock_type: null, min_age: null, overdue: null });
           }}
           search={
-            <Filter label="Search" grow>
-              <input type="search" inputMode="search" enterKeyHint="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Chassis number (VIN)" />
+            <Filter label="Find a car" grow>
+              <input type="search" inputMode="search" enterKeyHint="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Model, variant, colour, chassis or order number" />
             </Filter>
           }
         >

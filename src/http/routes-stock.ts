@@ -108,9 +108,17 @@ export function stockRoutes(app: App) {
     // As the DMS has it: UNALLOTED, ALLOTED or IBND.
     if (q.dms_stock_type) (where.push("v.dms_stock_type = ?"), params.push(norm(q.dms_stock_type)));
     if (q.min_age && Number(q.min_age) > 0) (where.push("v.wholesale_invoice_date IS NOT NULL AND v.wholesale_invoice_date <= ?"), params.push(new Date(ctx.now.getTime() - Number(q.min_age) * 86_400_000).toISOString().slice(0, 10)));
+    // Searching for a car, in the words somebody actually has: part of a chassis or engine number, a
+    // model, a variant, a colour, the manufacturer's own description, or the order it is tied to. Every
+    // word typed must match somewhere, so "xuv white" finds the white XUVs rather than everything that
+    // is either, and the words may be given in any order.
     if (q.q) {
-      const like = `%${likeText(norm(q.q))}%`;
-      (where.push("(v.vin LIKE ? OR v.model LIKE ? OR b.booking_no LIKE ?)"), params.push(like, like, like));
+      const words = norm(q.q).split(/\s+/).filter(Boolean).slice(0, 6);
+      const fields = ["v.vin", "v.engine_no", "v.model", "v.variant", "v.colour", "v.dms_colour", "v.description", "v.oem_model_code", "v.dms_booking_no", "b.booking_no"];
+      for (const word of words) {
+        where.push(`(${fields.map((f) => `${f} LIKE ?`).join(" OR ")})`);
+        params.push(...fields.map(() => `%${likeText(word)}%`));
+      }
     }
     const rows = await all(
       ctx.db,
