@@ -13,6 +13,7 @@
 // Everything is from the DMS files and what the app recorded. Nothing is estimated.
 
 import type { Ctx } from "../env";
+import { atLeastMinimum, belowMinimum, inQueue, queueMinimum } from "./queue";
 import { all, first } from "../lib/db";
 import { addDays, localDayBounds, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
@@ -83,7 +84,7 @@ export async function modelPicture(ctx: Ctx, outletIds: string[] | null, withVal
   const waiting = await all<{ model: string; n: number }>(
     ctx.db,
     `SELECT b.model, COUNT(*) AS n FROM bookings b
-      WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 0
+      WHERE b.tenant_id = ? AND ${inQueue(ctx.settings, "b.")}
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')${inList(outletIds, "b.outlet_id")}
       GROUP BY b.model`,
     T, ...o,
@@ -243,15 +244,24 @@ export interface WaitingRow {
   on_order: number;
 }
 
+export interface BelowMinimumRow {
+  booking_id: string; booking_no: string; customer_name: string;
+  model: string; variant: string; colour: string; outlet: string; sales_exec: string | null;
+  booked_on: string; waiting_days: number;
+  booking_amount: number;
+  /** How much more the customer has to pay before they take a place in the queue. */
+  short_by: number;
+}
+
 /** Customers with no car yet, oldest first: who is waiting, for what, and whether anything is coming. */
-export async function waitingLine(ctx: Ctx, outletIds: string[] | null): Promise<{ as_of: string; rows: WaitingRow[]; buckets: { label: string; bookings: number }[]; source: Awaited<ReturnType<typeof dataStatus>>; basis: string }> {
+export async function waitingLine(ctx: Ctx, outletIds: string[] | null): Promise<{ as_of: string; rows: WaitingRow[]; below_minimum: { minimum: number; bookings: BelowMinimumRow[] }; buckets: { label: string; bookings: number }[]; source: Awaited<ReturnType<typeof dataStatus>>; basis: string }> {
   const tz = ctx.tenant.timezone;
   const today = localParts(ctx.now, tz).date;
   const rows = await all<{ booking_id: string; booking_no: string; customer_name: string; model: string; variant: string; colour: string; outlet: string; sales_exec: string | null; booked_on: string; on_hold: number }>(
     ctx.db,
     `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, o.name AS outlet, u.name AS sales_exec, b.priority_ts AS booked_on, b.on_hold
        FROM bookings b JOIN outlets o ON o.id = b.outlet_id LEFT JOIN users u ON u.id = b.sales_exec_id
-      WHERE b.tenant_id = ? AND b.status = 'APPROVED'
+      WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND ${atLeastMinimum(ctx.settings, "b.")}
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')${inList(outletIds, "b.outlet_id")}
       ORDER BY b.priority_ts`,
     ctx.tenantId, ...(outletIds ?? []),
@@ -287,13 +297,30 @@ export async function waitingLine(ctx: Ctx, outletIds: string[] | null): Promise
     free_now: freeBy.get(k(r)) ?? 0,
     on_order: orderBy.get(k(r)) ?? 0,
   }));
+  // Customers who have booked but not paid the dealership's minimum are not in the queue — that is the
+  // rule — but they must not disappear with it. Somebody has to collect that money, and a customer who
+  // silently stopped counting is a customer nobody rings.
+  const short = await all<{ booking_id: string; booking_no: string; customer_name: string; model: string; variant: string; colour: string; outlet: string; sales_exec: string | null; booked_on: string; booking_amount: number }>(
+    ctx.db,
+    `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, o.name AS outlet, u.name AS sales_exec, b.priority_ts AS booked_on, b.booking_amount
+       FROM bookings b JOIN outlets o ON o.id = b.outlet_id LEFT JOIN users u ON u.id = b.sales_exec_id
+      WHERE b.tenant_id = ? AND ${belowMinimum(ctx.settings, "b.")}
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')${inList(outletIds, "b.outlet_id")}
+      ORDER BY b.priority_ts`,
+    ctx.tenantId, ...(outletIds ?? []),
+  );
+
   const bands: [string, number, number][] = [["0-7 days", 0, 7], ["8-15 days", 8, 15], ["16-30 days", 16, 30], ["31-60 days", 31, 60], ["Over 60 days", 61, 1e9]];
   return {
     as_of: today,
     rows: out,
+    below_minimum: {
+      minimum: queueMinimum(ctx.settings),
+      bookings: short.map((r) => ({ ...r, booked_on: r.booked_on.slice(0, 10), waiting_days: Math.max(0, days(r.booked_on, today)), short_by: Math.max(0, queueMinimum(ctx.settings) - (r.booking_amount ?? 0)) })),
+    },
     buckets: bands.map(([label, lo, hi]) => ({ label, bookings: out.filter((r) => r.waiting_days >= lo && r.waiting_days <= hi).length })),
     source: await dataStatus(ctx),
-    basis: "Approved bookings with no car allocated to them. Waiting is days since the booking's place in the queue was set. Free now counts cars of exactly that model, variant and colour that no booking holds — the queue ahead of this customer is not deducted.",
+    basis: `Approved bookings with no car allocated to them, that have paid the dealership's minimum booking amount of ${queueMinimum(ctx.settings)} — below it a booking takes no place in the queue, and those customers are listed apart so the money can still be collected. Waiting is days since the booking's place in the queue was set. Free now counts cars of exactly that model, variant and colour that no booking holds — the queue ahead of this customer is not deducted.`,
   };
 }
 
@@ -358,7 +385,7 @@ export async function myWork(ctx: Ctx, userId: string): Promise<{ as_of: string;
   };
   counts.no_car_coming = await n(
     `SELECT COUNT(*) AS n FROM bookings b
-      WHERE ${mine} AND b.status = 'APPROVED' AND b.on_hold = 0
+      WHERE ${mine} AND ${inQueue(ctx.settings, "b.")}
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')
         AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour = b.colour AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND v.is_demo = 0
                           AND NOT EXISTS (SELECT 1 FROM allocations a2 WHERE a2.vehicle_id = v.id AND a2.status = 'ACTIVE'))
@@ -402,7 +429,7 @@ export async function demandQueue(ctx: Ctx, outletIds: string[] | null): Promise
     ctx.db,
     `SELECT b.model, b.variant, b.colour, SUM(CASE WHEN b.on_hold = 0 THEN 1 ELSE 0 END) AS queue, SUM(b.on_hold) AS on_hold, MIN(b.priority_ts) AS earliest
        FROM bookings b
-      WHERE b.tenant_id = ? AND b.status = 'APPROVED'
+      WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND ${atLeastMinimum(ctx.settings, "b.")}
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')${inList(outletIds, "b.outlet_id")}
       GROUP BY 1, 2, 3`,
     ctx.tenantId, ...(outletIds ?? []),

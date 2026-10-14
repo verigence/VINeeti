@@ -30,6 +30,7 @@
 // prediction of what the customer will accept.
 
 import type { Ctx } from "../env";
+import { inQueue } from "./queue";
 import { all } from "../lib/db";
 import { addDays, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
@@ -113,7 +114,7 @@ export async function alternatives(
   const waitingRows = await all<{ model: string; variant: string; colour: string; n: number }>(
     ctx.db,
     `SELECT model, variant, colour, COUNT(*) AS n FROM bookings
-      WHERE tenant_id = ? AND status = 'APPROVED' AND on_hold = 0 GROUP BY model, variant, colour`,
+      WHERE tenant_id = ? AND ${inQueue(ctx.settings)} GROUP BY model, variant, colour`,
     ctx.tenantId,
   );
   const waitingFor = new Map(waitingRows.map((r) => [`${norm(r.model)}|${norm(r.variant)}|${norm(r.colour)}`, r.n]));

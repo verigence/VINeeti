@@ -4,12 +4,12 @@
 import { useState } from "react";
 import { api } from "../api";
 import { catalogEmpty, configInput, configReady, ConfigSelects, EMPTY_CONFIG, useCatalog, type CarConfig } from "../components/ConfigPicker";
-import { Async, Button, Card, Chip, DataTable, Empty, Field, Loading, Notice, Select, Stat } from "../components/ui";
+import { Async, Button, Card, Chip, DataTable, Empty, Field, Loading, Select, Stat } from "../components/ui";
 import { fmtDate, fmtNumber, plural } from "../format";
-import { useAction, useLoad } from "../hooks";
-import { plainText, vehicleStatus } from "../labels";
+import { useLoad, type Loaded } from "../hooks";
+import { vehicleStatus } from "../labels";
 import { useSession } from "../session";
-import type { Alternative, Availability, AvailabilityAnswer } from "../types";
+import type { Alternative, Availability, AvailabilityAnswer, BrowseResponse } from "../types";
 
 /** The four answers, in the dealership's words. */
 const ANSWERS: Record<AvailabilityAnswer, { text: string; tone: "green" | "blue" | "amber" | "red" }> = {
@@ -22,68 +22,104 @@ const ANSWERS: Record<AvailabilityAnswer, { text: string; tone: "green" | "blue"
 export function AvailabilityCheck({ compact }: { compact?: boolean }) {
   const { myOutlets } = useSession();
   const catalog = useCatalog();
-  const action = useAction();
   const [config, setConfig] = useState<CarConfig>(EMPTY_CONFIG);
   const [outletId, setOutletId] = useState(myOutlets.length === 1 ? myOutlets[0].id : "");
-  const [result, setResult] = useState<Availability | null>(null);
   const ready = configReady(config);
 
-  const check = async () => {
-    if (!ready) return;
-    const data = await action.run(() => api.availability({ ...configInput(config), outlet_id: outletId || undefined }), { quiet: true });
-    if (data) setResult(data);
-  };
+  // The answer follows the choice. A salesman with a customer at the desk picks a model and sees what
+  // there is of it straight away, then narrows; nobody fills three boxes and presses a button first.
+  // Until all three are chosen this is the stock of what has been picked so far; once they are, it is
+  // the full answer — what can be promised, and where this customer would stand in the queue.
+  const browseKey = `${config.model}|${config.variant}|${config.colour}|${outletId}`;
+  const stock = useLoad(
+    () => (config.model ? api.browse({ model: config.model, ...(config.variant ? { variant: config.variant } : {}), ...(config.colour ? { colour: config.colour } : {}) }) : Promise.resolve(null)),
+    `check:stock:${browseKey}`,
+  );
+  const answer = useLoad(
+    () => (ready ? api.availability({ ...configInput(config), outlet_id: outletId || undefined }) : Promise.resolve(null)),
+    `check:answer:${browseKey}`,
+  );
 
   return (
     <div className={compact ? "answer-stack" : "split"}>
-      <Card title="Which car is the customer asking for?" note="Pick the model, variant and colour. The answer is written so you can read it out.">
-        <form
-          className="form-stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void check();
-          }}
-        >
+      <Card title="Which car is the customer asking for?" note="Pick a model and the stock appears; narrow it as the customer decides.">
+        <div className="form-stack">
           <Async load={catalog} isEmpty={catalogEmpty} empty={<Empty title="No cars to pick from yet" hint="The lists fill up once the DMS files are loaded." />}>
             {(cat) => (
               <>
-                <ConfigSelects
-                  catalog={cat}
-                  value={config}
-                  onChange={(c) => {
-                    setConfig(c);
-                    setResult(null);
-                  }}
-                />
+                <ConfigSelects catalog={cat} value={config} onChange={setConfig} />
                 <Field label="Customer's outlet" optional hint="Used to say whether the car is at the same outlet.">
                   <Select value={outletId} onChange={setOutletId} options={myOutlets.map((o) => ({ value: o.id, label: o.name }))} placeholder="Any outlet" />
                 </Field>
-                {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
-                <div className="form-actions">
-                  <Button type="submit" variant="primary" busy={action.busy} disabled={!ready} icon="search">
-                    Show the answer
+                {config.model && (
+                  <Button variant="ghost" onClick={() => setConfig(EMPTY_CONFIG)}>
+                    Start again
                   </Button>
-                </div>
+                )}
               </>
             )}
           </Async>
-        </form>
+        </div>
       </Card>
 
       <div aria-live="polite">
-        {result ? (
+        {!config.model ? (
+          compact ? null : (
+            <Card>
+              <Empty title="Pick a model" hint="What there is of it appears here as soon as you do." />
+            </Card>
+          )
+        ) : ready && answer.data ? (
           <>
-            <AvailabilityAnswerCard r={result} />
+            <AvailabilityAnswerCard r={answer.data} />
             {/* When the car asked for cannot be given today, what else is actually there. */}
-            {result.answer !== "AVAILABLE_NOW" && <WhatElse want={{ model: result.model, variant: result.variant, colour: result.colour }} outletId={outletId} />}
+            {answer.data.answer !== "AVAILABLE_NOW" && <WhatElse want={{ model: answer.data.model, variant: answer.data.variant, colour: answer.data.colour }} outletId={outletId} />}
           </>
-        ) : compact ? null : (
-          <Card>
-            <Empty title="The answer appears here" hint="It is written so you can read it out to the customer." />
-          </Card>
+        ) : (
+          <WhatThereIs load={stock} narrowing={Boolean(config.variant || config.colour)} />
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * What there is of the model picked so far, before the customer has settled on a variant and a colour.
+ * It is the same free-stock figures the browser uses, so the two screens cannot disagree, and it keeps
+ * narrowing as each further choice is made.
+ */
+function WhatThereIs({ load, narrowing }: { load: Loaded<BrowseResponse | null>; narrowing: boolean }) {
+  if (load.loading && !load.data) return <Card><Loading label="Looking in the yard" /></Card>;
+  const d = load.data;
+  if (!d) return null;
+  if (!d.groups.length) {
+    return (
+      <Card title="Nothing free of that">
+        <Empty title="No free car matches" hint={narrowing ? "Try it without the colour, or ask the ordering desk what is on order." : "Nothing of this model is free; every one is held for a customer."} />
+      </Card>
+    );
+  }
+  return (
+    <Card
+      title={`${fmtNumber(d.total)} free to offer`}
+      note={`${fmtNumber(d.in_yard)} in the yard, ${fmtNumber(d.in_transit)} on the way. ${narrowing ? "Narrowing as you choose." : "Pick the variant and colour for the queue position and what you can promise."}`}
+    >
+      <ul className="check-stock">
+        {d.groups.slice(0, 12).map((g) => (
+          <li key={`${g.variant}|${g.colour}`}>
+            <span className="check-stock-car">
+              <span className="strong">{g.colour}</span>
+              <span className="sub">{g.variant}</span>
+            </span>
+            <span className="check-stock-counts">
+              {g.in_yard > 0 && <Chip tone="green">{fmtNumber(g.in_yard)} in the yard</Chip>}
+              {g.in_transit > 0 && <Chip tone="blue">{fmtNumber(g.in_transit)} on the way</Chip>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {d.groups.length > 12 && <p className="hint">The first 12 of {fmtNumber(d.groups.length)} are shown; narrow it further.</p>}
+    </Card>
   );
 }
 

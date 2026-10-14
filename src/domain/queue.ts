@@ -22,12 +22,36 @@ export function queueKey(settings: Pick<TenantSettings, "outlet_scope">, b: { mo
   return `${b.model}|${b.variant}|${b.colour}${settings.outlet_scope === "SAME_OUTLET_ONLY" ? `|${b.outlet_id}` : ""}`;
 }
 
+/**
+ * A booking takes its place in the queue only once the customer has paid the dealership's minimum
+ * booking amount. Below it the customer is not in the line at all — they do not hold a place and nobody
+ * behind them is held up by them.
+ *
+ * It is a single SQL fragment on purpose. The rule decides who gets a car, so every screen that counts
+ * "waiting" has to count the same people the allocation engine does; a second copy of this condition
+ * written somewhere else is how a dashboard starts disagreeing with the thing it is reporting on.
+ */
+export const queueMinimum = (settings: Pick<TenantSettings, "min_booking_amount">) => Number(settings.min_booking_amount) || 0;
+
+/**
+ * The condition, for the column prefix a given query uses ("b." or none). The amount is written into
+ * the SQL rather than bound as a parameter on purpose: it is the dealership's own setting, already
+ * validated as a finite number at least zero, and every one of these queries has its own parameter
+ * order — a bound value would have to be threaded into eleven different positions, which is exactly
+ * how one of them ends up in the wrong place.
+ */
+export const inQueue = (settings: Pick<TenantSettings, "min_booking_amount">, p = "") => `${p}status = 'APPROVED' AND ${p}on_hold = 0 AND ${p}booking_amount >= ${queueMinimum(settings)}`;
+/** Just the money part, for queries that keep on-hold bookings on purpose and report the flag themselves. */
+export const atLeastMinimum = (settings: Pick<TenantSettings, "min_booking_amount">, p = "") => `${p}booking_amount >= ${queueMinimum(settings)}`;
+/** The other side of it: approved, not on hold, and still short of the minimum, so not in the line. */
+export const belowMinimum = (settings: Pick<TenantSettings, "min_booking_amount">, p = "") => `${p}status = 'APPROVED' AND ${p}on_hold = 0 AND ${p}booking_amount < ${queueMinimum(settings)}`;
+
 /** Every waiting booking of the dealership (optionally of one model / variant / colour), grouped into queues and sorted. */
 export async function waitingQueues(ctx: Ctx, cfg?: { model: string; variant: string; colour: string }, settings: TenantSettings = ctx.settings): Promise<Map<string, Waiting[]>> {
   const rows = await all<Waiting>(
     ctx.db,
     `SELECT id, booking_no, outlet_id, model, variant, colour, booking_date, priority_ts, expected_delivery_date, booking_amount, priority_override_json, customer_name, approved_at, created_at
-     FROM bookings WHERE tenant_id = ? AND status = 'APPROVED' AND on_hold = 0 ${cfg ? "AND model = ? AND variant = ? AND colour = ?" : ""} LIMIT 5000`,
+     FROM bookings WHERE tenant_id = ? AND ${inQueue(settings)} ${cfg ? "AND model = ? AND variant = ? AND colour = ?" : ""} LIMIT 5000`,
     ...(cfg ? [ctx.tenantId, cfg.model, cfg.variant, cfg.colour] : [ctx.tenantId]),
   );
   const queues = new Map<string, Waiting[]>();

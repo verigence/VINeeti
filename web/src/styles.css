@@ -5146,3 +5146,34 @@ button.primary {
     overflow: visible;
   }
 }
+/* What there is of the model picked so far, before the customer has settled on variant and colour. */
+.check-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.check-stock > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.check-stock > li:last-child {
+  border-bottom: 0;
+}
+.check-stock-car {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.check-stock-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: none;
+}

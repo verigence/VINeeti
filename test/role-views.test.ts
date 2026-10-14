@@ -227,3 +227,63 @@ describe("money blocked and money churned", () => {
     expect((await get(w, d, "/api/views/money", "exec")).status).toBe(403);
   });
 });
+
+describe("the minimum booking amount decides the queue", () => {
+  const MIN = 25000;
+  async function withMinimum() {
+    const w = makeWorld("2026-10-10 10:00");
+    const d = await makeMahindraDealer(w);
+    const set = await w.api("PUT", "/api/settings", { min_booking_amount: MIN }, d.users.admin.session);
+    expect(set.status).toBe(200);
+    await loadStock(w, d.users.stock.session, STOCK);
+    await loadBookings(w, d.users.crm.session, [
+      // Paid the minimum: in the line.
+      { no: "OTF27A000101", car: "SCORPIO_N", created: "01-Sep-2026 10:00 AM", customer: "PAID ENOUGH", amount: 50000 },
+      // Short of it: booked, but takes no place in the queue.
+      { no: "OTF27A000102", car: "SCORPIO_N", created: "02-Aug-2026 10:00 AM", customer: "PAID LITTLE", amount: 5000 },
+    ]);
+    return { w, d };
+  }
+
+  it("leaves a booking short of the minimum out of the queue", async () => {
+    const { w, d } = await withMinimum();
+    const res = await get(w, d, "/api/views/waiting");
+    const nos = res.body.rows.map((r: any) => r.booking_no);
+    expect(nos).toContain("OTF27A000101");
+    expect(nos).not.toContain("OTF27A000102");
+  });
+
+  it("does not let it hold a place ahead of a customer who has paid", async () => {
+    // The short booking is the older one, so if it were in the queue it would come first.
+    const { w, d } = await withMinimum();
+    const res = await get(w, d, "/api/views/demand");
+    const scorpio = res.body.rows.find((r: any) => r.model === "SCORPIO-N");
+    expect(scorpio.queue).toBe(1);
+  });
+
+  it("still lists that customer, with how much more they have to pay", async () => {
+    const { w, d } = await withMinimum();
+    const res = await get(w, d, "/api/views/waiting");
+    expect(res.body.below_minimum.minimum).toBe(MIN);
+    const short = res.body.below_minimum.bookings.find((b: any) => b.booking_no === "OTF27A000102");
+    expect(short).toBeTruthy();
+    expect(short.short_by).toBe(MIN - 5000);
+    expect(short.waiting_days).toBeGreaterThan(0);
+  });
+
+  it("counts the same people everywhere a screen says 'waiting'", async () => {
+    const { w, d } = await withMinimum();
+    const waiting = (await get(w, d, "/api/views/waiting")).body.rows.length;
+    const owner = (await get(w, d, "/api/dashboards/owner")).body.customers_waiting;
+    const overview = (await get(w, d, "/api/dashboards/overview")).body.bookings.waiting;
+    const demand = (await get(w, d, "/api/views/demand")).body.totals.waiting;
+    expect(new Set([waiting, owner, overview, demand]).size).toBe(1);
+  });
+
+  it("stops applying once a car is allocated, because the window takes over", async () => {
+    const { w, d } = await withMinimum();
+    const res = await get(w, d, "/api/views/holding");
+    // Whatever is holding a car is judged by its payment window, not by the booking amount.
+    for (const r of res.body.rows) expect(r).toHaveProperty("window_days");
+  });
+});

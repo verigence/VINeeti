@@ -1,4 +1,5 @@
 import type { Ctx } from "../env";
+import { inQueue } from "./queue";
 import { all, first } from "../lib/db";
 import { addDays, localDayBounds, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
@@ -28,7 +29,7 @@ export async function overview(ctx: Ctx, outletIds: string[] | null, onlyUserId:
     bookings: {
       draft: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'DRAFT' ${bScope} ${mine}`, T, ...o, ...me),
       awaiting_approval: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'SUBMITTED' ${bScope} ${mine}`, T, ...o, ...me),
-      waiting: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 0 ${bScope} ${mine}`, T, ...o, ...me),
+      waiting: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND ${inQueue(ctx.settings, "b.")} ${bScope} ${mine}`, T, ...o, ...me),
       on_hold: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 1 ${bScope} ${mine}`, T, ...o, ...me),
       allocated: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'ALLOCATED' ${bScope} ${mine}`, T, ...o, ...me),
       invoiced: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'INVOICED' ${bScope} ${mine}`, T, ...o, ...me),
@@ -139,7 +140,7 @@ export async function availabilityAnswer(ctx: Ctx, cfg: { model: string; variant
      FROM vehicles v JOIN allocations a ON a.vehicle_id = v.id AND a.status = 'ACTIVE' WHERE v.tenant_id = ? AND v.model = ? AND v.variant = ? AND v.colour = ? AND v.status IN ('RECEIVED','IN_TRANSIT') ${vScope}`,
     ...p,
   );
-  const waiting = (await first<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour = ? AND b.status = 'APPROVED' AND b.on_hold = 0 ${sameOnly ? "AND b.outlet_id = ?" : ""}`, ...p))?.n ?? 0;
+  const waiting = (await first<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour = ? AND ${inQueue(ctx.settings, "b.")} ${sameOnly ? "AND b.outlet_id = ?" : ""}`, ...p))?.n ?? 0;
   const onOrder = await first<{ quantity: number; expected_date: string | null }>(ctx.db, `SELECT SUM(quantity) AS quantity, MIN(expected_date) AS expected_date FROM order_requests WHERE tenant_id = ? AND model = ? AND variant = ? AND colour = ? AND status IN ('PLACED','CONFIRMED')`, ctx.tenantId, cfg.model, cfg.variant, cfg.colour);
 
   // Cars left for a new customer after everyone already waiting is served. As in allocation, a car in the
@@ -229,7 +230,7 @@ export async function unsoldByAge(ctx: Ctx, outletIds: string[] | null, withValu
 
 /** Waiting bookings for which nothing is in the yard, in transit or on order, after everyone ahead of them is served. */
 export async function noCarComing(ctx: Ctx): Promise<{ bookings: number; configurations: number }> {
-  const waiting = await all<{ model: string; variant: string; colour: string; n: number }>(ctx.db, `SELECT model, variant, colour, COUNT(*) AS n FROM bookings WHERE tenant_id = ? AND status = 'APPROVED' AND on_hold = 0 GROUP BY 1, 2, 3`, ctx.tenantId);
+  const waiting = await all<{ model: string; variant: string; colour: string; n: number }>(ctx.db, `SELECT model, variant, colour, COUNT(*) AS n FROM bookings WHERE tenant_id = ? AND ${inQueue(ctx.settings)} GROUP BY 1, 2, 3`, ctx.tenantId);
   const free = await all<{ model: string; variant: string; colour: string; n: number }>(
     ctx.db,
     `SELECT v.model, v.variant, v.colour, COUNT(*) AS n FROM vehicles v WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE') GROUP BY 1, 2, 3`,
@@ -274,7 +275,7 @@ export async function ownerView(ctx: Ctx, outletIds: string[] | null, withValue:
   const perOutlet = await all<any>(
     ctx.db,
     `SELECT o.id AS outlet_id, o.code, o.name,
-       (SELECT COUNT(*) FROM bookings b WHERE b.tenant_id = o.tenant_id AND b.outlet_id = o.id AND b.status = 'APPROVED' AND b.on_hold = 0) AS waiting,
+       (SELECT COUNT(*) FROM bookings b WHERE b.tenant_id = o.tenant_id AND b.outlet_id = o.id AND ${inQueue(ctx.settings, "b.")}) AS waiting,
        (SELECT COUNT(*) FROM bookings b WHERE b.tenant_id = o.tenant_id AND b.outlet_id = o.id AND b.status = 'ALLOCATED') AS holding_a_car,
        (SELECT COUNT(*) FROM vehicles v WHERE v.tenant_id = o.tenant_id AND v.outlet_id = o.id AND v.status IN ('RECEIVED','IN_TRANSIT')) AS cars,
        (SELECT COUNT(*) FROM vehicles v WHERE v.tenant_id = o.tenant_id AND v.outlet_id = o.id AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')) AS cars_free
@@ -283,7 +284,7 @@ export async function ownerView(ctx: Ctx, outletIds: string[] | null, withValue:
   );
   return {
     source: await dataStatus(ctx),
-    customers_waiting: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 0 ${bScope}`, T, ...o),
+    customers_waiting: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND ${inQueue(ctx.settings, "b.")} ${bScope}`, T, ...o),
     customers_on_hold: await n(`SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 1 ${bScope}`, T, ...o),
     cars_not_matched: await n(`SELECT COUNT(*) AS n FROM vehicles v WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 ${vScope} AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')`, T, ...o),
     cars_reserved: await n(`SELECT COUNT(*) AS n FROM vehicles v WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') ${vScope} AND EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')`, T, ...o),
@@ -397,7 +398,7 @@ export async function nearMatches(ctx: Ctx, outletIds: string[] | null, onlyUser
      FROM bookings b JOIN outlets o ON o.id = b.outlet_id LEFT JOIN users se ON se.id = b.sales_exec_id
      JOIN vehicles v ON v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour <> b.colour AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0
        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')
-     WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 0 ${inList(outletIds, "b.outlet_id")} ${onlyUserId ? "AND (b.sales_exec_id = ? OR b.created_by = ?)" : ""}
+     WHERE b.tenant_id = ? AND ${inQueue(ctx.settings, "b.")} ${inList(outletIds, "b.outlet_id")} ${onlyUserId ? "AND (b.sales_exec_id = ? OR b.created_by = ?)" : ""}
        AND NOT EXISTS (SELECT 1 FROM vehicles w WHERE w.tenant_id = b.tenant_id AND w.model = b.model AND w.variant = b.variant AND w.colour = b.colour AND w.status IN ('RECEIVED','IN_TRANSIT') AND w.is_blocked = 0
                          AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = w.id AND a.status = 'ACTIVE'))
      GROUP BY b.id, v.colour ORDER BY b.priority_ts LIMIT 1500`,
