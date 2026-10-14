@@ -1,0 +1,57 @@
+# Creates one user per role on a dealership, so every perspective the product has can be signed in to
+# and judged: the Dealer Principal's, the CEO's, a sales consultant's, Finance's, the CRM desk's.
+#
+# Run it from the Actions tab. Nothing is stored: the two passwords are inputs of the run, masked in the
+# log, and each person is made to replace theirs at first sign-in.
+
+name: Add the team
+
+on:
+  workflow_dispatch:
+    inputs:
+      address:
+        description: "Address of the deployment"
+        required: true
+        default: "https://verigence-vineeti.jbrconsulting-it.workers.dev"
+        type: string
+      dealer_code:
+        description: "Dealer code (e.g. aditya)"
+        required: true
+        type: string
+      admin_mobile:
+        description: "System Admin: mobile number"
+        required: true
+        type: string
+      admin_password:
+        description: "System Admin: current password"
+        required: true
+        type: string
+      team_password:
+        description: "First password for everyone created (8+ characters, a letter and a number)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  team:
+    name: Create one user per role
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Create the team
+        env:
+          ADDRESS: ${{ inputs.address }}
+          DEALER_CODE: ${{ inputs.dealer_code }}
+          ADMIN_MOBILE: ${{ inputs.admin_mobile }}
+          ADMIN_PASSWORD: ${{ inputs.admin_password }}
+          TEAM_PASSWORD: ${{ inputs.team_password }}
+        run: |
+          echo "::add-mask::$ADMIN_PASSWORD"
+          echo "::add-mask::$TEAM_PASSWORD"
+          node scripts/add-team.mjs
