@@ -1,5 +1,5 @@
-// "What can I tell the customer?" Pick the car the customer wants and read out the answer. Used on the
-// Stock screen and at the top of a sales executive's Home.
+// Stock check: the customer asks for a car, this says what can be promised — and, when it cannot be
+// promised, what else is actually there. Its own screen, because it is the job, not a panel beside one.
 
 import { useState } from "react";
 import { api } from "../api";
@@ -36,7 +36,7 @@ export function AvailabilityCheck({ compact }: { compact?: boolean }) {
 
   return (
     <div className={compact ? "answer-stack" : "split"}>
-      <Card title="What can I tell the customer?" note="Pick the model, variant and colour the customer wants.">
+      <Card title="Which car is the customer asking for?" note="Pick the model, variant and colour. The answer is written so you can read it out.">
         <form
           className="form-stack"
           onSubmit={(e) => {

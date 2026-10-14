@@ -37,8 +37,9 @@ function AuthFrame({ children }: { children: ReactNode }) {
       <StatusBars />
       <div className="auth-middle">
         <div className="auth-panel">
+          {/* The product's logo as drawn, on white. */}
           <div className="auth-brand">
-            <img src="/brand/wordmark-light.png" alt={PRODUCT} className="auth-lockup" />
+            <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
           </div>
           {children}
         </div>
@@ -324,7 +325,7 @@ export function ChangePasswordScreen() {
       <div className="auth-middle">
         <div className="auth-panel">
           <div className="auth-brand">
-            <img src="/brand/wordmark-light.png" alt={productName(me.app_name)} className="auth-wordmark" />
+            <img src="/brand/wordmark.png" alt={productName(me.app_name)} className="auth-wordmark" />
             <span className="auth-tagline">
               {me.tenant.name} · {me.tenant.oem}
             </span>

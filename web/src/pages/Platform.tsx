@@ -63,7 +63,7 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
       <div className="auth-middle">
         <div className="auth-panel">
           <div className="auth-brand">
-            <img src="/brand/wordmark-light.png" alt={PRODUCT} className="auth-lockup" />
+            <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
           </div>
           <Card title={title}>{children}</Card>
         </div>
@@ -191,7 +191,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
   return (
     <div className="platform">
       <header className="platform-bar">
-        <img src="/brand/wordmark-light.png" alt={PRODUCT} className="platform-wordmark" />
+        <img src="/brand/wordmark.png" alt={PRODUCT} className="platform-wordmark" />
         <div className="platform-who">
           <span className="strong">{admin.name}</span>
           <span className="sub">Platform console</span>

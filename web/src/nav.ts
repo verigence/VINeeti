@@ -21,6 +21,9 @@ export const canSeePayments = (can: Can) => can("booking.payment") || can("booki
 
 export const DESTINATIONS: Destination[] = [
   { to: "/", label: "Home", icon: "home", allowed: () => true, badge: "alerts" },
+  // The first thing a sales person does all day: a customer asks for a car and they answer. It is its
+  // own place in the app, not a panel inside the stock screens or beside their own bookings.
+  { to: "/stock/check", label: "Stock check", icon: "search", allowed: (can) => can("stock.view") },
   { to: "/stock", label: "Stock", icon: "car", allowed: (can) => can("stock.view") },
   { to: "/bookings", label: "Bookings", icon: "bookings", allowed: (can) => can("booking.view") },
   { to: "/approvals", label: "Approvals", icon: "approvals", allowed: canApprove, badge: "approvals" },
@@ -47,8 +50,8 @@ export function tabsFor(can: Can): Destination[] {
   if (can("admin.users")) wanted = ["/stock", "/bookings", "/eod"]; // sets the system up and does the day's data work
   else if (can("booking.payment")) wanted = ["/payments", "/bookings", "/stock"]; // verifies payments
   else if (can("owner.review")) wanted = ["/owner", "/approvals", "/bookings", "/stock"]; // the owner's view, and decisions
-  else if (!can("booking.view_all")) wanted = ["/stock", "/bookings"]; // own bookings only: answers the customer, books
-  else if (can("booking.approve")) wanted = ["/bookings", "/approvals", "/stock"]; // leads a sales team
+  else if (!can("booking.view_all")) wanted = ["/stock/check", "/stock", "/bookings"]; // own bookings only: answers the customer, books
+  else if (can("booking.approve")) wanted = ["/stock/check", "/bookings", "/approvals"]; // leads a sales team
   else if (can("wa.resend")) wanted = ["/bookings", "/eod", "/whatsapp"]; // customer contact, loads the DMS files
   else if (can("stock.manage")) wanted = ["/stock", "/eod", "/bookings"]; // receives cars, loads the DMS files
   else if (can("master.manage")) wanted = ["/dashboards", "/master", "/stock"]; // orders on the manufacturer, vehicle master
@@ -58,4 +61,15 @@ export function tabsFor(can: Can): Destination[] {
   return [allowed[0], ...picked];
 }
 
-export const isActive = (to: string, path: string) => (to === "/" ? path === "/" : path === to || path.startsWith(`${to}/`));
+const matches = (to: string, path: string) => (to === "/" ? path === "/" : path === to || path.startsWith(`${to}/`));
+
+/**
+ * Which destination the current page belongs to. Two destinations can both match a path — /stock/check
+ * sits under /stock — and lighting up both tells the person they are in two places at once, so the
+ * longest match wins and only one is marked.
+ */
+export const isActive = (to: string, path: string) => {
+  if (!matches(to, path)) return false;
+  const better = DESTINATIONS.some((d) => d.to !== to && d.to.length > to.length && matches(d.to, path));
+  return !better;
+};

@@ -168,9 +168,6 @@ a.mono,
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: 100vh;
-  /* The sidebar itself is one screen tall and pinned; this paints its column for the whole length of
-     the page, so the navy runs top to bottom however far the content scrolls. */
-  background-image: linear-gradient(90deg, var(--navy-2) 0 var(--sidebar-w), transparent var(--sidebar-w));
 }
 .skip-link {
   position: absolute;
@@ -189,15 +186,35 @@ a.mono,
 .sidebar {
   background: var(--navy);
   color: #fff;
-  position: sticky;
+  /* Fixed, not sticky: the column is the height of the screen whatever the page does, so the maker's
+     logo sits on the bottom edge of the screen rather than wherever the first screenful happens to end. */
+  position: fixed;
   top: 0;
-  height: 100vh;
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-w);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  z-index: 20;
+}
+/* The product's logo as its designer drew it, on a white band of its own. Putting it on navy would mean
+   recolouring somebody else's mark, which is not ours to do. */
+.brand-plate {
+  flex: none;
+  background: #fff;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+}
+.brand-plate img {
+  width: 100%;
+  max-width: 176px;
+  height: auto;
+  display: block;
 }
 .brand {
-  padding: 18px 18px 16px;
+  padding: 13px 18px 14px;
   border-bottom: 1px solid var(--navy-line);
   display: flex;
   flex-direction: column;
@@ -267,6 +284,8 @@ a.mono,
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The sidebar is taken out of the flow, so the page starts after it. */
+  grid-column: 2;
 }
 .topbar {
   position: sticky;
@@ -1899,9 +1918,12 @@ input[type="radio"] {
 }
 /* Who makes it, at the foot of the screen; the product's own logo is at the top. */
 .brand-foot {
-  padding: 8px 16px calc(26px + var(--safe-bottom));
+  flex: none;
+  padding: 16px 16px calc(18px + var(--safe-bottom));
   display: flex;
   justify-content: center;
+  background: #fff;
+  border-top: 1px solid var(--border);
 }
 .brand-foot img {
   /* The lockup is a wide strip ("A Product by" over a rule, then the JBR mark and name), so it is
@@ -1910,14 +1932,16 @@ input[type="radio"] {
   max-width: 82%;
   height: auto;
   display: block;
-  opacity: 0.95;
 }
 .auth-brand {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 22px;
-  color: #fff;
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  background: #fff;
+  border-radius: 10px;
+  color: var(--text);
 }
 .auth-logo {
   display: block;
@@ -2177,28 +2201,30 @@ input[type="radio"] {
   letter-spacing: 0.04em;
   margin-bottom: 6px;
 }
+/* The maker's lockup, as drawn, pinned to the bottom edge of the sidebar — the sidebar is fixed to the
+   window, so this sits on the bottom of the screen whatever the page does. */
 .sidebar-foot {
   margin-top: auto;
-  padding: 14px 18px 18px;
-  border-top: 1px solid var(--navy-line);
+  /* Never squeezed by the nav above it: the logo keeps its proportions whatever the list does. */
+  flex: none;
+  background: #fff;
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  color: #a9b6c4;
-  font-size: 12px;
+  align-items: center;
+  gap: 5px;
 }
 .sidebar-foot-label {
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7f93a8;
+  color: #6b7a88;
 }
 .sidebar-foot img {
-  width: 150px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 172px;
   height: auto;
   display: block;
-  opacity: 0.92;
 }
 .more-lockup {
   width: 200px;
@@ -3603,15 +3629,24 @@ input[type="radio"] {
 /* ---------------------------------------------------------------- brand images */
 .splash {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  background-image: radial-gradient(120% 90% at 50% 0%, var(--navy-2) 0, var(--navy) 70%);
   padding: 24px;
 }
 .splash-image {
-  width: min(560px, 86vw);
+  width: min(420px, 74vw);
   height: auto;
   animation: splash-in 400ms ease-out;
+}
+.splash-maker {
+  width: min(300px, 62vw);
+  height: auto;
+  opacity: 0.92;
+  animation: splash-in 500ms ease-out;
 }
 @keyframes splash-in {
   from { opacity: 0; transform: scale(0.97); }
@@ -3622,11 +3657,12 @@ input[type="radio"] {
 .auth-panel .form-grid {
   grid-template-columns: 1fr;
 }
+/* The product's logo on its own white plate above the sign-in card, as drawn. */
 .auth-lockup {
   display: block;
-  width: min(340px, 86%);
+  width: min(300px, 76%);
   height: auto;
-  margin: 0 auto 4px;
+  margin: 0 auto;
 }
 .auth-wordmark {
   display: block;
@@ -3637,9 +3673,8 @@ input[type="radio"] {
 .brand-wordmark {
   display: block;
   width: 100%;
-  max-width: 172px;
+  max-width: 176px;
   height: auto;
-  margin-bottom: 10px;
 }
 .more-wordmark {
   display: block;
@@ -4477,5 +4512,69 @@ button.primary {
 @media (max-width: 860px) {
   .alts {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- the way in, for the sales floor
+   A customer is standing at the desk. Two doors, each the size of a thing you tap without looking. */
+.door .card-body {
+  padding: 16px;
+}
+.door-lead {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.door-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.door-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  text-decoration: none;
+  min-height: 76px;
+  justify-content: center;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+.door-btn:hover {
+  border-color: var(--teal);
+  box-shadow: 0 2px 10px rgba(0, 40, 88, 0.1);
+  color: var(--text);
+}
+.door-btn-main {
+  background-image: linear-gradient(135deg, var(--navy) 0, var(--navy-2) 100%);
+  border-color: transparent;
+  color: #fff;
+}
+.door-btn-main:hover {
+  color: #fff;
+}
+.door-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+.door-btn-main .door-title {
+  color: #fff;
+}
+.door-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.door-btn-main .door-sub {
+  color: #bfd9ea;
+}
+@media (max-width: 860px) {
+  /* An odd number of figures leaves a hole in a two-column grid; the last one takes the whole row. */
+  .headline-item:last-child:nth-child(odd) {
+    grid-column: span 2;
   }
 }

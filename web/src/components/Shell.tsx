@@ -70,8 +70,12 @@ export function Shell() {
 
         {/* Wide screens: sidebar with every destination. */}
         <aside className="sidebar">
+          {/* The logo as its designer drew it, on a white band of its own. A navy surface would mean
+              recolouring somebody else's mark, which is not ours to do. */}
+          <div className="brand-plate">
+            <img src="/brand/wordmark.png" alt={product} className="brand-wordmark" />
+          </div>
           <div className="brand">
-            <img src="/brand/wordmark-light.png" alt={product} className="brand-wordmark" />
             <span className="brand-dealer">{me.tenant.name}</span>
             <span className="brand-oem">{me.tenant.oem}</span>
           </div>
@@ -93,10 +97,11 @@ export function Shell() {
               ))}
             </ul>
           </nav>
-          {/* Who makes it, in JBR Consulting's own logo rather than words set in the page's type. */}
+          {/* Who makes it, in JBR Consulting's own lockup, at the very bottom of the sidebar and on its
+              own white band for the same reason. */}
           <div className="sidebar-foot">
             <span className="sidebar-foot-label">A product by</span>
-            <img src="/brand/jbr-light.png" alt="JBR Consulting" />
+            <img src="/brand/jbr.png" alt="JBR Consulting" />
           </div>
         </aside>
 

@@ -13,24 +13,24 @@ import { AvailabilityCheck } from "./Availability";
 import { BrowseTab } from "./Browse";
 import { CarsTab } from "./StockCars";
 
-export function StockPage({ tab }: { tab: "summary" | "availability" | "cars" | "browse" }) {
+export function StockPage({ tab }: { tab: "summary" | "check" | "cars" | "browse" }) {
   const current = tab === "summary" ? "/stock" : `/stock/${tab}`;
   return (
     <>
-      <PageHeader title="Stock" subtitle="Cars in transit and in the yard, and what is free for a new customer." />
+      <PageHeader title={tab === "check" ? "Stock check" : "Stock"} subtitle={tab === "check" ? "A customer asks for a car; this says what you can promise them." : "Cars in transit and in the yard, and what is free for a new customer."} />
       <DataSource />
       <Tabs
         current={current}
         tabs={[
+          { to: "/stock/check", label: "Stock check" },
+          { to: "/stock/browse", label: "Browse stock" },
           { to: "/stock", label: "Summary" },
-          { to: "/stock/browse", label: "What have we got?" },
-          { to: "/stock/availability", label: "Availability" },
           { to: "/stock/cars", label: "Cars" },
         ]}
       />
       {tab === "summary" && <SummaryTab />}
       {tab === "browse" && <BrowseTab />}
-      {tab === "availability" && <AvailabilityCheck />}
+      {tab === "check" && <AvailabilityCheck />}
       {tab === "cars" && <CarsTab />}
     </>
   );
