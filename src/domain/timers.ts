@@ -24,6 +24,8 @@ interface OpenWindow {
   window_extension_days: number;
   reminder_sent_at: string | null;
   escalated_at: string | null;
+  /** Set when the DMS file itself says this car is allotted to this order. Such an allocation is not ours to undo. */
+  dms_confirmed_at: string | null;
   payment_reported_at: string | null;
   booking_no: string;
   customer_name: string;
@@ -76,7 +78,7 @@ export interface WindowResult {
 async function openWindows(ctx: Ctx, allocationId?: string): Promise<OpenWindow[]> {
   return all<OpenWindow>(
     ctx.db,
-    `SELECT a.id, a.booking_id, a.vehicle_id, a.clock_started_at, a.window_extension_days, a.reminder_sent_at, a.escalated_at, b.payment_reported_at,
+    `SELECT a.id, a.booking_id, a.vehicle_id, a.clock_started_at, a.window_extension_days, a.reminder_sent_at, a.escalated_at, a.dms_confirmed_at, b.payment_reported_at,
             b.booking_no, b.customer_name, b.customer_mobile, b.wa_opt_in, b.outlet_id, b.sales_exec_id, v.vin, v.model, v.variant, v.colour
      FROM allocations a JOIN bookings b ON b.id = a.booking_id JOIN vehicles v ON v.id = a.vehicle_id
      WHERE a.tenant_id = ? AND a.status = 'ACTIVE' AND a.clock_started_at IS NOT NULL
@@ -97,6 +99,18 @@ export async function advancePaymentWindow(ctx: Ctx, w: OpenWindow, result: Wind
   const active = (column: string) => ({ sql: `SELECT 1 FROM allocations WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE' AND ${column} IS NULL`, params: [w.id, ctx.tenantId] });
 
   if (today >= sch.release_on) {
+    // A car the DMS itself allotted to this order is never taken back here. The DMS is the dealership's
+    // record of who has which car; releasing one against it would put the two systems in conflict and
+    // the next file load would simply assert it again. The overdue payment is still raised — somebody
+    // has to chase it — but freeing the car is a decision for the dealership to make in the DMS.
+    if (w.dms_confirmed_at) {
+      result.held++;
+      if (!w.escalated_at) {
+        await escalateDmsHold(ctx, w, sch, at);
+        result.escalations++;
+      }
+      return;
+    }
     // A car is not taken back while a payment the sales team reported is waiting for Finance to verify,
     // nor while the DMS files are out of date: the customer may have paid and been invoiced since the
     // last file. Both situations raise their own alarm; the release happens once they are cleared.
@@ -160,6 +174,29 @@ export async function advancePaymentWindow(ctx: Ctx, w: OpenWindow, result: Wind
     await ctx.db.batch(stmts);
     result.reminders++;
   }
+}
+
+/**
+ * An allotment the DMS made has passed its payment day. The car stays where the DMS put it; what this
+ * raises is the money. Management and the booking's own consultant are told once — through the alarm
+ * wording rather than the payment-escalation wording, which promises a re-allocation that is not going
+ * to happen here.
+ */
+async function escalateDmsHold(ctx: Ctx, w: OpenWindow, sch: WindowSchedule, at: string): Promise<void> {
+  const detail = `${vehicleLabel(w)} (${w.vin}) is allotted to booking ${w.booking_no} (${w.customer_name}) in the DMS and has been for ${sch.day} days with no payment${w.payment_reported_at ? " verified (a payment has been reported and is waiting for Finance)" : ""}. The allotment is the DMS's own, so the car has not been released: either collect the payment or free the car in the DMS.`;
+  const stmts = [
+    // Guarded on "not escalated yet", so this fires once however often the job runs.
+    auditStmt(ctx, "PAYMENT_ESCALATED", "booking", w.booking_id, { allocation_id: w.id, day: sch.day, dms_allotment: true }, { sql: `SELECT 1 FROM allocations WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE' AND escalated_at IS NULL`, params: [w.id, ctx.tenantId] }),
+    stmt(ctx.db, `UPDATE allocations SET escalated_at = ? WHERE id = ? AND tenant_id = ?`, at, w.id, ctx.tenantId),
+    ...(await alarmStmts(ctx, { kind: "ESCALATION", outletId: w.outlet_id, title: "Payment overdue on a car the DMS allotted", body: detail, entityType: "booking", entityId: w.booking_id })),
+  ];
+  if (w.sales_exec_id) {
+    stmts.push(
+      alertStmt(ctx, { targetUser: w.sales_exec_id, outletId: w.outlet_id, kind: "PAYMENT_PENDING", title: "Payment overdue on your booking", body: detail, entityType: "booking", entityId: w.booking_id }),
+      ...(await salesExecMessage(ctx, { id: w.booking_id, sales_exec_id: w.sales_exec_id, booking_no: w.booking_no, customer_name: w.customer_name }, "Payment overdue on your booking", detail)),
+    );
+  }
+  await ctx.db.batch(stmts);
 }
 
 /**

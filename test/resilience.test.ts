@@ -940,3 +940,49 @@ describe("customer data stays within the outlet", () => {
     expect((await w.api("GET", "/api/audit", undefined, d.users.auditor.session)).status).toBe(403);
   });
 });
+
+describe("a car the DMS itself allotted is not taken back by the payment window", () => {
+  // The DMS is the dealership's record of who has which car. Releasing one against it would put the two
+  // systems in conflict, and the very next file load would assert the allotment again. The system's own
+  // allocations are still taken back on time: only the DMS's are left alone.
+  const STOCK = [car("VINDMSHELD0000001", { order: "OTF27A000001", customer: "DMS CUSTOMER" }), car("VINSYSHELD0000001")];
+  const SHEET = [order("OTF27A000001", "01-Oct-2026 10:00 AM", { customer: "DMS CUSTOMER", mobile: "9811100011" }), order("OTF27A000002", "02-Oct-2026 10:00 AM", { customer: "QUEUE CUSTOMER", mobile: "9811100012" })];
+
+  it("holds the DMS's allotment past the re-allocation day and releases the system's own", async () => {
+    const w = makeWorld("2026-10-05 10:00");
+    const d = await makeDealer(w);
+    await loadBookings(w, d.users.stock.session, SHEET);
+    await loadStock(w, d.users.stock.session, STOCK);
+    // One car came with the customer's order on it; the other was free, so the queue gave it to the next customer.
+    expect(allocatedVin(w, "OTF27A000001")).toBe("VINDMSHELD0000001");
+    expect(allocatedVin(w, "OTF27A000002")).toBe("VINSYSHELD0000001");
+    expect(w.db.q(`SELECT b.booking_no, a.source, a.dms_confirmed_at IS NOT NULL AS from_dms FROM allocations a JOIN bookings b ON b.id = a.booking_id WHERE a.status = 'ACTIVE' ORDER BY b.booking_no`)).toEqual([
+      { booking_no: "OTF27A000001", source: "DMS", from_dms: 1 },
+      { booking_no: "OTF27A000002", source: "SYSTEM", from_dms: 0 },
+    ]);
+
+    // Day 6, nobody has paid, and today's files are loaded so the "DMS data is out of date" guard does not apply.
+    w.at("2026-10-11 10:00");
+    await loadStock(w, d.users.stock.session, STOCK);
+    await loadBookings(w, d.users.stock.session, SHEET);
+    expect((await w.tick())[0]).toMatchObject({ released: 1, held: 1 });
+    expect(allocatedVin(w, "OTF27A000001")).toBe("VINDMSHELD0000001");
+    expect(allocatedVin(w, "OTF27A000002")).toBeNull();
+    expect((await booking(w, d, one(w, `SELECT id FROM bookings WHERE booking_no = 'OTF27A000002'`).id)).booking).toMatchObject({ status: "APPROVED", on_hold: 1, hold_reason: "PAYMENT_TIMEOUT" });
+    // Somebody still has to chase the unpaid DMS booking: the payment is escalated, the car is not freed.
+    expect(one(w, `SELECT escalated_at IS NOT NULL AS escalated, released_at FROM allocations WHERE booking_id = (SELECT id FROM bookings WHERE booking_no = 'OTF27A000001')`)).toMatchObject({ escalated: 1, released_at: null });
+    // Management hears of it in the alarm wording, not the payment-escalation wording, which promises a
+    // re-allocation that is not going to happen to this car.
+    const dmsBooking = one(w, `SELECT id FROM bookings WHERE booking_no = 'OTF27A000001'`).id;
+    expect(w.db.q(`SELECT event_key FROM wa_messages WHERE booking_id = ? AND event_key = 'PAYMENT_ESCALATION'`, dmsBooking)).toEqual([]);
+    expect(w.db.q<{ body: string }>(`SELECT body FROM alerts WHERE is_alarm = 1 AND kind = 'ESCALATION' AND entity_id = ?`, dmsBooking)[0].body).toContain("either collect the payment or free the car in the DMS");
+
+    // It stays held however long it goes on: the decision to free it belongs in the DMS.
+    w.at("2026-10-25 10:00");
+    await loadStock(w, d.users.stock.session, STOCK);
+    await loadBookings(w, d.users.stock.session, SHEET);
+    expect((await w.tick())[0]).toMatchObject({ released: 0, held: 1 });
+    expect(allocatedVin(w, "OTF27A000001")).toBe("VINDMSHELD0000001");
+    expect(integrity(w)).toEqual(CLEAN);
+  });
+});
