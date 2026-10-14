@@ -5,6 +5,7 @@ import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, local
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
+import { dailyMovement, holdingCars, modelPicture, myWork, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
@@ -120,6 +121,43 @@ export function opsRoutes(app: App) {
     need(c, "owner.view");
     const ctx = c.get("ctx");
     return c.json(await ownerView(ctx, outletScope(c), can(c.get("user"), ctx.settings, "stock.value")));
+  });
+
+  // ---- what each role answers for. One dataset per question; several screens read each one.
+  /** What each model is doing: standing, moving, selling, on order, and what it ties up. */
+  app.get("/api/views/models", async (c) => {
+    need(c, "stock.view");
+    const ctx = c.get("ctx");
+    return c.json(await modelPicture(ctx, outletScope(c), can(c.get("user"), ctx.settings, "stock.value")));
+  });
+
+  /** Cars a booking is holding: how long, paid or not, invoiced or not. */
+  app.get("/api/views/holding", async (c) => {
+    need(c, "dashboards.view");
+    return c.json(await holdingCars(c.get("ctx"), outletScope(c)));
+  });
+
+  /** Customers with no car yet, oldest first. */
+  app.get("/api/views/waiting", async (c) => {
+    need(c, "dashboards.view");
+    return c.json(await waitingLine(c.get("ctx"), outletScope(c)));
+  });
+
+  /** What moved each day: allocated, released, invoiced, delivered. */
+  app.get("/api/views/daily", async (c) => {
+    need(c, "dashboards.view");
+    const ctx = c.get("ctx");
+    const today = localParts(ctx.now, ctx.tenant.timezone).date;
+    const from = c.req.query("from") ? parseDate(c.req.query("from")) : addDays(today, -29);
+    const to = c.req.query("to") ? parseDate(c.req.query("to")) : today;
+    if (!from || !to || from > to) throw bad("The period is not valid");
+    return c.json(await dailyMovement(ctx, from, to, outletScope(c)));
+  });
+
+  /** A sales executive's own picture. */
+  app.get("/api/views/mine", async (c) => {
+    need(c, "booking.view");
+    return c.json(await myWork(c.get("ctx"), c.get("user").id));
   });
 
   /** How the month is going: retails so far, the month before to the same day, the target and the pace. */

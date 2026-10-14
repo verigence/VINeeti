@@ -4788,3 +4788,11 @@ button.primary {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------- the consultant's desk */
+.desk-doors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}

@@ -159,6 +159,13 @@ export const api = {
   measures: (from?: string, to?: string) => get<T.MeasuresResponse>("/api/dashboards/measures", { from, to }),
   monthPace: () => get<T.MonthPace>("/api/dashboards/month"),
 
+  // ---- what each role answers for
+  models: () => get<T.ModelPicture>("/api/views/models"),
+  holding: () => get<T.HoldingResponse>("/api/views/holding"),
+  waitingLine: () => get<T.WaitingResponse>("/api/views/waiting"),
+  daily: (from?: string, to?: string) => get<T.DailyResponse>("/api/views/daily", { from, to }),
+  myWork: () => get<T.MyWork>("/api/views/mine"),
+
   // ---- analytics
   ageing: () => get<T.AgeingResponse>("/api/analytics/ageing"),
   notPickedUp: (days: number) => get<T.NotPickedUpResponse>("/api/analytics/not-picked-up", { days: String(days) }),

@@ -12,6 +12,7 @@ import { canLoadFiles } from "../nav";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
+import { MyDesk } from "./MyDesk";
 import { CapitalBoard, HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 /**
@@ -109,7 +110,7 @@ export function HomePage() {
 
       {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
           check is a door to its own screen here, not a form squeezed in above a list. */}
-      {ownOnly && can("stock.view") && <StockCheckDoor />}
+      {ownOnly && <MyDesk />}
       {ownOnly && <MyBookings />}
       {ownOnly && can("dashboards.view") && <MyOffers />}
 
@@ -628,24 +629,3 @@ function AlertsCard() {
 }
 
 
-/**
- * The way in to the stock check, at the top of a sales executive's day. A customer is standing at the
- * desk: either you know the car they want, or they want to see what there is. Two doors, nothing else.
- */
-function StockCheckDoor() {
-  return (
-    <Card className="door">
-      <p className="door-lead">A customer at the desk?</p>
-      <div className="door-actions">
-        <Link to="/stock/check" className="door-btn door-btn-main">
-          <span className="door-title">Stock check</span>
-          <span className="door-sub">They have asked for a car. Say what you can promise.</span>
-        </Link>
-        <Link to="/stock/browse" className="door-btn">
-          <span className="door-title">Browse stock</span>
-          <span className="door-sub">They are still deciding. Show what is there.</span>
-        </Link>
-      </div>
-    </Card>
-  );
-}
