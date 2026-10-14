@@ -158,3 +158,72 @@ describe("a sales executive's own picture", () => {
     for (const who of ["exec", "lead", "head"]) expect((await get(w, d, "/api/views/mine", who)).status).toBe(200);
   });
 });
+
+describe("the order bank", () => {
+  it("ranks configurations by the queue, longest first, and says what is covered", async () => {
+    const { w, d } = await start();
+    const res = await get(w, d, "/api/views/demand");
+    expect(res.status).toBe(200);
+    const scorpio = res.body.rows.find((r: any) => r.model === "SCORPIO-N");
+    // One customer waiting, nothing free, nothing ordered: entirely uncovered.
+    expect(scorpio).toMatchObject({ queue: 1, free_now: 0, on_order: 0, short_by: 1 });
+    expect(scorpio.longest_wait_days).toBeGreaterThan(60);
+    const queues = res.body.rows.map((r: any) => r.queue);
+    expect([...queues].sort((a: number, b: number) => b - a)).toEqual(queues);
+  });
+
+  it("does not count a car as short when one is free or on order for it", async () => {
+    const { w, d } = await start();
+    await w.api("POST", "/api/orders", { model: "SCORPIO-N", variant: "D MT 2WD Z8L 7S (M0980)", colour: "EVEREST WHITE", quantity: 1 }, d.users.admin.session);
+    const res = await get(w, d, "/api/views/demand");
+    const scorpio = res.body.rows.find((r: any) => r.model === "SCORPIO-N");
+    expect(scorpio).toMatchObject({ queue: 1, on_order: 1, short_by: 0 });
+  });
+});
+
+describe("money owed on cars already held", () => {
+  it("counts only cars at the dealership whose payment Finance has not confirmed", async () => {
+    const { w, d } = await start();
+    const res = await get(w, d, "/api/views/payments-due");
+    expect(res.status).toBe(200);
+    for (const r of res.body.rows) expect(["AWAITING", "REPORTED"]).toContain(r.state);
+    expect(res.body.window_days).toBeGreaterThan(0);
+    expect(res.body.buckets.reduce((n: number, b: any) => n + b.bookings, 0)).toBe(res.body.rows.length);
+  });
+
+  it("says plainly that the balance a customer owes is not in these files", async () => {
+    const { w, d } = await start();
+    const res = await get(w, d, "/api/views/payments-due");
+    expect(res.body.basis).toContain("balance a customer still owes is not in this system");
+  });
+});
+
+describe("money blocked and money churned", () => {
+  it("bands what is stuck by age and counts the cars with no price apart", async () => {
+    const { w, d } = await start();
+    const res = await get(w, d, "/api/views/money?from=2026-10-01&to=2026-10-10");
+    expect(res.status).toBe(200);
+    expect(res.body.blocked.map((b: any) => b.label)).toEqual(["0-30 days", "31-60 days", "61-90 days", "Over 90 days"]);
+    expect(res.body.blocked_total.cars).toBeGreaterThan(0);
+    // The total is the bands added up — not a number that depends on which of two identical cars the
+    // allocator happened to take.
+    expect(res.body.blocked_total.value).toBe(res.body.blocked.reduce((n: number, b: any) => n + b.value, 0));
+    expect(res.body.blocked_total.cars).toBe(res.body.blocked.reduce((n: number, b: any) => n + b.cars, 0));
+    // The XUV was invoiced by the manufacturer on 1 June, so its money sits in the oldest band.
+    expect(res.body.blocked.find((b: any) => b.label === "Over 90 days").value).toBeGreaterThanOrEqual(1100000);
+    // Cars with no price are reported separately rather than folded into the total as zero. The
+    // fixtures all carry a price, so here that count is nil — the point is that it is reported at all.
+    expect(typeof res.body.blocked_total.unpriced).toBe("number");
+  });
+
+  it("counts what turned over in the period, by its retail invoice date", async () => {
+    const { w, d } = await start();
+    const res = await get(w, d, "/api/views/money?from=2026-10-01&to=2026-10-10");
+    expect(res.body.churned.cars).toBe(1); // the Thar invoiced on 2 October
+  });
+
+  it("is refused to a role that may not see stock value", async () => {
+    const { w, d } = await start();
+    expect((await get(w, d, "/api/views/money", "exec")).status).toBe(403);
+  });
+});

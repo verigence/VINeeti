@@ -4796,3 +4796,115 @@ button.primary {
   gap: 12px;
   margin-bottom: 18px;
 }
+
+/* ---------------------------------------------------------------- a role's board
+   One screen. The figures, then the pictures, then the one list that needs working through — and it is
+   the list that scrolls, inside its own panel, so the figures never leave the screen.
+   A detail screen still scrolls; this rule is for a board somebody stands in front of. */
+.board-screen {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  /* The shell's top bar and the page's own padding. */
+  height: calc(100vh - var(--topbar-h) - 40px);
+  min-height: 420px;
+}
+.board-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 1px;
+  background: var(--navy-line);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 40, 88, 0.14);
+}
+.board-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  background-image: linear-gradient(150deg, var(--navy) 0, var(--navy-2) 100%);
+  color: #fff;
+  text-decoration: none;
+  min-width: 0;
+}
+.board-kpi-n {
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.board-kpi-label {
+  font-size: 12px;
+  color: #cfe3ef;
+  line-height: 1.3;
+}
+.board-kpi-warn .board-kpi-n {
+  color: #ffd98a;
+}
+.board-kpi-danger .board-kpi-n {
+  color: #ffb3a7;
+}
+.board-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  min-height: 0;
+}
+.board-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0, 40, 88, 0.05);
+  overflow: hidden;
+}
+.board-panel > h2 {
+  flex: none;
+  padding: 10px 14px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  border-bottom: 1px solid var(--border-soft);
+}
+.board-panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+}
+.board-panel-grow .board-panel-body {
+  /* The list, and only the list, scrolls. */
+  overflow: auto;
+  padding: 0;
+}
+.board-panel > .chart-basis {
+  flex: none;
+  padding: 0 14px 8px;
+  margin: 0;
+  border: 0;
+}
+@media (max-width: 1100px) {
+  /* Below a laptop screen the board stops pretending to fit and simply flows. */
+  .board-screen {
+    height: auto;
+    min-height: 0;
+  }
+  .board-panel-grow .board-panel-body {
+    overflow: visible;
+  }
+}
+/* Setting the dealership up is a different job from running it today, so it is a different list. */
+.nav-group-title {
+  margin: 14px 18px 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--navy-line);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7f93a8;
+}
+.nav-admin .nav-link {
+  color: #c3d2de;
+}

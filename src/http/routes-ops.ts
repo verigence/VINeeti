@@ -5,7 +5,7 @@ import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, local
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
-import { dailyMovement, holdingCars, modelPicture, myWork, waitingLine } from "../domain/role-views";
+import { dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
@@ -158,6 +158,29 @@ export function opsRoutes(app: App) {
   app.get("/api/views/mine", async (c) => {
     need(c, "booking.view");
     return c.json(await myWork(c.get("ctx"), c.get("user").id));
+  });
+
+  /** The order bank: who is queued for what, longest queue first. */
+  app.get("/api/views/demand", async (c) => {
+    need(c, "dashboards.view");
+    return c.json(await demandQueue(c.get("ctx"), outletScope(c)));
+  });
+
+  /** Money owed on cars already held, by how long the payment window has run. */
+  app.get("/api/views/payments-due", async (c) => {
+    need(c, "dashboards.view");
+    return c.json(await paymentsDue(c.get("ctx"), outletScope(c)));
+  });
+
+  /** What is stuck in stock and what turned over in the period. */
+  app.get("/api/views/money", async (c) => {
+    need(c, "stock.value");
+    const ctx = c.get("ctx");
+    const today = localParts(ctx.now, ctx.tenant.timezone).date;
+    const from = c.req.query("from") ? parseDate(c.req.query("from")) : `${today.slice(0, 7)}-01`;
+    const to = c.req.query("to") ? parseDate(c.req.query("to")) : today;
+    if (!from || !to || from > to) throw bad("The period is not valid");
+    return c.json(await moneyFlow(ctx, from, to, outletScope(c)));
   });
 
   /** How the month is going: retails so far, the month before to the same day, the target and the pace. */

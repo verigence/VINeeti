@@ -371,3 +371,217 @@ export async function myWork(ctx: Ctx, userId: string): Promise<{ as_of: string;
     basis: "Bookings you created or that are assigned to you. Delivered counts the last 30 days. No car coming means nothing of that model, variant and colour is free in the yard, on the way, or on order.",
   };
 }
+
+export interface DemandRow {
+  model: string;
+  variant: string;
+  colour: string;
+  /** Customers in the queue for exactly this car, and the longest any of them has waited. */
+  queue: number;
+  on_hold: number;
+  longest_wait_days: number;
+  /** Free to give out now, before the queue is served. */
+  free_now: number;
+  on_order: number;
+  /** Queue minus what is free and on order: how many of these still have nothing coming. */
+  short_by: number;
+}
+
+/**
+ * The order bank: who is queued for what. In this market the queue is the demand signal — a model with
+ * forty people waiting and nothing coming is a different problem from one with forty in the yard and
+ * nobody waiting, and both are invisible in a stock report read on its own.
+ *
+ * Sorted by the longest queue, so the most-wanted car is the first row. Reading from the bottom gives
+ * the configurations nobody is asking for.
+ */
+export async function demandQueue(ctx: Ctx, outletIds: string[] | null): Promise<{ as_of: string; rows: DemandRow[]; totals: { waiting: number; configurations: number; short: number }; source: Awaited<ReturnType<typeof dataStatus>>; basis: string }> {
+  const tz = ctx.tenant.timezone;
+  const today = localParts(ctx.now, tz).date;
+  const queue = await all<{ model: string; variant: string; colour: string; queue: number; on_hold: number; earliest: string }>(
+    ctx.db,
+    `SELECT b.model, b.variant, b.colour, SUM(CASE WHEN b.on_hold = 0 THEN 1 ELSE 0 END) AS queue, SUM(b.on_hold) AS on_hold, MIN(b.priority_ts) AS earliest
+       FROM bookings b
+      WHERE b.tenant_id = ? AND b.status = 'APPROVED'
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')${inList(outletIds, "b.outlet_id")}
+      GROUP BY 1, 2, 3`,
+    ctx.tenantId, ...(outletIds ?? []),
+  );
+  const free = await all<{ model: string; variant: string; colour: string; n: number }>(
+    ctx.db,
+    `SELECT v.model, v.variant, v.colour, COUNT(*) AS n FROM vehicles v
+      WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND v.is_demo = 0
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')
+      GROUP BY 1, 2, 3`,
+    ctx.tenantId,
+  );
+  const orders = await all<{ model: string; variant: string; colour: string; n: number }>(
+    ctx.db,
+    `SELECT model, variant, colour, SUM(quantity) AS n FROM order_requests WHERE tenant_id = ? AND status IN ('PLACED','CONFIRMED') GROUP BY 1, 2, 3`,
+    ctx.tenantId,
+  );
+  const k = (r: { model: string; variant: string; colour: string }) => `${r.model}|${r.variant}|${r.colour}`;
+  const freeBy = new Map(free.map((f) => [k(f), f.n]));
+  const orderBy = new Map(orders.map((f) => [k(f), f.n]));
+  const rows = queue
+    .map((q) => {
+      const freeNow = freeBy.get(k(q)) ?? 0;
+      const onOrder = orderBy.get(k(q)) ?? 0;
+      return {
+        model: q.model,
+        variant: q.variant,
+        colour: q.colour,
+        queue: q.queue,
+        on_hold: q.on_hold,
+        longest_wait_days: Math.max(0, days(q.earliest, today)),
+        free_now: freeNow,
+        on_order: onOrder,
+        short_by: Math.max(0, q.queue - freeNow - onOrder),
+      };
+    })
+    .sort((a, b) => b.queue - a.queue || b.longest_wait_days - a.longest_wait_days || a.model.localeCompare(b.model));
+  return {
+    as_of: today,
+    rows,
+    totals: { waiting: rows.reduce((n, r) => n + r.queue, 0), configurations: rows.length, short: rows.reduce((n, r) => n + r.short_by, 0) },
+    source: await dataStatus(ctx),
+    basis:
+      "Approved bookings with no car allocated, grouped by the exact model, variant and colour asked for. Free now is cars no booking holds; on order is what has been placed with the manufacturer and not arrived. " +
+      "Short by is the queue less both of those — customers for whom nothing exists anywhere yet. Bookings on hold are counted apart and are not in the queue figure.",
+  };
+}
+
+export interface DueRow {
+  booking_id: string;
+  booking_no: string;
+  customer_name: string;
+  model: string;
+  variant: string;
+  colour: string;
+  vin: string;
+  outlet: string;
+  sales_exec: string | null;
+  /** Days the payment window has run. The window starts when the car is at the dealership. */
+  window_days: number;
+  /** Days left before the dealership's own re-allocation rule applies; negative once it has passed. */
+  days_left: number;
+  state: "AWAITING" | "REPORTED";
+  booking_amount: number;
+  reported_amount: number | null;
+  reported_on: string | null;
+}
+
+/**
+ * Money owed on cars that are already held. A car standing against a booking nobody has paid for is
+ * stock that cannot be sold and a customer nobody has chased, and it is the single most common way a
+ * dealership's yard silently fills up.
+ *
+ * What this cannot do: tell you the balance due. Neither DMS file carries the deal value — the on-road
+ * price, the exchange, the finance — so the amount a customer still owes is not in this system. What is
+ * here is what the dealership recorded: the booking amount, anything sales has reported, and how long
+ * the window has run. It is deliberately not dressed up as a balance.
+ */
+export async function paymentsDue(ctx: Ctx, outletIds: string[] | null): Promise<{ as_of: string; rows: DueRow[]; buckets: { label: string; bookings: number }[]; totals: { awaiting: number; reported: number; past_window: number; booking_amount: number }; window_days: number; source: Awaited<ReturnType<typeof dataStatus>>; basis: string }> {
+  const tz = ctx.tenant.timezone;
+  const today = localParts(ctx.now, tz).date;
+  const limit = ctx.settings.reallocate_days;
+  const rows = await all<{
+    booking_id: string; booking_no: string; customer_name: string; model: string; variant: string; colour: string; vin: string; outlet: string; sales_exec: string | null;
+    clock_started_at: string | null; booking_amount: number; payment_reported_at: string | null; payment_amount: number | null;
+  }>(
+    ctx.db,
+    `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, v.vin, o.name AS outlet, u.name AS sales_exec,
+            a.clock_started_at, b.booking_amount, b.payment_reported_at, b.payment_amount
+       FROM allocations a
+       JOIN bookings b ON b.id = a.booking_id
+       JOIN vehicles v ON v.id = a.vehicle_id
+       JOIN outlets o ON o.id = v.outlet_id
+       LEFT JOIN users u ON u.id = b.sales_exec_id
+      WHERE a.tenant_id = ? AND a.status = 'ACTIVE' AND b.status = 'ALLOCATED' AND b.payment_received_at IS NULL
+        AND a.clock_started_at IS NOT NULL${inList(outletIds, "b.outlet_id")}
+      ORDER BY a.clock_started_at`,
+    ctx.tenantId, ...(outletIds ?? []),
+  );
+  const out: DueRow[] = rows.map((r) => {
+    const window = Math.max(0, days(localParts(new Date(r.clock_started_at!), tz).date, today));
+    return {
+      booking_id: r.booking_id,
+      booking_no: r.booking_no,
+      customer_name: r.customer_name,
+      model: r.model,
+      variant: r.variant,
+      colour: r.colour,
+      vin: r.vin,
+      outlet: r.outlet,
+      sales_exec: r.sales_exec,
+      window_days: window,
+      days_left: limit - window,
+      state: r.payment_reported_at ? "REPORTED" : "AWAITING",
+      booking_amount: r.booking_amount,
+      reported_amount: r.payment_amount,
+      reported_on: r.payment_reported_at ? localParts(new Date(r.payment_reported_at), tz).date : null,
+    };
+  });
+  const bands: [string, number, number][] = [["Due today or tomorrow", 0, 1], ["2-5 days in", 2, 5], ["6-10 days in", 6, 10], ["Over 10 days in", 11, 1e9]];
+  return {
+    as_of: today,
+    rows: out,
+    buckets: bands.map(([label, lo, hi]) => ({ label, bookings: out.filter((r) => r.window_days >= lo && r.window_days <= hi).length })),
+    totals: {
+      awaiting: out.filter((r) => r.state === "AWAITING").length,
+      reported: out.filter((r) => r.state === "REPORTED").length,
+      past_window: out.filter((r) => r.days_left < 0).length,
+      booking_amount: Math.round(out.reduce((n, r) => n + (r.booking_amount ?? 0), 0)),
+    },
+    window_days: limit,
+    source: await dataStatus(ctx),
+    basis:
+      `Cars held against a booking whose payment Finance has not confirmed. The window counts from the day the car was at the dealership; this dealership re-allocates after ${limit} days. ` +
+      "Neither DMS file carries the deal value, so the balance a customer still owes is not in this system: what is shown is the booking amount and anything sales has reported.",
+  };
+}
+
+/**
+ * The two money questions a Dealer Principal asks: what is stuck, and what moved.
+ *
+ * Blocked is the dealer price of cars nobody has booked, by how long they have stood — the dealership's
+ * own money, sitting. Churned is the dealer price of cars retail-invoiced in the period: the same money
+ * turning back over. Both come from the net dealer price in the stock report, and cars the file carries
+ * no price for are counted separately rather than quietly left out of a total.
+ */
+export async function moneyFlow(ctx: Ctx, from: string, to: string, outletIds: string[] | null): Promise<{ period: { from: string; to: string }; blocked: { label: string; cars: number; value: number }[]; blocked_total: { cars: number; value: number; unpriced: number }; churned: { cars: number; value: number; unpriced: number }; source: Awaited<ReturnType<typeof dataStatus>>; basis: string }> {
+  const tz = ctx.tenant.timezone;
+  const today = localParts(ctx.now, tz).date;
+  const T = ctx.tenantId;
+  const o = outletIds ?? [];
+  const held = await all<{ price: number | null; age: number | null }>(
+    ctx.db,
+    `SELECT v.net_dealer_price AS price,
+            CASE WHEN v.wholesale_invoice_date IS NULL THEN NULL ELSE CAST(julianday(?) - julianday(v.wholesale_invoice_date) AS INTEGER) END AS age
+       FROM vehicles v
+      WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_demo = 0
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')${inList(outletIds, "v.outlet_id")}`,
+    today, T, ...o,
+  );
+  const bands: [string, number, number][] = [["0-30 days", 0, 30], ["31-60 days", 31, 60], ["61-90 days", 61, 90], ["Over 90 days", 91, 1e9]];
+  const blocked = bands.map(([label, lo, hi]) => {
+    const cars = held.filter((c) => c.age !== null && c.age >= lo && c.age <= hi);
+    return { label, cars: cars.length, value: Math.round(cars.reduce((n, c) => n + (c.price ?? 0), 0)) };
+  });
+  const sold = await all<{ price: number | null }>(
+    ctx.db,
+    `SELECT v.net_dealer_price AS price FROM vehicles v
+      WHERE v.tenant_id = ? AND v.status IN ('INVOICED','DELIVERED') AND v.invoiced_at >= ? AND v.invoiced_at < ?${inList(outletIds, "v.outlet_id")}`,
+    T, localDayBounds(from, tz).start, localDayBounds(to, tz).end, ...o,
+  );
+  return {
+    period: { from, to },
+    blocked,
+    blocked_total: { cars: held.length, value: Math.round(held.reduce((n, c) => n + (c.price ?? 0), 0)), unpriced: held.filter((c) => c.price === null).length },
+    churned: { cars: sold.length, value: Math.round(sold.reduce((n, c) => n + (c.price ?? 0), 0)), unpriced: sold.filter((c) => c.price === null).length },
+    source: await dataStatus(ctx),
+    basis:
+      "Blocked is the net dealer price in the stock report of cars no booking holds, banded by days since the manufacturer's invoice. Churned is the same price for cars retail-invoiced in the period. " +
+      "Cars the file carries no price for are counted and reported apart, never folded into a total as zero. Demo cars are not stock to sell and are excluded.",
+  };
+}

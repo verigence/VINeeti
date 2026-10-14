@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "../api";
 import { personName } from "../labels";
-import { canApprove, destinationsFor, isActive, tabsFor, type Destination } from "../nav";
+import { adminDestinations, canApprove, destinationsFor, isActive, tabsFor, workDestinations, type Destination } from "../nav";
 import { productName } from "../product";
 import { Link, useRouter } from "../router";
 import { Routes } from "../routes";
@@ -50,6 +50,8 @@ export function Shell() {
   const state = useMemo<AlertsState>(() => ({ alerts: alerts.rows, unread, unreadAlarms, loading: alerts.loading, error: alerts.error, pendingApprovals: pending, reload }), [alerts, unread, unreadAlarms, pending, reload]);
 
   const all = destinationsFor(can);
+  const work = workDestinations(can);
+  const admin = adminDestinations(can);
   const tabs = tabsFor(can);
   const more = all.filter((d) => !tabs.includes(d));
   // People who receive alarms see the count of unread alarms on Home; everyone else, their unread alerts.
@@ -79,9 +81,11 @@ export function Shell() {
             <span className="brand-dealer">{me.tenant.name}</span>
             <span className="brand-oem">{me.tenant.oem}</span>
           </div>
+          {/* Two lists, never one: the day's work, then setting the dealership up. Somebody working the
+              floor should not have to read past WhatsApp templates to find their bookings. */}
           <nav aria-label="Main">
             <ul className="nav">
-              {all.map((d) => (
+              {work.map((d) => (
                 <li key={d.to}>
                   <Link to={d.to} className={`nav-link${isActive(d.to, path) ? " nav-active" : ""}`} aria-current={isActive(d.to, path) ? "page" : undefined}>
                     <Icon name={d.icon} />
@@ -96,6 +100,21 @@ export function Shell() {
                 </li>
               ))}
             </ul>
+            {admin.length > 0 && (
+              <>
+                <p className="nav-group-title">Setting up</p>
+                <ul className="nav nav-admin">
+                  {admin.map((d) => (
+                    <li key={d.to}>
+                      <Link to={d.to} className={`nav-link${isActive(d.to, path) ? " nav-active" : ""}`} aria-current={isActive(d.to, path) ? "page" : undefined}>
+                        <Icon name={d.icon} />
+                        <span className="nav-label">{d.label}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </nav>
           {/* Who makes it, in JBR Consulting's own lockup, at the very bottom of the sidebar and on its
               own white band for the same reason. */}

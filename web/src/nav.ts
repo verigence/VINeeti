@@ -13,6 +13,12 @@ export interface Destination {
   allowed: (can: Can) => boolean;
   /** A count shown next to the label. */
   badge?: "alerts" | "approvals";
+  /**
+   * Setting the dealership up, rather than running it today. These sit in their own group at the foot
+   * of the sidebar: somebody doing the day's work should not have to read past them, and somebody
+   * setting the system up is doing a different job on a different day.
+   */
+  admin?: true;
 }
 
 export const canApprove = (can: Can) => can("booking.approve") || can("exception.decide");
@@ -23,6 +29,8 @@ export const DESTINATIONS: Destination[] = [
   { to: "/", label: "Home", icon: "home", allowed: () => true, badge: "alerts" },
   // The first thing a sales person does all day: a customer asks for a car and they answer. It is its
   // own place in the app, not a panel inside the stock screens or beside their own bookings.
+  // The sales lead's board: what is owed on held cars, the order bank, and who to chase today.
+  { to: "/board", label: "Today's board", icon: "dashboards", allowed: (can) => can("dashboards.view") && can("booking.view_all") },
   { to: "/stock/check", label: "Stock check", icon: "search", allowed: (can) => can("stock.view") },
   { to: "/stock", label: "Stock", icon: "car", allowed: (can) => can("stock.view") },
   { to: "/bookings", label: "Bookings", icon: "bookings", allowed: (can) => can("booking.view") },
@@ -33,13 +41,17 @@ export const DESTINATIONS: Destination[] = [
   { to: "/analytics", label: "Reports", icon: "analytics", allowed: (can) => can("dashboards.view") },
   { to: "/eod", label: "Daily update", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
   { to: "/recon", label: "Day-end check", icon: "recon", allowed: (can) => can("recon.view") },
-  { to: "/master", label: "Models & colours", icon: "master", allowed: (can) => can("master.manage") },
-  { to: "/whatsapp", label: "WhatsApp", icon: "whatsapp", allowed: (can) => can("wa.view") },
-  { to: "/admin", label: "Settings", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },
-  { to: "/audit", label: "History", icon: "audit", allowed: (can) => can("audit.view") },
+  { admin: true, to: "/master", label: "Models & colours", icon: "master", allowed: (can) => can("master.manage") },
+  { admin: true, to: "/whatsapp", label: "WhatsApp", icon: "whatsapp", allowed: (can) => can("wa.view") },
+  { admin: true, to: "/admin", label: "Settings", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },
+  { admin: true, to: "/audit", label: "History", icon: "audit", allowed: (can) => can("audit.view") },
 ];
 
 export const destinationsFor = (can: Can) => DESTINATIONS.filter((d) => d.allowed(can));
+
+/** The day's work, and setting the place up: two groups, never mixed in one list. */
+export const workDestinations = (can: Can) => destinationsFor(can).filter((d) => !d.admin);
+export const adminDestinations = (can: Can) => destinationsFor(can).filter((d) => d.admin);
 
 /**
  * The phone tab bar: Home and the three places this person works in most, judged by what they are

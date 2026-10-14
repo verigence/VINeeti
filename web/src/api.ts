@@ -165,6 +165,9 @@ export const api = {
   waitingLine: () => get<T.WaitingResponse>("/api/views/waiting"),
   daily: (from?: string, to?: string) => get<T.DailyResponse>("/api/views/daily", { from, to }),
   myWork: () => get<T.MyWork>("/api/views/mine"),
+  demand: () => get<T.DemandResponse>("/api/views/demand"),
+  paymentsDue: () => get<T.PaymentsDueResponse>("/api/views/payments-due"),
+  money: (from?: string, to?: string) => get<T.MoneyFlow>("/api/views/money", { from, to }),
 
   // ---- analytics
   ageing: () => get<T.AgeingResponse>("/api/analytics/ageing"),

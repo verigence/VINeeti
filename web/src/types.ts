@@ -1259,3 +1259,28 @@ export interface WaitingResponse { as_of: string; rows: WaitingRow[]; buckets: {
 export interface DayRow { date: string; allocated: number; released: number; invoiced: number; delivered: number }
 export interface DailyResponse { period: { from: string; to: string }; days: DayRow[]; totals: DayRow; source: DataStatus; basis: string }
 export interface MyWork { as_of: string; counts: { waiting: number; allocated: number; invoiced: number; delivered_30: number; no_car_coming: number }; basis: string }
+
+export interface DemandRow {
+  model: string; variant: string; colour: string;
+  queue: number; on_hold: number; longest_wait_days: number;
+  free_now: number; on_order: number; short_by: number;
+}
+export interface DemandResponse { as_of: string; rows: DemandRow[]; totals: { waiting: number; configurations: number; short: number }; source: DataStatus; basis: string }
+export interface DueRow {
+  booking_id: string; booking_no: string; customer_name: string;
+  model: string; variant: string; colour: string; vin: string; outlet: string; sales_exec: string | null;
+  window_days: number; days_left: number; state: "AWAITING" | "REPORTED";
+  booking_amount: number; reported_amount: number | null; reported_on: string | null;
+}
+export interface PaymentsDueResponse {
+  as_of: string; rows: DueRow[]; buckets: { label: string; bookings: number }[];
+  totals: { awaiting: number; reported: number; past_window: number; booking_amount: number };
+  window_days: number; source: DataStatus; basis: string;
+}
+export interface MoneyFlow {
+  period: { from: string; to: string };
+  blocked: { label: string; cars: number; value: number }[];
+  blocked_total: { cars: number; value: number; unpriced: number };
+  churned: { cars: number; value: number; unpriced: number };
+  source: DataStatus; basis: string;
+}
