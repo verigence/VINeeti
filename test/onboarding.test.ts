@@ -356,3 +356,27 @@ describe("signing in with the mobile number", () => {
     expect((await w.api("POST", "/api/auth/login", { dealer: "other-mahindra", mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(401);
   });
 });
+
+describe("an outlet's address", () => {
+  it("is kept with the outlet, and comes back with it", async () => {
+    const w = makeWorld("2026-10-10 10:00");
+    const d = await makeMahindraDealer(w);
+    const made = await w.api("POST", "/api/outlets", { code: "AD99", name: "PURI", city: "Puri", address: "Nabakalebar Road, Kumbharapada, Puri, Odisha 752002" }, d.users.admin.session);
+    expect(made.status).toBe(201);
+    const list = await w.api("GET", "/api/outlets", undefined, d.users.admin.session);
+    const puri = list.body.find((o: any) => o.code === "AD99");
+    expect(puri).toMatchObject({ name: "PURI", city: "Puri", address: "Nabakalebar Road, Kumbharapada, Puri, Odisha 752002" });
+
+    const changed = await w.api("PATCH", `/api/outlets/${puri.id}`, { address: "Near Atharanala, Puri" }, d.users.admin.session);
+    expect(changed.status).toBe(200);
+    const after = (await w.api("GET", "/api/outlets", undefined, d.users.admin.session)).body.find((o: any) => o.code === "AD99");
+    expect(after).toMatchObject({ address: "Near Atharanala, Puri", name: "PURI", city: "Puri" });
+  });
+
+  it("is only an administrator's to set", async () => {
+    const w = makeWorld("2026-10-10 10:00");
+    const d = await makeMahindraDealer(w);
+    const res = await w.api("POST", "/api/outlets", { code: "AD98", name: "NUAPATANA" }, d.users.exec.session);
+    expect(res.status).toBe(403);
+  });
+});

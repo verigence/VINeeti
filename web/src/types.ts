@@ -75,6 +75,8 @@ export interface Outlet {
   code: string;
   name: string;
   city: string | null;
+  /** Where the outlet is, for the customer who has to collect a car from another branch. */
+  address: string | null;
   is_active: number;
 }
 export interface OutletRef {

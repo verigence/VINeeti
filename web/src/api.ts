@@ -215,8 +215,8 @@ export const api = {
 
   // ---- administration
   outlets: () => get<T.Outlet[]>("/api/outlets"),
-  createOutlet: (o: { code: string; name: string; city?: string }) => post<{ id: string }>("/api/outlets", o),
-  updateOutlet: (id: string, o: { name?: string; city?: string; is_active?: boolean }) => patch<Ok>(`/api/outlets/${enc(id)}`, o),
+  createOutlet: (o: { code: string; name: string; city?: string; address?: string }) => post<{ id: string }>("/api/outlets", o),
+  updateOutlet: (id: string, o: { name?: string; city?: string; address?: string; is_active?: boolean }) => patch<Ok>(`/api/outlets/${enc(id)}`, o),
   users: () => get<T.UserRow[]>("/api/users"),
   directory: () => get<T.DirectoryUser[]>("/api/users/directory"),
   createUser: (u: T.UserInput) => post<{ id: string }>("/api/users", u),

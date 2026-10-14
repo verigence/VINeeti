@@ -47,6 +47,7 @@ function OutletsTab() {
     { header: "Outlet", primary: true, cell: (o) => <span className="strong">{o.name}</span> },
     { header: "Code", cell: (o) => <span className="mono">{o.code}</span> },
     { header: "City", cell: (o) => o.city ?? <span className="muted">—</span>, hideIfEmpty: (o) => !o.city },
+    { header: "Address", cell: (o) => o.address ?? <span className="muted">—</span>, hideIfEmpty: (o) => !o.address },
     { header: "Status", status: true, cell: (o) => (o.is_active ? <Chip tone="green">Active</Chip> : <Chip tone="grey">Inactive</Chip>) },
     {
       header: "Actions",
@@ -120,14 +121,15 @@ function OutletDialog({ outlet, onClose, onDone }: { outlet?: Outlet; onClose: (
   const [code, setCode] = useState(outlet?.code ?? "");
   const [name, setName] = useState(outlet?.name ?? "");
   const [city, setCity] = useState(outlet?.city ?? "");
+  const [address, setAddress] = useState(outlet?.address ?? "");
   const [problem, setProblem] = useState<string | null>(null);
 
   const submit = async () => {
     if (!name.trim() || (!outlet && !code.trim())) return setProblem("Enter the outlet's code and name.");
     setProblem(null);
     const res = outlet
-      ? await action.run(() => api.updateOutlet(outlet.id, { name: name.trim(), city: city.trim() }), { quiet: true, success: "Outlet saved." })
-      : await action.run(() => api.createOutlet({ code: code.trim(), name: name.trim(), city: city.trim() || undefined }), { quiet: true, success: `Outlet ${name.trim()} added.` });
+      ? await action.run(() => api.updateOutlet(outlet.id, { name: name.trim(), city: city.trim(), address: address.trim() }), { quiet: true, success: "Outlet saved." })
+      : await action.run(() => api.createOutlet({ code: code.trim(), name: name.trim(), city: city.trim() || undefined, address: address.trim() || undefined }), { quiet: true, success: `Outlet ${name.trim()} added.` });
     if (res) onDone();
   };
 
@@ -163,6 +165,9 @@ function OutletDialog({ outlet, onClose, onDone }: { outlet?: Outlet; onClose: (
         </Field>
         <Field label="City" optional>
           <input value={city} onChange={(e) => setCity(e.target.value)} autoComplete="off" maxLength={80} />
+        </Field>
+        <Field label="Address" optional hint="Read out to a customer who has to collect a car from this branch." wide>
+          <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} maxLength={300} />
         </Field>
         {(problem || action.error) && <Notice tone="error">{problem ?? plainText(action.error)}</Notice>}
       </div>

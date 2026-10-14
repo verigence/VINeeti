@@ -177,27 +177,36 @@ export function authRoutes(app: App) {
   // ------------------------------------------------------------ outlets
   app.get("/api/outlets", async (c) => {
     const ctx = c.get("ctx");
-    return c.json(await all(ctx.db, `SELECT id, code, name, city, is_active FROM outlets WHERE tenant_id = ? ORDER BY name`, ctx.tenantId));
+    return c.json(await all(ctx.db, `SELECT id, code, name, city, address, is_active FROM outlets WHERE tenant_id = ? ORDER BY name`, ctx.tenantId));
   });
   app.post("/api/outlets", async (c) => {
     need(c, "admin.users");
     const ctx = c.get("ctx");
-    const b = await jsonBody<{ code?: string; name?: string; city?: string }>(c);
+    const b = await jsonBody<{ code?: string; name?: string; city?: string; address?: string }>(c);
     const code = norm(b.code);
     if (!code || !b.name?.trim()) throw bad("Outlet code and name are required");
     if (await first(ctx.db, `SELECT id FROM outlets WHERE tenant_id = ? AND code = ?`, ctx.tenantId, code)) throw conflict(`Outlet code ${code} already exists`);
     const id = newId("out");
-    await run(ctx.db, `INSERT INTO outlets (id, tenant_id, code, name, city, created_at) VALUES (?,?,?,?,?,?)`, id, ctx.tenantId, code, b.name.trim(), b.city?.trim() ?? null, iso(ctx.now));
+    await run(ctx.db, `INSERT INTO outlets (id, tenant_id, code, name, city, address, created_at) VALUES (?,?,?,?,?,?,?)`, id, ctx.tenantId, code, b.name.trim(), b.city?.trim() || null, b.address?.trim() || null, iso(ctx.now));
     await audit(ctx, "OUTLET_CREATED", "outlet", id, { code, name: b.name.trim() });
     return c.json({ id }, 201);
   });
   app.patch("/api/outlets/:id", async (c) => {
     need(c, "admin.users");
     const ctx = c.get("ctx");
-    const b = await jsonBody<{ name?: string; city?: string; is_active?: boolean }>(c);
-    const o = await first<{ id: string; name: string; city: string | null; is_active: number }>(ctx.db, `SELECT * FROM outlets WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
+    const b = await jsonBody<{ name?: string; city?: string; address?: string; is_active?: boolean }>(c);
+    const o = await first<{ id: string; name: string; city: string | null; address: string | null; is_active: number }>(ctx.db, `SELECT * FROM outlets WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!o) throw notFound("Outlet");
-    await run(ctx.db, `UPDATE outlets SET name = ?, city = ?, is_active = ? WHERE id = ? AND tenant_id = ?`, b.name?.trim() || o.name, b.city === undefined ? o.city : b.city?.trim() || null, b.is_active === undefined ? o.is_active : b.is_active ? 1 : 0, o.id, ctx.tenantId);
+    await run(
+      ctx.db,
+      `UPDATE outlets SET name = ?, city = ?, address = ?, is_active = ? WHERE id = ? AND tenant_id = ?`,
+      b.name?.trim() || o.name,
+      b.city === undefined ? o.city : b.city?.trim() || null,
+      b.address === undefined ? o.address : b.address?.trim() || null,
+      b.is_active === undefined ? o.is_active : b.is_active ? 1 : 0,
+      o.id,
+      ctx.tenantId,
+    );
     await audit(ctx, "OUTLET_UPDATED", "outlet", o.id, b);
     return c.json({ ok: true });
   });
