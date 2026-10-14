@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, errorMessage } from "../api";
 import { BrandFoot } from "../components/Brand";
 import { Dialog } from "../components/Dialog";
-import { Button, Card, Chip, DataTable, Empty, Field, Notice, Stat, type Column } from "../components/ui";
+import { Button, Card, Chip, type Column, DataTable, Empty, Field, Notice, PasswordInput, Stat } from "../components/ui";
 import { fmtDateTime, fmtNumber } from "../format";
 import { PRODUCT } from "../product";
 
@@ -61,11 +61,11 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
   return (
     <div className="auth">
       <div className="auth-middle">
+        {/* One card, as on the dealership's own sign-in. */}
         <div className="auth-panel">
-          <div className="auth-brand">
-            <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
-          </div>
-          <Card title={title}>{children}</Card>
+          <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
+          <h1 className="auth-title">{title}</h1>
+          {children}
         </div>
       </div>
       <BrandFoot />
@@ -98,7 +98,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           <input type="tel" inputMode="tel" autoComplete="username" value={mobile} onChange={(e) => setMobile(e.target.value)} required />
         </Field>
         <Field label="Password">
-          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <PasswordInput value={password} onChange={setPassword} autoComplete="current-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Sign in</Button>
@@ -130,10 +130,10 @@ function ChangePassword({ onDone }: { onDone: () => void }) {
     <Frame title="Set a new password">
       <form onSubmit={submit} className="form-grid">
         <Field label="Current password">
-          <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          <PasswordInput value={current} onChange={setCurrent} autoComplete="current-password" required />
         </Field>
         <Field label="New password" hint="At least 10 characters, with a letter and a number.">
-          <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required />
+          <PasswordInput value={next} onChange={setNext} autoComplete="new-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Save</Button>
@@ -280,7 +280,7 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
           <input type="tel" inputMode="tel" value={form.admin_mobile} onChange={set("admin_mobile")} required />
         </Field>
         <Field label="First password" hint="At least 8 characters with a letter and a number. They must replace it at first sign-in.">
-          <input type="password" value={form.password} onChange={set("password")} required />
+          <PasswordInput value={form.password} onChange={(v) => set("password")({ target: { value: v } } as any)} autoComplete="new-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Create the dealership</Button>

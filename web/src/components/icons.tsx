@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export type IconName =
   | "home" | "car" | "bookings" | "approvals" | "dashboards" | "analytics" | "upload" | "recon" | "whatsapp" | "admin" | "audit"
   | "menu" | "close" | "bell" | "logout" | "key" | "plus" | "search" | "external" | "copy" | "refresh" | "download"
-  | "warning" | "check" | "chevron" | "back" | "file" | "clock" | "info" | "filter" | "more" | "phone" | "offline" | "share" | "payments" | "owner" | "master" | "dayend" | "up" | "down";
+  | "eye" | "eye-off" | "warning" | "check" | "chevron" | "back" | "file" | "clock" | "info" | "filter" | "more" | "phone" | "offline" | "share" | "payments" | "owner" | "master" | "dayend" | "up" | "down";
 
 const PATHS: Record<IconName, ReactNode> = {
   home: <path d="M4 11.5 12 5l8 6.5V20h-5.5v-5h-5v5H4z" />,
@@ -60,6 +60,19 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  eye: (
+    <>
+      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </>
+  ),
+  "eye-off": (
+    <>
+      <path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17.7 17.7 0 0 1-3.3 3.8M6.5 7.8A17.6 17.6 0 0 0 2 12s3.6 6 10 6a9.7 9.7 0 0 0 3.9-.8" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="M3 3l18 18" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="6" />

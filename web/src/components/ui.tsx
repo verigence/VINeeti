@@ -343,6 +343,58 @@ export function Field({ label, hint, error, optional, children, wide }: { label:
   );
 }
 
+/**
+ * A password box with a way to see what has been typed. Anyone typing a password they were given on a
+ * phone keyboard will mistype it, and a row of dots gives them nothing to check against; the eye is how
+ * they check. It starts hidden, so nothing is on screen unless the person asks for it, and the button
+ * says which state it is in for a screen reader.
+ */
+export function PasswordInput({
+  value,
+  onChange,
+  name,
+  autoComplete = "current-password",
+  autoFocus,
+  placeholder,
+  required,
+  disabled,
+  enterKeyHint,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  name?: string;
+  autoComplete?: string;
+  autoFocus?: boolean;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  enterKeyHint?: "go" | "next" | "done";
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span className="password-box">
+      <input
+        type={shown ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        name={name}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        required={required}
+        disabled={disabled}
+        enterKeyHint={enterKeyHint}
+        spellCheck={false}
+        autoCapitalize="off"
+      />
+      <button type="button" className="password-eye" onClick={() => setShown((s) => !s)} disabled={disabled} aria-pressed={shown} title={shown ? "Hide the password" : "Show the password"}>
+        <Icon name={shown ? "eye-off" : "eye"} size={18} />
+        <span className="sr-only">{shown ? "Hide the password" : "Show the password"}</span>
+      </button>
+    </span>
+  );
+}
+
 export function Check({ checked, onChange, children, disabled, hint }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean; hint?: ReactNode }) {
   return (
     <label className="check">

@@ -1913,8 +1913,16 @@ input[type="radio"] {
   width: 100%;
   padding: 32px 16px 16px;
 }
+/* The sign-in card: the logo, the heading and the fields are one object, not a logo floating above a
+   separate box. The width is the card's, and everything inside it shares the same gutter. */
 .auth-panel {
-  width: min(400px, 100%);
+  width: min(430px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 30px 30px 26px;
+  box-shadow: 0 18px 50px rgba(0, 20, 45, 0.22);
+  display: flex;
+  flex-direction: column;
 }
 /* Who makes it, at the foot of the screen; the product's own logo is at the top. */
 .brand-foot {
@@ -1933,15 +1941,14 @@ input[type="radio"] {
   height: auto;
   display: block;
 }
+/* Used by the change-password screen, which carries the dealership's name under the logo. */
 .auth-brand {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 20px;
-  padding: 18px 20px;
-  background: #fff;
-  border-radius: 10px;
+  margin-bottom: 14px;
   color: var(--text);
+  text-align: center;
 }
 .auth-logo {
   display: block;
@@ -1986,24 +1993,41 @@ input[type="radio"] {
   color: #c8d2dd;
   font-size: 15px;
 }
+/* Inside the card there is no second card: the form is just the fields. */
 .auth-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 14px 40px rgba(0, 20, 45, 0.18);
+  gap: 15px;
 }
-.auth-card h1 {
-  font-size: 20px;
-  font-weight: 600;
+.auth-card h1,
+.auth-title {
+  font-size: 27px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   color: var(--navy);
+  text-align: center;
+  margin: 0;
+}
+.auth-card h1 + .field,
+.auth-title + * {
+  margin-top: 2px;
 }
 .auth .card {
-  box-shadow: 0 14px 40px rgba(0, 20, 45, 0.18);
-  border-radius: 8px;
+  border: 0;
+  box-shadow: none;
+  margin: 0;
+}
+.auth .card > .card-header {
+  padding: 0 0 10px;
+  border: 0;
+}
+.auth .card > .card-header h2 {
+  font-size: 27px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.auth .card > .card-body {
+  padding: 0;
 }
 .auth-foot {
   color: var(--muted);
@@ -3657,12 +3681,12 @@ input[type="radio"] {
 .auth-panel .form-grid {
   grid-template-columns: 1fr;
 }
-/* The product's logo on its own white plate above the sign-in card, as drawn. */
+/* The product's logo, inside the card and above the heading. */
 .auth-lockup {
   display: block;
-  width: min(300px, 76%);
+  width: min(280px, 78%);
   height: auto;
-  margin: 0 auto;
+  margin: 2px auto 20px;
 }
 .auth-wordmark {
   display: block;
@@ -4577,4 +4601,55 @@ button.primary {
   .headline-item:last-child:nth-child(odd) {
     grid-column: span 2;
   }
+}
+
+/* ---------------------------------------------------------------- seeing what you typed
+   A password box with an eye. The button sits inside the box and over the text, so the field keeps the
+   same width and height as every other field on the screen. */
+.password-box {
+  position: relative;
+  display: block;
+}
+.password-box > input {
+  width: 100%;
+  padding-right: 44px;
+}
+.password-eye {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.password-eye:hover {
+  color: var(--gold-text);
+}
+.password-eye:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+.password-eye[aria-pressed="true"] {
+  color: var(--gold-text);
+}
+.password-eye:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The WhatsApp settings put a saved-secret field next to a button; the eye must not collide with it. */
+.secret-row .password-box {
+  flex: 1;
+  min-width: 0;
+}
+/* The maker's band at the foot of the sign-in screen is never squeezed to a sliver. */
+.auth .brand-foot img {
+  width: 300px;
 }

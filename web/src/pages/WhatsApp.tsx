@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api";
-import { ActionBar, Async, Button, Card, Check, Chip, CopyField, Empty, Field, KeyValues, Notice, PageHeader, RadioGroup, Select, StatusChip, Tabs } from "../components/ui";
+import { ActionBar, Async, Button, Card, Check, Chip, CopyField, Empty, Field, KeyValues, Notice, PageHeader, PasswordInput, RadioGroup, Select, StatusChip, Tabs } from "../components/ui";
 import { fmtDateTime, fmtMobile } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { humanize, plainText, waProvider, waStatus } from "../labels";
@@ -128,13 +128,13 @@ function ConnectionForm({ cfg, reload }: { cfg: WaConfig; reload: () => Promise<
             </Field>
             <Field label="Access token" hint={cfg.has_access_token ? "A token is saved. It is never shown again. Type a new one only to replace it." : "A permanent system-user token with whatsapp_business_messaging permission."}>
               <span className="secret-row">
-                <input type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder={cfg.has_access_token ? "Saved" : "Not set"} autoComplete="new-password" />
+                <PasswordInput value={accessToken} onChange={setAccessToken} placeholder={cfg.has_access_token ? "Saved" : "Not set"} autoComplete="new-password" />
                 {cfg.has_access_token ? <Chip tone="green">Saved</Chip> : <Chip tone="grey">Not set</Chip>}
               </span>
             </Field>
             <Field label="App secret" hint={cfg.has_app_secret ? "A secret is saved. It is never shown again. Type a new one only to replace it." : "From your Meta app's basic settings. Used to check that delivery receipts really come from Meta."}>
               <span className="secret-row">
-                <input type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={cfg.has_app_secret ? "Saved" : "Not set"} autoComplete="new-password" />
+                <PasswordInput value={appSecret} onChange={setAppSecret} placeholder={cfg.has_app_secret ? "Saved" : "Not set"} autoComplete="new-password" />
                 {cfg.has_app_secret ? <Chip tone="green">Saved</Chip> : <Chip tone="grey">Not set</Chip>}
               </span>
             </Field>

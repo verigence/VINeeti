@@ -16,6 +16,21 @@ export const ROOT = new URL("../../", import.meta.url).pathname;
 /** An error whose message is for the person reading the pipeline log: printed without a stack trace. */
 export class Stop extends Error {}
 
+/** A fact worth seeing on the run itself, not only in a step log that may not be reachable. */
+export function note(message, title = "Deployment") {
+  console.log(message);
+  if (process.env.GITHUB_ACTIONS !== "true") return;
+  console.log(`::notice title=${title}::${String(message).replace(/\r?\n/g, "%0A")}`);
+  const file = process.env.GITHUB_STEP_SUMMARY;
+  if (file) {
+    try {
+      appendFileSync(file, `\n**${title}.** ${message}\n`);
+    } catch {
+      /* the summary is a convenience, never the only copy */
+    }
+  }
+}
+
 export function credentials() {
   const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
   const account = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();

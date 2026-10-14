@@ -3,7 +3,7 @@ import { api, errorMessage } from "../api";
 import { StatusBars } from "../components/AppBars";
 import { BrandFoot } from "../components/Brand";
 import { useToast } from "../components/Toast";
-import { Button, Card, Disclosure, Field, Notice } from "../components/ui";
+import { Button, Card, Disclosure, Field, Notice, PasswordInput } from "../components/ui";
 import { personName } from "../labels";
 import { PRODUCT, productName } from "../product";
 import { useSession } from "../session";
@@ -36,11 +36,9 @@ function AuthFrame({ children }: { children: ReactNode }) {
     <div className="auth">
       <StatusBars />
       <div className="auth-middle">
+        {/* One card: the logo and the sign-in belong to each other and are not two floating panels. */}
         <div className="auth-panel">
-          {/* The product's logo as drawn, on white. */}
-          <div className="auth-brand">
-            <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
-          </div>
+          <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-lockup" />
           {children}
         </div>
       </div>
@@ -108,7 +106,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> })
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} name="username" type="tel" inputMode="numeric" autoComplete="username" enterKeyHint="next" autoFocus={!mobile} />
         </Field>
         <Field label="Password">
-          <input value={password} onChange={(e) => setPassword(e.target.value)} name="password" type="password" autoComplete="current-password" enterKeyHint="go" autoFocus={Boolean(mobile)} />
+          <PasswordInput value={password} onChange={setPassword} name="password" autoComplete="current-password" enterKeyHint="go" autoFocus={Boolean(mobile)} />
         </Field>
         <DealerCode value={dealer} onChange={setDealer} />
         {error && <Notice tone="error">{error}</Notice>}
@@ -214,10 +212,10 @@ function ResetPassword({ dealer, setDealer, mobile, setMobile, onBack, onSignedI
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} name="one-time-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mono" autoFocus />
         </Field>
         <Field label="New password" hint="At least 8 characters, with a letter and a number.">
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} name="new-password" autoComplete="new-password" />
+          <PasswordInput value={password} onChange={setPassword} name="new-password" autoComplete="new-password" />
         </Field>
         <Field label="New password again">
-          <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} name="new-password-again" autoComplete="new-password" />
+          <PasswordInput value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy} className="btn-block">
@@ -298,13 +296,13 @@ export function ChangePasswordForm({ forced }: { forced?: boolean }) {
   return (
     <form onSubmit={submit} noValidate className="form-stack">
       <Field label={forced ? "Password you were given" : "Current password"}>
-        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} name="current-password" autoComplete="current-password" autoFocus />
+        <PasswordInput value={current} onChange={setCurrent} name="current-password" autoComplete="current-password" autoFocus />
       </Field>
       <Field label="New password" hint="At least 8 characters, with a letter and a number.">
-        <input type="password" value={next} onChange={(e) => setNext(e.target.value)} name="new-password" autoComplete="new-password" />
+        <PasswordInput value={next} onChange={setNext} name="new-password" autoComplete="new-password" />
       </Field>
       <Field label="New password again">
-        <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} name="new-password-again" autoComplete="new-password" />
+        <PasswordInput value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
       </Field>
       {error && <Notice tone="error">{error}</Notice>}
       <div className="form-actions">

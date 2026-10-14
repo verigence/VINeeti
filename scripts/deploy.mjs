@@ -22,7 +22,7 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ROOT, Stop, credentials, ensureDatabase, main, randomSecret, readConfig, run, urlFromDeployOutput, waitHealthy, workerSecrets, workerUrl, wrangler } from "./lib/cloudflare.mjs";
+import { ROOT, Stop, credentials, ensureDatabase, main, note, randomSecret, readConfig, run, urlFromDeployOutput, waitHealthy, workerSecrets, workerUrl, wrangler } from "./lib/cloudflare.mjs";
 
 const flags = new Set(process.argv.slice(2));
 const APP_SECRETS = ["SESSION_SECRET", "DATA_KEY", "PLATFORM_ADMIN_TOKEN"];
@@ -103,7 +103,11 @@ main(async () => {
       const res = await fetch(new URL("/api/platform/bootstrap", url), { method: "POST", headers: { Authorization: `Bearer ${bootstrapToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ mobile: superMobile, name: superName, password: superPassword }) }).catch((e) => ({ ok: false, status: 0, text: async () => e.message }));
       if (res.ok) {
         const body = await res.json();
-        console.log(`Super admin ${body.mobile}: ${body.created ? "created" : body.changed ? "password brought up to date" : "already set up"}.`);
+        const what = body.created ? "created" : body.changed ? "password brought up to date" : "already set up";
+        console.log(`Super admin ${body.mobile}: ${what}.`);
+        // Said on the run itself, because "can I sign in to the platform console, and as whom" is not a
+        // question anybody should have to read a step log to answer.
+        note(`Platform console: sign in at ${url}/platform with the mobile number ${body.mobile} (${what}).`, "Super admin");
         break;
       }
       if (res.status === 401 && Date.now() < until) {
@@ -114,6 +118,10 @@ main(async () => {
     }
   } else {
     console.log("No SUPERADMIN_MOBILE / SUPERADMIN_PASSWORD secret: the platform console has no account yet.");
+    note(
+      `There is no platform administrator on this deployment: neither SUPERADMIN_MOBILE nor SUPERADMIN_PASSWORD is set as a repository secret, so ${url}/platform cannot be signed in to by anybody. Set both secrets and deploy again to create one. The dealership sign-in at ${url} is separate and is unaffected.`,
+      "No super admin",
+    );
   }
 
   const created = names.filter((n) => missing.includes(n) && !process.env[n]);
