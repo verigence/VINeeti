@@ -81,6 +81,41 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
+      # What the token can actually do, on the run itself. A deployment that stops because the token is
+      # the wrong kind is the commonest failure, and this says so without anyone opening a step log.
+      - name: Check the Cloudflare credentials
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error title=Cloudflare credentials missing::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository or organization secrets."
+            exit 1
+          fi
+          out=$(npx --no-install wrangler whoami 2>&1); code=$?
+          {
+            echo "### Cloudflare token"
+            echo ''
+            echo '```'
+            echo "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$out"
+          if [ $code -ne 0 ]; then
+            echo "::error title=Cloudflare token rejected::$(echo "$out" | tail -5 | tr '\n' ' ')"
+            exit 1
+          fi
+          if ! echo "$out" | grep -qi 'Workers Scripts'; then
+            echo "::error title=Token cannot deploy Workers::This API token has no \"Workers Scripts: Edit\" permission. Create a token with Workers Scripts: Edit and D1: Edit on this account and put it in CLOUDFLARE_API_TOKEN."
+            exit 1
+          fi
+          if ! echo "$out" | grep -qi 'D1'; then
+            echo "::error title=Token cannot use D1::This API token has no D1 permission. Add \"D1: Edit\" to it; the deployment creates and migrates the database."
+            exit 1
+          fi
+
       - name: Dry run (database, Worker and secrets, without changing anything)
         if: ${{ github.event.inputs.dry_run == 'true' }}
         env:

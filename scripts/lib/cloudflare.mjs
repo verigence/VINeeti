@@ -9,7 +9,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 export const ROOT = new URL("../../", import.meta.url).pathname;
 
@@ -161,11 +161,28 @@ export async function waitHealthy(base, seconds = 120) {
   throw new Stop(`${base}/api/health did not answer within ${seconds} seconds (${last}). The Worker is deployed; check its logs in the Cloudflare dashboard.`);
 }
 
-/** Runs a script's main function, printing a Stop as one plain line. */
+/**
+ * Runs a script's main function, printing a Stop as one plain line.
+ *
+ * The reason is also raised as a GitHub Actions annotation and written to the run summary, so why a
+ * deployment stopped is visible on the run itself rather than only to someone who opens the step log.
+ */
 export function main(fn) {
   fn().catch((e) => {
+    const msg = e instanceof Stop ? e.message : `${e?.stack ?? e}`;
     if (e instanceof Stop) console.error(`\nStopped: ${e.message}`);
     else console.error(e);
+    if (process.env.GITHUB_ACTIONS === "true") {
+      console.log(`::error title=Deployment stopped::${String(msg).replace(/\r?\n/g, "%0A")}`);
+      const file = process.env.GITHUB_STEP_SUMMARY;
+      if (file) {
+        try {
+          appendFileSync(file, `\n### Deployment stopped\n\n\`\`\`\n${msg}\n\`\`\`\n`);
+        } catch {
+          /* the summary is a convenience; never let it hide the real error */
+        }
+      }
+    }
     process.exit(1);
   });
 }
