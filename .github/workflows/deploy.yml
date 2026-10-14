@@ -81,12 +81,12 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
-      # What the token can actually do, written to the run summary before anything is deployed. This
-      # reports, it does not judge: Wrangler has written its scope names more than one way over the
-      # years ("Workers Scripts Write", "workers_scripts:write"), and a check that guesses the spelling
-      # turns a working token into a failed build. Only a missing or rejected token stops the run; a
-      # token that is merely short of a permission is stopped by the deployment itself, with Cloudflare's
-      # own words for it.
+      # What the token can actually do, reported as an annotation on the run itself. An annotation is
+      # readable from the run summary and from the API; a step log is not always reachable, and a
+      # deployment that can only be diagnosed by someone with a browser open is a deployment nobody can
+      # fix from anywhere else. This step reports and never judges: it stops the run only when a
+      # credential is missing, and leaves "is this token allowed to do that" to Cloudflare, whose words
+      # for it are more reliable than a guess at how Wrangler spells its scopes this year.
       - name: Check the Cloudflare credentials
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
@@ -94,11 +94,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set +e
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error title=Cloudflare credentials missing::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository or organization secrets."
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error title=Cloudflare credentials missing::CLOUDFLARE_API_TOKEN is not set. Add it under Settings, Secrets and variables, Actions."
             exit 1
           fi
-          out=$(npx --no-install wrangler whoami 2>&1); code=$?
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error title=Cloudflare credentials missing::CLOUDFLARE_ACCOUNT_ID is not set. Add it under Settings, Secrets and variables, Actions."
+            exit 1
+          fi
+          out=$(npx --no-install wrangler whoami 2>&1)
+          code=$?
+          echo "$out"
           {
             echo "### Cloudflare token"
             echo ''
@@ -106,13 +112,11 @@ jobs:
             echo "$out"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "$out"
-          scopes=$(echo "$out" | tr 'A-Z' 'a-z' | tr -d ' _' | grep -o 'workersscripts[a-z:]*\|d1[a-z:]*' | sort -u | tr '\n' ' ')
-          echo "::notice title=Cloudflare token scopes::${scopes:-none of workers_scripts or d1 were named in the token's scopes; if the deployment stops next, that is why}"
-          if [ $code -ne 0 ]; then
-            echo "::error title=Cloudflare token rejected::$(echo "$out" | tail -5 | tr '\n' ' ')"
-            exit 1
-          fi
+          # One annotation carrying what Wrangler said, with the email address taken out and the
+          # newlines encoded the way Actions wants them.
+          note=$(printf '%s' "$out" | tr -d '\r' | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/(email)/g; s/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=wrangler whoami (exit ${code})::${note}"
+          exit 0
 
       - name: Dry run (database, Worker and secrets, without changing anything)
         if: ${{ github.event.inputs.dry_run == 'true' }}
