@@ -35,10 +35,8 @@ function AuthFrame({ children }: { children: ReactNode }) {
       <StatusBars />
       <div className="auth-panel">
         <div className="auth-brand">
-          <img src="/icons/icon.svg" alt="" width={52} height={52} className="auth-logo" />
-          <span className="auth-product">{PRODUCT}</span>
+          <img src="/brand/wordmark-tagline.png" alt={`${PRODUCT}. Fair allocation, smarter inventory.`} className="auth-wordmark" />
           <span className="auth-byline">{PRODUCT_BYLINE}</span>
-          <span className="auth-tagline">Booking to delivery, in queue order.</span>
         </div>
         {children}
       </div>
@@ -321,8 +319,7 @@ export function ChangePasswordScreen() {
       <StatusBars />
       <div className="auth-panel">
         <div className="auth-brand">
-          <img src="/icons/icon.svg" alt="" width={52} height={52} className="auth-logo" />
-          <span className="auth-product">{productName(me.app_name)}</span>
+          <img src="/brand/wordmark.png" alt={productName(me.app_name)} className="auth-wordmark" />
           <span className="auth-byline">{PRODUCT_BYLINE}</span>
           <span className="auth-tagline">
             {me.tenant.name} · {me.tenant.oem}

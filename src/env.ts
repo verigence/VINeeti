@@ -14,6 +14,8 @@ export interface Env {
   /** Optional: one webhook verify token / app secret shared by all dealers on JBR's own Meta app. */
   WA_VERIFY_TOKEN?: string;
   WA_APP_SECRET?: string;
+  /** Optional: SHA-256 fingerprint(s) of the Android app's signing certificate, comma-separated, so the app may open the site full screen. */
+  ANDROID_CERT_SHA256?: string;
 }
 
 export type Role =

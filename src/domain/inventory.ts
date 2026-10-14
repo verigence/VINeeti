@@ -7,6 +7,7 @@ import type { Ctx } from "../env";
 import { all, alertStmt, auditStmt, first, isGuardFailure, run, stmt, type Guard } from "../lib/db";
 import { bad, conflict, iso, localParts, newId, norm, notFound, parseDate } from "../lib/util";
 import { messageStmt } from "../whatsapp/outbox";
+import { salesExecMessage } from "./staff-notify";
 import { resolveConfig, type ConfigInput, type ResolvedConfig } from "./master";
 import {
   activeAllocationForVehicle,
@@ -113,6 +114,7 @@ async function arrivalNotices(ctx: Ctx, v: Vehicle, b: BookingRow, allocationId:
   return [
     auditStmt(ctx, "STOCK_RECEIVED", "booking", b.id, { vehicle_id: v.id, vin: v.vin, allocation_id: allocationId }, guard),
     ...(b.sales_exec_id ? [alertStmt(ctx, { targetUser: b.sales_exec_id, outletId: b.outlet_id, kind: "STOCK_RECEIVED", title: "Your customer's car has arrived", body: `${vehicleLabel(v)} (${v.vin}) for booking ${b.booking_no}, ${b.customer_name}, is at the dealership. Payment and invoicing are due within ${ctx.settings.reminder_days} days; the car is re-allocated on day ${ctx.settings.reallocate_days}.`, entityType: "booking", entityId: b.id })] : []),
+    ...(await salesExecMessage(ctx, b, "Your customer's car has arrived", `${vehicleLabel(v)} (${v.vin}) is at the dealership. Payment and invoicing are due within ${ctx.settings.reminder_days} days; the car is re-allocated on day ${ctx.settings.reallocate_days}.`)),
     await messageStmt(ctx, {
       eventKey: "STOCK_RECEIVED",
       toMobile: b.customer_mobile,

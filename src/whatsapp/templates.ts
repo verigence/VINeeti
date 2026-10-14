@@ -10,6 +10,7 @@ export type EventKey =
   | "PAYMENT_REMINDER"
   | "PAYMENT_ESCALATION"
   | "MANAGEMENT_ALARM"
+  | "SALES_EXEC_UPDATE"
   | "PASSWORD_OTP";
 
 export interface TemplateDef {
@@ -102,6 +103,16 @@ export const DEFAULT_TEMPLATES: TemplateDef[] = [
     when: "Something needs management attention: a bypass, an unapproved out-of-turn allotment, a reserved car that left stock, a payment not verified in time, DMS files not updated",
     body: "Alarm for {{dealership}}: {{title}}. {{detail}} Open Verigence VINeeti for the details.",
     examples: { dealership: "Sample Motors", title: "Car given to a different booking in the DMS", detail: "THAR ROXX AX7L D AT 4WD (M0705) STEALTH BLACK was reserved for booking OTF27A000123, but the DMS shows it invoiced to OTF27A000456." },
+  },
+  {
+    event_key: "SALES_EXEC_UPDATE",
+    audience: "STAFF",
+    template_name: "sales_executive_update",
+    language: "en",
+    title: "Update to the sales executive",
+    when: "The sales executive's booking gets a car, the car arrives, Finance verifies the payment, payment is pending, or the car is released",
+    body: "Update for {{name}} on booking {{booking_no}} ({{customer_name}}): {{title}}. {{detail}} Open Verigence VINeeti for the details.",
+    examples: { name: "Ravi Sahoo", booking_no: "OTF27A000123", customer_name: "Rahul Sharma", title: "Car allocated to your booking", detail: "XUV 3XO AX5 PM MT (M1024) EVEREST WHITE (MA1XXXXXXXX123456) is allocated. The car is at the dealership; the payment window has started." },
   },
   {
     event_key: "PASSWORD_OTP",

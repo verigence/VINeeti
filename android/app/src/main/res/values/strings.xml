@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">VINeeti</string>
+  <!-- host_name and asset_statements are generated from the vineetiHost Gradle property at build time. -->
+</resources>

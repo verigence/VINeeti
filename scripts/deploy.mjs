@@ -26,6 +26,8 @@ import { ROOT, Stop, credentials, ensureDatabase, main, randomSecret, readConfig
 
 const flags = new Set(process.argv.slice(2));
 const APP_SECRETS = ["SESSION_SECRET", "DATA_KEY", "PLATFORM_ADMIN_TOKEN"];
+// Set when given in the environment; the Worker runs without them.
+const OPTIONAL_SECRETS = ["ANDROID_CERT_SHA256", "WA_APP_SECRET", "WA_VERIFY_TOKEN"];
 const CONFIG = "wrangler.deploy.json"; // written beside wrangler.jsonc so its relative paths still hold; not committed
 const step = (n, text) => console.log(`\n[${n}/6] ${text}`);
 
@@ -68,6 +70,7 @@ main(async () => {
     if (process.env[name]) secrets[name] = process.env[name];
     else if (missing.includes(name)) secrets[name] = randomSecret();
   }
+  for (const name of OPTIONAL_SECRETS) if (process.env[name]) secrets[name] = process.env[name];
   const names = Object.keys(secrets);
   if (names.length) {
     const dir = mkdtempSync(join(tmpdir(), "vineeti-"));

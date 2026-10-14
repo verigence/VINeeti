@@ -483,7 +483,7 @@ describe("a request cut off half way leaves nothing half done", () => {
     w.at("2026-10-13 18:15");
     await w.tick();
     await loadStock(w, d.users.stock.session, [car("VINCLOCK000000001", { grnDate: "2026-10-13" })]);
-    expect(w.db.q(`SELECT event_key FROM wa_messages WHERE booking_id = ? ORDER BY created_at, rowid`, b.id).map((m: any) => m.event_key)).toEqual(["ALLOC_IN_TRANSIT", "STOCK_RECEIVED"]);
+    expect(w.db.q(`SELECT event_key FROM wa_messages WHERE booking_id = ? AND audience = 'CUSTOMER' ORDER BY created_at, rowid`, b.id).map((m: any) => m.event_key)).toEqual(["ALLOC_IN_TRANSIT", "STOCK_RECEIVED"]);
   });
 
   it("the sweep starts a payment clock that was missed and frees a car held by a cancelled booking", async () => {
@@ -552,7 +552,8 @@ describe("two people acting at the same moment", () => {
     o.restore();
     expect([first.status, second!.status].sort()).toEqual([200, 409]);
     expect(w.db.q(`SELECT id FROM allocations WHERE status = 'ACTIVE'`)).toHaveLength(1);
-    expect(w.db.q(`SELECT id FROM wa_messages`)).toHaveLength(1);
+    expect(w.db.q(`SELECT id FROM wa_messages WHERE audience = 'CUSTOMER'`)).toHaveLength(1);
+    expect(w.db.q(`SELECT id FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE'`)).toHaveLength(1); // and the sales executive once
     expect(w.db.q(`SELECT id FROM audit_log WHERE action = 'BOOKING_APPROVED'`)).toHaveLength(1);
   });
 
@@ -568,7 +569,8 @@ describe("two people acting at the same moment", () => {
     expect(o.state.fired).toBe(true);
     expect(w.db.q(`SELECT id FROM allocations WHERE status = 'ACTIVE'`)).toHaveLength(2);
     expect(w.db.q(`SELECT id FROM allocations`)).toHaveLength(2);
-    expect(w.db.q(`SELECT id FROM wa_messages`)).toHaveLength(2);
+    expect(w.db.q(`SELECT id FROM wa_messages WHERE audience = 'CUSTOMER'`)).toHaveLength(2);
+    expect(w.db.q(`SELECT id FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE'`)).toHaveLength(2);
     expect((await booking(w, d, b1.id)).allocation.vin).not.toBe((await booking(w, d, b2.id)).allocation.vin);
     expect(integrity(w)).toEqual(CLEAN);
   });
@@ -929,10 +931,10 @@ describe("customer data stays within the outlet", () => {
     const c = await approvedBooking(w, d, "se3", CRETA, "CUTTACK", "Cuttack Customer", "9811100002");
     w.db.raw.exec(`INSERT INTO wa_inbound (id, tenant_id, from_mobile, from_name, message_type, text, provider_message_id, received_at) VALUES ('wai_1', '${d.tenantId}', '919811100001', 'Patia Customer', 'text', 'ok', 'in1', '2026-10-13T05:00:00.000Z'), ('wai_2', '${d.tenantId}', '919811100002', 'Cuttack Customer', 'text', 'ok', 'in2', '2026-10-13T05:00:00.000Z')`);
     const log = (await w.api("GET", "/api/wa/messages", undefined, d.users.sm.session)).body; // Patia's manager
-    expect(log.messages.map((m: any) => m.booking_id)).toEqual([p.id]);
-    expect(log.counts).toEqual([{ status: "SENT", n: 1 }]);
+    expect([...new Set(log.messages.map((m: any) => m.booking_id))]).toEqual([p.id]);
+    expect(log.counts).toEqual([{ status: "SENT", n: 2 }]); // the customer and the sales executive
     expect((await w.api("GET", "/api/wa/inbound", undefined, d.users.sm.session)).body.map((i: any) => i.from_name)).toEqual(["Patia Customer"]);
-    expect((await w.api("GET", "/api/wa/messages", undefined, d.users.auditor.session)).body.messages.map((m: any) => m.booking_id).sort()).toEqual([p.id, c.id].sort());
+    expect((await w.api("GET", "/api/wa/messages", undefined, d.users.auditor.session)).body.messages.map((m: any) => m.booking_id).sort()).toEqual([p.id, p.id, c.id, c.id].sort());
     // An auditor restricted to one outlet does not get the dealership-wide audit trail.
     await w.api("PATCH", `/api/users/${d.users.auditor.id}`, { all_outlets: false, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session);
     expect((await w.api("GET", "/api/audit", undefined, d.users.auditor.session)).status).toBe(403);

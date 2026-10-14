@@ -199,7 +199,7 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
     {
       slug,
       name: "Northstar Motors",
-      oem: "Hyundai",
+      oem: "Mahindra",
       outlets: [
         { code: "PATIA", name: "Patia", city: "Bhubaneswar" },
         { code: "CUTTACK", name: "Cuttack", city: "Cuttack" },

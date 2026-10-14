@@ -250,3 +250,14 @@ describe("the end-of-day run", () => {
     expect((await w.api("GET", "/api/eod/status", undefined, d.users.exec.session)).status).toBe(403);
   });
 });
+
+describe("the Android app's asset links", () => {
+  it("are published only once the signing certificate's fingerprint is set on the deployment", async () => {
+    const w = makeWorld();
+    expect((await w.api("GET", "/.well-known/assetlinks.json")).status).toBe(404);
+    w.env.ANDROID_CERT_SHA256 = "aa:bb:cc, dd:ee:ff";
+    const res = await w.api("GET", "/.well-known/assetlinks.json");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: "com.jbrconsulting.vineeti", sha256_cert_fingerprints: ["AA:BB:CC", "DD:EE:FF"] } }]);
+  });
+});

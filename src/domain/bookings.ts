@@ -6,6 +6,7 @@ import { eventStmt } from "./inventory";
 import { resolveConfig, type ConfigInput } from "./master";
 import { alarmStmts } from "./alarms";
 import { queueFor } from "./queue";
+import { salesExecMessage } from "./staff-notify";
 
 /** Whole local days between the booking date a booking carries and the day it was entered in the system. */
 export function backdatedDays(ctx: Ctx, b: Pick<Booking, "booking_date" | "created_at">): number {
@@ -326,6 +327,7 @@ export async function verifyPayment(ctx: Ctx, id: string, verifier: SessionUser,
       stmt(ctx.db, `UPDATE bookings SET payment_received_at = ?, payment_verified_by = ?, payment_amount = ?, payment_ref = ?, payment_note = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`, at, verifier.id, amount, reference, note, at, id, ctx.tenantId),
       doneAlertStmt(ctx, "PAYMENT_TO_VERIFY", id),
       ...(b.sales_exec_id ? [alertStmt(ctx, { targetUser: b.sales_exec_id, outletId: b.outlet_id, kind: "PAYMENT_VERIFIED", title: "Payment verified by Finance", body: `Booking ${b.booking_no} (${b.customer_name}): Finance has verified the payment. The car stays with this customer; proceed to invoicing.`, entityType: "booking", entityId: id })] : []),
+      ...(await salesExecMessage(ctx, b, "Payment verified by Finance", "Finance has verified the payment. The car stays with this customer; proceed to invoicing.")),
     ]);
   } catch (e) {
     if (isGuardFailure(e)) throw conflict("This booking was changed by someone else a moment ago. Refresh and try again.");

@@ -42,7 +42,7 @@ export function InstallHint() {
 
   return (
     <aside className="install-hint" aria-label="Install the app">
-      <img src="/icons/icon.svg" alt="" width={44} height={44} />
+      <img src="/icons/icon-192.png" alt="" width={44} height={44} className="install-icon" />
       <div className="install-text">
         <p className="strong">Add {PRODUCT} to your home screen</p>
         {canInstall ? (

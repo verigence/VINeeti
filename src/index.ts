@@ -40,6 +40,13 @@ export function createApp() {
     await next();
   });
 
+  // Digital Asset Links: lets the Android app (a Trusted Web Activity) open this site without the browser's bar.
+  app.get("/.well-known/assetlinks.json", (c) => {
+    const prints = (c.env.ANDROID_CERT_SHA256 ?? "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    if (!prints.length) return c.json([], 404);
+    return c.json([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: "com.jbrconsulting.vineeti", sha256_cert_fingerprints: prints } }]);
+  });
+
   eodFeedRoutes(app); // the end-of-day feed proves itself with the dealership's key, not a sign-in
   authRoutes(app); // registers the authentication guard for everything after it
   eodRoutes(app);

@@ -15,7 +15,10 @@ WhatsApp; the payment window (reminder, escalation, re-allocation); exceptions o
 approval; alarms to the Business Head / CEO and the Dealer Principal; and a reconciliation every evening.
 
 One deployment serves many dealerships. A dealership (one dealer, one manufacturer) has its own outlets,
-users, rules, WhatsApp number and data. The first manufacturer supported is **Mahindra**.
+users, rules, WhatsApp number and data. Each manufacturer's DMS file layout is an adapter
+(`src/oem/`), chosen by the dealership's OEM; the adapter in this version is **Mahindra**. A dealership of
+another manufacturer can be onboarded and worked from the screens, and its files are refused with a
+plain message until its adapter is written from real exports. Nothing is guessed from an unknown layout.
 
 It runs on Cloudflare: one Worker, one D1 database, one scheduled trigger every 15 minutes. No customer
 document is stored anywhere in the system.
@@ -114,6 +117,34 @@ Measures are computed only where the data supports them: delivery on promised da
 waiting, yard-to-invoice and yard-to-delivery days, stock older than 30 days, funding interest per car
 sold (when the dealership sets its funding rate), out-of-turn allocations, bookings with no car coming.
 Delivery complaints and time to answer an enquiry are shown as **not measured**: neither file carries them.
+
+### Analytics
+
+Fixed rules over the same two files, on the Analytics screen; every view states its rule and the files it
+rests on, and the same files always give the same answer. Charts are drawn with Apache ECharts
+(Apache-2.0, bundled; no external service) from the numbers the API gives.
+
+- **Ageing stock by model**: unsold cars (in the yard or in transit, not demo, held by no booking) by
+  days since the manufacturer's invoice (0-15, 16-30, 31-60, over 60), oldest and average age, dealer
+  value for those allowed to see it, and each model's oldest cars.
+- **Not picked up**: customers whose reserved car has been at the dealership for more than N days
+  (default 10): payment or invoicing pending, or invoiced in the DMS but still in the stock report.
+- **Most and least selling**: sales counted as retail invoices in a period (default the last 90 days);
+  most selling model and car (model, variant, colour); least selling among the models the dealership
+  stocks; equal counts ordered by name.
+- **Allocations by day**: every allocation and every release (de-allocation) in a period, by day and
+  outlet, with how it came about or why.
+- **Stock by day**: each outlet's position (free and reserved, in yard and in transit, invoiced, blocked)
+  at the end of every day on which a DMS file was loaded or the day-end ran.
+
+### Notifications
+
+| Who | How | What |
+| --- | --- | --- |
+| Customer | WhatsApp templates (editable, approved by Meta) | Car allocated (in transit, free stock, re-allocated), car arrived, payment reminder |
+| Sales Executive | In-app alerts and one WhatsApp template | Car allocated, car arrived, payment verified, payment pending, car released |
+| Business Head / CEO and Dealer Principal | In-app alarms and one WhatsApp template | The alarms listed below |
+| Finance, Sales Lead, Stock In-charge | In-app alerts | Payment to verify, escalations, transfers needed, approvals waiting |
 
 ## Controls
 
@@ -228,6 +259,22 @@ payment reminder, escalation, management alarm, and the one-time password code (
 template, whose wording Meta fixes). A customer whose mobile number is missing or who has not agreed to
 WhatsApp is not messaged, and the log says why.
 
+## Android app
+
+`android/` is a Trusted Web Activity: a native Android app that opens the deployed site full screen, with
+the product's splash screen and icon, as the Play Store expects for this kind of app. The workflow
+**Build Android app** (Actions tab) takes the deployment's address and a version, and attaches a signed
+APK (for direct installation) and an AAB (for the Play Store) to the run.
+
+- The first run creates the signing key and attaches it as the artifact `android-keystore`: download it,
+  keep it safe, and add the four `ANDROID_KEYSTORE_*` secrets it describes before the next build. An app
+  signed with a different key is a different app to Android and to the Play Store.
+- Every build prints the certificate's SHA-256 fingerprint. Put it in the repository secret
+  `ANDROID_CERT_SHA256` and run the deployment again: the site then publishes
+  `/.well-known/assetlinks.json`, and the app opens without the browser's address bar.
+
+The same screens are the web app on a desktop browser and an installable web app (PWA) on any phone.
+
 ## Run it locally
 
 Needs Node 22 or later.
@@ -297,16 +344,17 @@ replaced by a later deployment and must not be replaced by hand.
 ## Layout
 
 ```
-.github/workflows/  deployment and dealership onboarding
+.github/workflows/  deployment, dealership onboarding, Android build
+android/            the Android app (Trusted Web Activity)
 migrations/         database schema
-src/oem/            reading a Mahindra description
+src/oem/            manufacturer adapters (Mahindra: reading a description, the two file layouts)
 src/dms/            reading the stock report and the booking sheet
 src/domain/         DMS import and reconciliation, allocation, rules, bookings and payments, timers, alarms,
-                    exceptions, dashboards and measures, day-end reconciliation, onboarding
+                    exceptions, dashboards, measures and analytics, day-end reconciliation, onboarding
 src/whatsapp/       templates, outbox, Cloud API client, webhook
 src/http/           the API, sign-in, permissions, the end-of-day feed
 src/scheduled.ts    the 15-minute job
-web/                the screens (React; one installable web app, laid out for phones first)
+web/                the screens (React, Apache ECharts; one installable web app, laid out for phones first)
 test/               tests, with anonymised DMS files as fixtures
 scripts/            deploy, onboard a dealership, end-of-day push, demo data
 tools/              the Mahindra description parser (Python), as reviewed

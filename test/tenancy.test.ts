@@ -28,9 +28,9 @@ describe("onboarding a dealership", () => {
   it("gives the new dealership its own WhatsApp settings and message templates", async () => {
     const cfg = await w.api("GET", "/api/wa/config", undefined, b.users.admin.session);
     expect(cfg.body).toMatchObject({ provider: "TEST", enabled: true, connected: false });
-    // Six messages of the booking-to-delivery process, the alarm to management and the one-time code for setting a password.
+    // Six messages of the booking-to-delivery process, the alarm to management, the sales executive's update and the one-time code for setting a password.
     expect(w.db.q<{ event_key: string }>(`SELECT event_key FROM wa_templates WHERE tenant_id = ? ORDER BY event_key`, b.tenantId).map((t) => t.event_key)).toEqual(
-      ["ALLOC_FREE_STOCK", "ALLOC_IN_TRANSIT", "ALLOC_REALLOCATED", "MANAGEMENT_ALARM", "PASSWORD_OTP", "PAYMENT_ESCALATION", "PAYMENT_REMINDER", "STOCK_RECEIVED"],
+      ["ALLOC_FREE_STOCK", "ALLOC_IN_TRANSIT", "ALLOC_REALLOCATED", "MANAGEMENT_ALARM", "PASSWORD_OTP", "PAYMENT_ESCALATION", "PAYMENT_REMINDER", "SALES_EXEC_UPDATE", "STOCK_RECEIVED"],
     );
   });
 });

@@ -156,6 +156,13 @@ export const api = {
   reviewOutOfTurn: (allocationId: string, note: string) => post<Ok>(`/api/out-of-turn/${enc(allocationId)}/review`, { note }),
   measures: (from?: string, to?: string) => get<T.MeasuresResponse>("/api/dashboards/measures", { from, to }),
 
+  // ---- analytics
+  ageing: () => get<T.AgeingResponse>("/api/analytics/ageing"),
+  notPickedUp: (days: number) => get<T.NotPickedUpResponse>("/api/analytics/not-picked-up", { days: String(days) }),
+  sales: (from?: string, to?: string) => get<T.SalesResponse>("/api/analytics/sales", { from, to }),
+  allocationsByDay: (from?: string, to?: string) => get<T.AllocationsByDayResponse>("/api/analytics/allocations", { from, to }),
+  stockByDay: (from?: string, to?: string) => get<T.StockByDayResponse>("/api/analytics/stock-days", { from, to }),
+
   // ---- the two DMS files and the end of day
   /** One step of loading a DMS file. The caller repeats it with `continue` while the answer says `more`. */
   uploadDms: (kind: "stock" | "bookings", file: File, opts: { report_date?: string; mode?: "COMPLETE" | "PARTIAL"; confirm_missing?: boolean; continue?: string }) => {

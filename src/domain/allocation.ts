@@ -10,6 +10,7 @@ import type { Ctx } from "../env";
 import { all, alertStmt, auditStmt, first, isGuardFailure, isUniqueViolation, stmt } from "../lib/db";
 import { conflict, iso, localParts, newId } from "../lib/util";
 import { messageStmt } from "../whatsapp/outbox";
+import { salesExecMessage } from "./staff-notify";
 import type { EventKey } from "../whatsapp/templates";
 import { queueKey, waitingQueues } from "./queue";
 import { matchBookings, queueCompare, type Match as RuleMatch } from "./rules";
@@ -208,7 +209,8 @@ async function commitMatch(
   ];
   // The sales executive handling the customer is told as well.
   if (b.sales_exec_id) {
-    stmts.push(alertStmt(ctx, { targetUser: b.sales_exec_id, outletId: b.outlet_id, kind: "ALLOCATED", title: "Car allocated to your booking", body: `${vehicleLabel(v)} (${v.vin}) is allocated to booking ${b.booking_no}, ${b.customer_name}. ${v.status === "RECEIVED" ? "The car is at the dealership; the payment window has started." : `The car is in transit, expected ${eta}.`}`, entityType: "booking", entityId: b.id }));
+    const detail = `${vehicleLabel(v)} (${v.vin}) is allocated to booking ${b.booking_no}, ${b.customer_name}. ${v.status === "RECEIVED" ? "The car is at the dealership; the payment window has started." : `The car is in transit, expected ${eta}.`}`;
+    stmts.push(alertStmt(ctx, { targetUser: b.sales_exec_id, outletId: b.outlet_id, kind: "ALLOCATED", title: "Car allocated to your booking", body: detail, entityType: "booking", entityId: b.id }), ...(await salesExecMessage(ctx, b, "Car allocated to your booking", detail)));
   }
   if (needsTransfer) {
     stmts.push(alertStmt(ctx, { targetRole: "STOCK_INCHARGE", outletId: v.outlet_id, kind: "TRANSFER_NEEDED", title: "Transfer needed", body: `${vehicleLabel(v)} (${v.vin}) is allocated to booking ${b.booking_no} at another outlet.`, entityType: "vehicle", entityId: v.id }));

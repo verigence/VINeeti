@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type IconName =
-  | "home" | "car" | "bookings" | "approvals" | "dashboards" | "upload" | "recon" | "whatsapp" | "admin" | "audit"
+  | "home" | "car" | "bookings" | "approvals" | "dashboards" | "analytics" | "upload" | "recon" | "whatsapp" | "admin" | "audit"
   | "menu" | "close" | "bell" | "logout" | "key" | "plus" | "search" | "external" | "copy" | "refresh" | "download"
   | "warning" | "check" | "chevron" | "back" | "file" | "clock" | "info" | "filter" | "more" | "phone" | "offline" | "share" | "payments" | "owner" | "master" | "dayend" | "up" | "down";
 
@@ -28,6 +28,7 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   dashboards: <path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />,
+  analytics: <path d="M3 17l5-6 4 4 5-7 4 4M3 21h18" />,
   upload: <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 16v4h16v-4" />,
   recon: (
     <>

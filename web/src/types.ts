@@ -1160,3 +1160,15 @@ export interface VariantPatch {
   variant?: string;
   is_active?: boolean;
 }
+
+// ---- analytics
+export interface AgeingRow { model: string; cars: number; in_yard: number; in_transit: number; buckets: number[]; unknown: number; oldest_days: number | null; average_days: number | null; value?: number; cars_detail: { vin: string; variant: string; colour: string; outlet: string; status: string; oem_invoice_date: string | null; age_days: number | null; value?: number }[] }
+export interface AgeingResponse { as_of: string; source: DataStatus; buckets: string[]; totals: { cars: number; over_30_days: number; over_60_days: number; value?: number }; rows: AgeingRow[]; basis: string }
+export interface NotPickedUpRow { booking_id: string; booking_no: string; customer_name: string; customer_mobile: string; sales_exec: string | null; outlet: string; model: string; variant: string; colour: string; vin: string; stage: "WAITING_FOR_PAYMENT" | "INVOICED_NOT_TAKEN"; since: string; days: number; payment_reported_at: string | null; payment_received_at: string | null; invoiced_on: string | null }
+export interface NotPickedUpResponse { as_of: string; days: number; source: DataStatus; counts: { total: number; waiting_for_payment: number; invoiced_not_taken: number }; rows: NotPickedUpRow[]; basis: string }
+export interface SalesRow { key: string; model: string; variant?: string; colour?: string; sold: number; delivered: number; unsold_in_stock: number; waiting_bookings: number; share_pct?: number | null }
+export interface SalesResponse { period: { from: string; to: string }; source: DataStatus; total_sold: number; most_selling_model: SalesRow | null; least_selling_model: SalesRow | null; most_selling_car: SalesRow | null; models: SalesRow[]; cars: SalesRow[]; basis: string }
+export interface AllocationDayRow { at: string; kind: "ALLOCATED" | "RELEASED"; outlet: string; outlet_id: string; booking_id: string; booking_no: string; customer_name: string; model: string; variant: string; colour: string; vin: string; how: string; by: string }
+export interface AllocationsByDayResponse { period: { from: string; to: string }; source: DataStatus; totals: { allocated: number; released: number }; days: { date: string; allocated: number; released: number; outlets: { outlet: string; allocated: number; released: number }[]; reasons: Record<string, number> }[]; rows: AllocationDayRow[]; basis: string }
+export interface StockDayRow { date: string; outlet_id?: string; outlet?: string; in_transit_free: number; in_transit_reserved: number; in_yard_free: number; in_yard_reserved: number; invoiced_in_stock: number; blocked: number; total: number; value_unsold?: number | null; source?: string }
+export interface StockByDayResponse { period: { from: string; to: string }; source: DataStatus; days: { date: string; outlets: StockDayRow[]; total: StockDayRow }[]; basis: string }

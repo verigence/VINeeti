@@ -1,0 +1,53 @@
+plugins {
+  id "com.android.application"
+}
+
+def host = project.findProperty("vineetiHost") ?: "vineeti.example.com"
+def versionCodeValue = (project.findProperty("vineetiVersionCode") ?: "1") as Integer
+def versionNameValue = project.findProperty("vineetiVersionName") ?: "1.0.0"
+// Release signing from the environment (the workflow sets these from repository secrets); unsigned otherwise.
+def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+
+android {
+  namespace "com.jbrconsulting.vineeti"
+  compileSdk 35
+
+  defaultConfig {
+    applicationId "com.jbrconsulting.vineeti"
+    minSdk 24
+    targetSdk 35
+    versionCode versionCodeValue
+    versionName versionNameValue
+    manifestPlaceholders = [hostName: host]
+    resValue "string", "host_name", host
+    resValue "string", "asset_statements", "[{\\\"relation\\\": [\\\"delegate_permission/common.handle_all_urls\\\"], \\\"target\\\": {\\\"namespace\\\": \\\"web\\\", \\\"site\\\": \\\"https://${host}\\\"}}]"
+  }
+
+  signingConfigs {
+    release {
+      if (keystoreFile) {
+        storeFile file(keystoreFile)
+        storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        keyAlias System.getenv("ANDROID_KEY_ALIAS")
+        keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+      }
+    }
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+      if (keystoreFile) signingConfig signingConfigs.release
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.6.0"
+  implementation "androidx.appcompat:appcompat:1.7.0"
+}

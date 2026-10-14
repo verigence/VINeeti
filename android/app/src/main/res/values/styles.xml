@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="Theme.VINeeti" parent="Theme.AppCompat.Light.NoActionBar">
+    <item name="android:windowBackground">@color/white</item>
+  </style>
+  <style name="Theme.VINeeti.Launcher">
+    <item name="android:windowBackground">@color/white</item>
+    <item name="android:statusBarColor">@color/navy</item>
+  </style>
+</resources>

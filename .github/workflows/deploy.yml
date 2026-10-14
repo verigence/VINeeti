@@ -5,6 +5,7 @@
 # Repository secrets needed (Settings > Secrets and variables > Actions):
 #   CLOUDFLARE_API_TOKEN   API token with the permissions "Workers Scripts: Edit" and "D1: Edit" on the account
 #   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account ID
+#   ANDROID_CERT_SHA256    optional: SHA-256 fingerprint of the Android signing certificate (printed by the Android build)
 #
 # The first run creates the D1 database and the application's own secrets; later runs apply new database
 # migrations and deploy the new version. See scripts/deploy.mjs.
@@ -57,3 +58,5 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Optional: the Android app's signing certificate fingerprint(s), once the app is built (see android.yml).
+          ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}

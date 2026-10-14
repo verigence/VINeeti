@@ -6,10 +6,11 @@ import { api, ApiError, errorMessage, setSessionHandlers } from "./api";
 import { Shell } from "./components/Shell";
 import { ToastProvider } from "./components/Toast";
 import { StatusBars } from "./components/AppBars";
-import { ErrorBox, Loading } from "./components/ui";
+import { ErrorBox } from "./components/ui";
 import { setTimeZone } from "./format";
 import { ChangePasswordScreen, LoginScreen } from "./pages/Login";
 import { PRODUCT, productName } from "./product";
+import { Splash } from "./components/Splash";
 import { RouterProvider, useRouter } from "./router";
 import { SessionContext, type Session } from "./session";
 import type { Me, Permission } from "./types";
@@ -31,6 +32,12 @@ function Root() {
   const [error, setError] = useState("");
   // Set when the server refuses a call until the password is changed, even if /me has not said so yet.
   const [passwordRequired, setPasswordRequired] = useState(false);
+  // The splash screen stays up for a moment even when the session answers at once, so it does not flash.
+  const [splash, setSplash] = useState(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSplash(false), 1400);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -97,13 +104,7 @@ function Root() {
     };
   }, [me, load, signOut]);
 
-  if (phase === "loading") {
-    return (
-      <div className="gate">
-        <Loading label="Opening" />
-      </div>
-    );
-  }
+  if (phase === "loading" || splash) return <Splash />;
   if (phase === "error") {
     // Typically: the app was opened from the home screen with no connection.
     return (

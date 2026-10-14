@@ -70,7 +70,7 @@ export function Shell() {
         {/* Wide screens: sidebar with every destination. */}
         <aside className="sidebar">
           <div className="brand">
-            <span className="brand-app">{product}</span>
+            <img src="/brand/wordmark.png" alt={product} className="brand-wordmark" />
             <span className="brand-dealer">{me.tenant.name}</span>
             <span className="brand-oem">{me.tenant.oem}</span>
           </div>
@@ -212,7 +212,7 @@ export function Shell() {
               </li>
             </ul>
             <p className="more-product">
-              {product}
+              <img src="/brand/wordmark.png" alt={product} className="more-wordmark" />
               <span className="byline">{PRODUCT_BYLINE}</span>
             </p>
           </Dialog>

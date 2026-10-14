@@ -62,6 +62,12 @@ describe("Finance verifies that a payment has been received", () => {
     // The sales executive is told, and the audit trail names who reported and who verified.
     expect(q(w, `SELECT target_user FROM alerts WHERE kind = 'PAYMENT_VERIFIED'`)).toEqual([{ target_user: u.exec.id }]);
     expect(q(w, `SELECT action, actor FROM audit_log WHERE action IN ('PAYMENT_REPORTED','PAYMENT_VERIFIED') ORDER BY at, action`)).toEqual([{ action: "PAYMENT_REPORTED", actor: u.exec.id }, { action: "PAYMENT_VERIFIED", actor: u.finance.id }]);
+    // The sales executive also hears of each step on WhatsApp, through the staff template.
+    expect(q(w, `SELECT to_name, json_extract(params_json, '$.title') AS title FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE' ORDER BY created_at, rowid`)).toEqual([
+      { to_name: "Ravi Exec", title: "Car allocated to your booking" },
+      { to_name: "Ravi Exec", title: "Payment verified by Finance" },
+    ]);
+    expect(q(w, `SELECT rendered_text FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE' ORDER BY created_at, rowid`)[1].rendered_text).toBe("Update for Ravi Exec on booking OTF27A000001 (FIRST CUSTOMER): Payment verified by Finance. Finance has verified the payment. The car stays with this customer; proceed to invoicing. Open Verigence VINeeti for the details.");
     // Long after the payment window, the car is still this customer's.
     const report = await day(w, d, "2026-10-20 10:00");
     expect(report).toMatchObject({ released: 0, held: 0 });

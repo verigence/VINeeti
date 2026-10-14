@@ -1,0 +1,5 @@
+// Verigence VINeeti for Android: a Trusted Web Activity that opens the deployed web app full screen,
+// with the product's splash screen. Built by .github/workflows/android.yml or with Gradle 8.11 + JDK 17.
+plugins {
+  id "com.android.application" version "8.7.3" apply false
+}

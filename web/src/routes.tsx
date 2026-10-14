@@ -4,6 +4,7 @@
 import { useEffect, type ReactNode } from "react";
 import { Empty, PageHeader } from "./components/ui";
 import { canApprove, canLoadFiles, canSeePayments, type Can } from "./nav";
+import { AnalyticsPage } from "./pages/Analytics";
 import { AdminPage } from "./pages/Admin";
 import { ApprovalsPage } from "./pages/Approvals";
 import { AuditPage } from "./pages/Audit";
@@ -73,6 +74,12 @@ const ROUTES: Route[] = [
   { path: "/dashboards/delayed", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="delayed" /> },
   { path: "/dashboards/offers", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="offers" /> },
 
+  { path: "/analytics", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },
+  { path: "/analytics/ageing", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },
+  { path: "/analytics/not-picked-up", allowed: (can) => can("booking.view_all"), render: () => <AnalyticsPage tab="not-picked-up" /> },
+  { path: "/analytics/sales", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="sales" /> },
+  { path: "/analytics/allocations", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="allocations" /> },
+  { path: "/analytics/stock-days", allowed: (can) => can("stock.view"), render: () => <AnalyticsPage tab="stock-days" /> },
   { path: "/eod", allowed: canEod, render: () => <EodPage /> },
   // The earlier "Data upload" address still works.
   { path: "/uploads", allowed: canEod, render: () => <Redirect to="/eod" /> },

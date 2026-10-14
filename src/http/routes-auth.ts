@@ -5,6 +5,7 @@ import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatri
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
 import { employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp } from "../domain/onboarding";
 import { previewRules } from "../domain/preview";
+import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
 import { bad, conflict, forbidden, HttpError, iso, newId, norm, normMobile, notFound } from "../lib/util";
 import { ensureWaDefaults } from "../whatsapp/outbox";
@@ -154,7 +155,7 @@ export function authRoutes(app: App) {
     const outlets = await all<{ id: string; code: string; name: string; city: string | null; is_active: number }>(ctx.db, `SELECT id, code, name, city, is_active FROM outlets WHERE tenant_id = ? ORDER BY name`, ctx.tenantId);
     return c.json({
       user: describeUser(c),
-      tenant: { id: ctx.tenant.id, slug: ctx.tenant.slug, name: ctx.tenant.name, oem: ctx.tenant.oem, timezone: ctx.tenant.timezone },
+      tenant: { id: ctx.tenant.id, slug: ctx.tenant.slug, name: ctx.tenant.name, oem: ctx.tenant.oem, timezone: ctx.tenant.timezone, dms_files: oemAdapter(ctx.tenant.oem) ? { oem: oemAdapter(ctx.tenant.oem)!.label, stock_file: oemAdapter(ctx.tenant.oem)!.stock_file, booking_file: oemAdapter(ctx.tenant.oem)!.booking_file } : null },
       settings: ctx.settings,
       outlets: scope ? outlets.filter((o) => scope.includes(o.id)) : outlets,
       all_outlets: outlets.map((o) => ({ id: o.id, code: o.code, name: o.name })),

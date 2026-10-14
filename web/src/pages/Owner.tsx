@@ -12,6 +12,7 @@ import { plainText } from "../labels";
 import { canSeePayments } from "../nav";
 import { Link } from "../router";
 import { useSession } from "../session";
+import { Chart, PALETTE } from "../components/Chart";
 import type { AgeBucket, AtRiskRow, Measure, OutOfTurnRow, OwnerView } from "../types";
 
 type Tab = "overview" | "out-of-turn" | "measures";
@@ -130,6 +131,36 @@ function Overview() {
             <OwnerTiles o={o} />
           </div>
           <div id="unsold" className="anchor">
+            <div className="chart-grid">
+              <Card title="Unsold stock by age" className="chart-card">
+                <Chart
+                  height={220}
+                  option={{
+                    legend: { show: false },
+                    xAxis: { type: "category", data: o.unsold_by_age.buckets.map((b) => b.label), axisLabel: { color: "#5b6672", fontSize: 11 }, axisTick: { show: false } },
+                    yAxis: { type: "value", minInterval: 1, axisLabel: { color: "#5b6672" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
+                    series: [
+                      { name: "In yard", type: "bar", stack: "a", barMaxWidth: 36, itemStyle: { color: PALETTE[0] }, data: o.unsold_by_age.buckets.map((b) => b.in_yard) },
+                      { name: "In transit", type: "bar", stack: "a", itemStyle: { color: PALETTE[2], borderRadius: [3, 3, 0, 0] }, data: o.unsold_by_age.buckets.map((b) => b.in_transit) },
+                    ],
+                  }}
+                />
+              </Card>
+              <Card title="Customers and cars by outlet" className="chart-card">
+                <Chart
+                  height={220}
+                  option={{
+                    xAxis: { type: "category", data: o.outlets.map((x) => x.name), axisLabel: { color: "#5b6672", fontSize: 11, interval: 0, rotate: o.outlets.length > 4 ? 20 : 0 }, axisTick: { show: false } },
+                    yAxis: { type: "value", minInterval: 1, axisLabel: { color: "#5b6672" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
+                    series: [
+                      { name: "Customers waiting", type: "bar", barMaxWidth: 20, itemStyle: { color: "#9a2a20", borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.waiting) },
+                      { name: "Holding a car", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[1], borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.holding_a_car) },
+                      { name: "Cars free", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[0], borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.cars_free) },
+                    ],
+                  }}
+                />
+              </Card>
+            </div>
             <Card title={`Unsold stock by age (${fmtNumber(o.unsold_by_age.total)})`} note={o.unsold_by_age.basis}>
               {o.unsold_by_age.total ? <AgeBars buckets={o.unsold_by_age.buckets} /> : <Empty title="No unsold stock" />}
             </Card>

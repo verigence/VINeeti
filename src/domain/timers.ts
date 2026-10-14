@@ -14,6 +14,7 @@ import { messageStmt } from "../whatsapp/outbox";
 import { alarmRecipients, alarmStmts } from "./alarms";
 import { allocateConfig, dealershipLabel, formatDate, releaseAllocation, vehicleLabel, type AllocationOutcome } from "./allocation";
 import { dataStatus } from "./data-status";
+import { salesExecMessage } from "./staff-notify";
 
 interface OpenWindow {
   id: string;
@@ -111,7 +112,8 @@ export async function advancePaymentWindow(ctx: Ctx, w: OpenWindow, result: Wind
       alertStmt(ctx, { targetRole: "SALES_MANAGER", outletId: w.outlet_id, kind: "REALLOCATED", title: "Car released after payment timeout", body: `Booking ${w.booking_no} (${w.customer_name}) lost its allocated ${vehicleLabel(w)}. ${hold ? "The booking is on hold until the customer is ready." : "The booking has rejoined the queue."}`, entityType: "booking", entityId: w.booking_id }),
     ];
     if (w.sales_exec_id) {
-      also.push(alertStmt(ctx, { targetUser: w.sales_exec_id, outletId: w.outlet_id, kind: "REALLOCATED", title: "Your booking lost its car", body: `Booking ${w.booking_no} (${w.customer_name}) did not complete payment in ${sch.day} days, so ${vehicleLabel(w)} (${w.vin}) has been released. ${hold ? "Ask your manager to mark the customer ready when payment is arranged." : "The booking has rejoined the queue."}`, entityType: "booking", entityId: w.booking_id }));
+      const detail = `Booking ${w.booking_no} (${w.customer_name}) did not complete payment in ${sch.day} days, so ${vehicleLabel(w)} (${w.vin}) has been released. ${hold ? "Ask your manager to mark the customer ready when payment is arranged." : "The booking has rejoined the queue."}`;
+      also.push(alertStmt(ctx, { targetUser: w.sales_exec_id, outletId: w.outlet_id, kind: "REALLOCATED", title: "Your booking lost its car", body: detail, entityType: "booking", entityId: w.booking_id }), ...(await salesExecMessage(ctx, { id: w.booking_id, sales_exec_id: w.sales_exec_id, booking_no: w.booking_no, customer_name: w.customer_name }, "Your booking lost its car", detail)));
     }
     // Without a hold the booking rejoins at the back of the queue, otherwise it would win the same car again.
     if (!hold) also.push(stmt(ctx.db, `UPDATE bookings SET priority_ts = ?, priority_override_json = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?`, at, at, w.booking_id, ctx.tenantId));
@@ -152,7 +154,8 @@ export async function advancePaymentWindow(ctx: Ctx, w: OpenWindow, result: Wind
       }),
     ];
     if (w.sales_exec_id) {
-      stmts.push(alertStmt(ctx, { targetUser: w.sales_exec_id, outletId: w.outlet_id, kind: "PAYMENT_PENDING", title: "Payment pending on your booking", body: `Booking ${w.booking_no} (${w.customer_name}): ${sch.day} days since the car arrived and no payment yet. The customer has been reminded. The car is re-allocated on ${formatDate(sch.release_on)}.`, entityType: "booking", entityId: w.booking_id }));
+      const detail = `Booking ${w.booking_no} (${w.customer_name}): ${sch.day} days since the car arrived and no payment yet. The customer has been reminded. The car is re-allocated on ${formatDate(sch.release_on)}.`;
+      stmts.push(alertStmt(ctx, { targetUser: w.sales_exec_id, outletId: w.outlet_id, kind: "PAYMENT_PENDING", title: "Payment pending on your booking", body: detail, entityType: "booking", entityId: w.booking_id }), ...(await salesExecMessage(ctx, { id: w.booking_id, sales_exec_id: w.sales_exec_id, booking_no: w.booking_no, customer_name: w.customer_name }, "Payment pending on your booking", detail)));
     }
     await ctx.db.batch(stmts);
     result.reminders++;

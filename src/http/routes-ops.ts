@@ -3,6 +3,7 @@ import { all, audit, first, run } from "../lib/db";
 import { can } from "../lib/permissions";
 import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, localParts, normMobile, notFound, parseDate, safeJson, toCsv } from "../lib/util";
 import { ALARM_KINDS } from "../domain/alarms";
+import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
@@ -52,6 +53,52 @@ export function opsRoutes(app: App) {
     }
     return c.json(rows);
   });
+  // ------------------------------------------------------------ analytics: fixed rules over the two DMS files
+  /** A period from the query (from, to as YYYY-MM-DD), default the last `days` days to today. */
+  const periodOf = (c: C, days: number) => {
+    const ctx = c.get("ctx");
+    const today = localParts(ctx.now, ctx.tenant.timezone).date;
+    const from = c.req.query("from") ? parseDate(c.req.query("from")) : addDays(today, -(days - 1));
+    const to = c.req.query("to") ? parseDate(c.req.query("to")) : today;
+    if (!from || !to || from > to) throw bad("The period is not valid");
+    if (to > today) throw bad("The period cannot end in the future");
+    return { from, to };
+  };
+  /** Allocations and releases by day and outlet (default: the last 14 days). */
+  app.get("/api/analytics/allocations", async (c) => {
+    need(c, "dashboards.view");
+    return c.json(await allocationsByDay(c.get("ctx"), outletScope(c), periodOf(c, 14)));
+  });
+  /** The stock position of each outlet, day by day (default: the last 30 days). */
+  app.get("/api/analytics/stock-days", async (c) => {
+    need(c, "stock.view");
+    const ctx = c.get("ctx");
+    return c.json(await stockByDay(ctx, outletScope(c), periodOf(c, 30), can(c.get("user"), ctx.settings, "stock.value")));
+  });
+  app.get("/api/analytics/ageing", async (c) => {
+    need(c, "dashboards.view");
+    const ctx = c.get("ctx");
+    return c.json(await ageingByModel(ctx, outletScope(c), can(c.get("user"), ctx.settings, "stock.value")));
+  });
+  /** Customers whose car has waited for them at the dealership for more than `days` days (default 10). */
+  app.get("/api/analytics/not-picked-up", async (c) => {
+    need(c, "booking.view_all");
+    const days = c.req.query("days") === undefined ? 10 : Number(c.req.query("days"));
+    if (!Number.isInteger(days) || days < 0 || days > 365) throw bad("Days must be a whole number up to 365");
+    return c.json(await notPickedUp(c.get("ctx"), outletScope(c), days));
+  });
+  /** Most and least selling model and car for a period (from, to as YYYY-MM-DD; default: the last 90 days). */
+  app.get("/api/analytics/sales", async (c) => {
+    need(c, "dashboards.view");
+    const ctx = c.get("ctx");
+    const def = defaultSalesPeriod(ctx);
+    const from = c.req.query("from") ? parseDate(c.req.query("from")) : def.from;
+    const to = c.req.query("to") ? parseDate(c.req.query("to")) : def.to;
+    if (!from || !to || from > to) throw bad("The period is not valid");
+    if (to > def.to) throw bad("The period cannot end in the future");
+    return c.json(await salesRanking(ctx, outletScope(c), { from, to }));
+  });
+
   app.get("/api/dashboards/order-queue", async (c) => {
     need(c, "dashboards.view");
     return c.json(await orderQueueDashboard(c.get("ctx")));

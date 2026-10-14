@@ -3,6 +3,7 @@
 // It reports; it never corrects data on its own.
 
 import { alarmStmts } from "./alarms";
+import { recordStockPositions } from "./analytics";
 import type { Ctx } from "../env";
 import { all, first, run, stmt } from "../lib/db";
 import { addDays, iso, localDayBounds, localParts, newId, safeJson } from "../lib/util";
@@ -314,6 +315,7 @@ export async function runReconciliation(ctx: Ctx, trigger: string): Promise<{ ru
     }
   }
   for (let i = 0; i < stmts.length; i += 40) await ctx.db.batch(stmts.slice(i, i + 40));
+  await recordStockPositions(ctx, "DAY_END");
   void outletName;
   return { run_id: runId, summary };
 }

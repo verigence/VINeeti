@@ -11,13 +11,16 @@ let a: Dealer;
 let b: Dealer;
 
 const LIVE = { provider: "META", display_number: "+91 674 555 0100", phone_number_id: "106540352242922", waba_id: "102290129340398", access_token: "EAAG-secret-token", app_secret: "app-secret-123", verify_token: "verify-me-123" };
-const lastMessage = (tenantId: string) => w.db.q<any>(`SELECT * FROM wa_messages WHERE tenant_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, tenantId)[0];
+/** The last message to a customer. (The sales executive's copy of each event goes through its own template; see personas.test.ts.) */
+const lastMessage = (tenantId: string) => w.db.q<any>(`SELECT * FROM wa_messages WHERE tenant_id = ? AND audience = 'CUSTOMER' ORDER BY created_at DESC, rowid DESC LIMIT 1`, tenantId)[0];
 
 function mockMeta(handler: (url: string, init: RequestInit) => { status: number; json: unknown }) {
   const calls: { url: string; init: RequestInit; body: any }[] = [];
   vi.stubGlobal("fetch", async (url: string | URL, init: RequestInit = {}) => {
     const u = String(url);
-    calls.push({ url: u, init, body: init.body ? JSON.parse(String(init.body)) : null });
+    const body = init.body ? JSON.parse(String(init.body)) : null;
+    // Messages to staff (the dealership's own numbers, 90000000xx) are not counted here: these tests are about the customer's.
+    if (!(body?.to && /^9190000000\d\d$/.test(String(body.to)))) calls.push({ url: u, init, body });
     const r = handler(u, init);
     return new Response(JSON.stringify(r.json), { status: r.status, headers: { "Content-Type": "application/json" } });
   });
@@ -250,13 +253,14 @@ describe("delivery receipts and replies (webhook)", () => {
 });
 
 describe("message wording and Meta approval", () => {
-  it("lists the six process messages, the management alarm and the password code, with their parameters", async () => {
+  it("lists the six process messages, the management alarm, the sales executive's update and the password code, with their parameters", async () => {
     const res = await w.api("GET", "/api/wa/templates", undefined, a.users.admin.session);
-    expect(res.body.map((t: any) => t.event_key)).toEqual(["ALLOC_IN_TRANSIT", "ALLOC_FREE_STOCK", "ALLOC_REALLOCATED", "STOCK_RECEIVED", "PAYMENT_REMINDER", "PAYMENT_ESCALATION", "MANAGEMENT_ALARM", "PASSWORD_OTP"]);
+    expect(res.body.map((t: any) => t.event_key)).toEqual(["ALLOC_IN_TRANSIT", "ALLOC_FREE_STOCK", "ALLOC_REALLOCATED", "STOCK_RECEIVED", "PAYMENT_REMINDER", "PAYMENT_ESCALATION", "MANAGEMENT_ALARM", "SALES_EXEC_UPDATE", "PASSWORD_OTP"]);
     expect(res.body[5]).toMatchObject({ audience: "STAFF", params: ["vehicle", "customer_name", "booking_no", "days", "release_date"] });
     expect(res.body[6]).toMatchObject({ audience: "STAFF", category: "UTILITY", fixed_wording: false, params: ["dealership", "title", "detail"] });
-    // The one-time code is an authentication message: WhatsApp fixes its wording, so only the first seven can be reworded.
-    expect(res.body[7]).toMatchObject({ audience: "STAFF", category: "AUTHENTICATION", fixed_wording: true, params: ["code"] });
+    expect(res.body[7]).toMatchObject({ audience: "STAFF", category: "UTILITY", fixed_wording: false, params: ["name", "booking_no", "customer_name", "title", "detail"] });
+    // The one-time code is an authentication message: WhatsApp fixes its wording, so only the first eight can be reworded.
+    expect(res.body[8]).toMatchObject({ audience: "STAFF", category: "AUTHENTICATION", fixed_wording: true, params: ["code"] });
     expect(res.body.filter((t: any) => t.fixed_wording).map((t: any) => t.event_key)).toEqual(["PASSWORD_OTP"]);
   });
 

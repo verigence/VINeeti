@@ -2,17 +2,22 @@
    Wide screens get a sidebar; at 860px and below the app is laid out as a phone app (see the end of the file). */
 
 :root {
-  --navy: #001e3c;
-  --navy-2: #0c2f55;
-  --navy-line: #1c3a5c;
-  --gold: #ae9054;
-  --gold-text: #84682f;
-  --gold-soft: #f4eddd;
-  --bg: #f6f4ef;
+  /* Taken from the VINeeti mark: deep navy for the wordmark, teal to cyan for the arc and the tick. */
+  --navy: #002858;
+  --navy-2: #0b3a72;
+  --navy-line: #1d4a84;
+  --teal: #0098a8;
+  --cyan: #00a8c8;
+  --sky: #0090d0;
+  /* The accent used throughout (section labels, active tab, focus): the logo's teal, on light surfaces its darker text shade. */
+  --gold: #0098a8;
+  --gold-text: #077086;
+  --gold-soft: #e3f4f7;
+  --bg: #f4f7f9;
   --card: #ffffff;
-  --border: #e3ded3;
-  --border-soft: #efebe2;
-  --control-border: #8f8878;
+  --border: #d9e2e8;
+  --border-soft: #e9eff3;
+  --control-border: #7f8f9c;
   --text: #1b2733;
   --muted: #5b6672;
   --danger: #9a2a20;
@@ -22,7 +27,7 @@
   --ok-bg: #e4f2e7;
   --warn: #7a5200;
   --warn-bg: #fbf0d9;
-  --info-bg: #e9f0f8;
+  --info-bg: #e6f3fa;
   --radius: 6px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
@@ -3544,5 +3549,108 @@ input[type="radio"] {
   }
   .spinner {
     animation-duration: 1.2s !important;
+  }
+}
+
+/* ---------------------------------------------------------------- brand images */
+.splash {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  padding: 24px;
+}
+.splash-image {
+  width: min(560px, 86vw);
+  height: auto;
+  animation: splash-in 400ms ease-out;
+}
+@keyframes splash-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.auth-wordmark {
+  display: block;
+  width: min(320px, 100%);
+  height: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+}
+.brand-wordmark {
+  display: block;
+  width: 100%;
+  max-width: 180px;
+  height: auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+.more-wordmark {
+  display: block;
+  width: 160px;
+  height: auto;
+  margin: 0 auto 4px;
+}
+.install-icon {
+  border-radius: 10px;
+}
+
+/* ---------------------------------------------------------------- brand accents */
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--navy);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--cyan);
+  text-underline-offset: 3px;
+}
+.linkish:hover {
+  color: var(--gold-text);
+}
+.tiles .stat-value,
+.stat-value {
+  color: var(--navy);
+}
+.sidebar {
+  background-image: linear-gradient(180deg, var(--navy) 0, var(--navy-2) 100%);
+}
+.nav-active {
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+.phone-bar {
+  background-image: linear-gradient(90deg, var(--navy) 0, var(--navy-2) 100%);
+}
+.tabbar-active,
+.tab-active {
+  color: var(--gold-text);
+}
+.btn-primary,
+button.primary {
+  background-image: linear-gradient(135deg, var(--navy) 0, var(--navy-2) 100%);
+}
+
+/* ---------------------------------------------------------------- charts */
+.chart {
+  width: 100%;
+  min-width: 0;
+}
+.chart-card {
+  padding: 12px 12px 4px;
+}
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (max-width: 860px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
   }
 }

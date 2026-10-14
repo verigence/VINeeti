@@ -22,8 +22,10 @@ import type { Ctx } from "../env";
 import { all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
 import { readExport } from "../lib/xlsx";
 import { bad, conflict, HttpError, iso, localParts, newId, norm } from "../lib/util";
-import { dateInFilename, readBookingSheet, readStockReport, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
+import { dateInFilename, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
 import { alarmStmts } from "./alarms";
+import { recordStockPositions } from "./analytics";
+import { oemAdapter, SUPPORTED_OEMS } from "../oem";
 import { allocateAll, releaseAllocation, releaseStmts, vehicleLabel } from "./allocation";
 import { cancelBooking } from "./bookings";
 import { receiveVehicle } from "./inventory";
@@ -109,6 +111,13 @@ const today = (ctx: Ctx) => localParts(ctx.now, ctx.tenant.timezone).date;
 const jx = (f: string) => `json_extract(j.value,'$.${f}')`;
 
 /** The dealership's name as its DMS writes it is fixed by the first file; a file for another dealer is refused. */
+/** The manufacturer's file layout for this dealership. */
+function adapterFor(ctx: Ctx) {
+  const a = oemAdapter(ctx.tenant.oem);
+  if (!a) throw bad(`DMS files for ${ctx.tenant.oem} are not configured in this version (supported: ${SUPPORTED_OEMS.join(", ")}). The dealership can be worked from the screens; its file layout is added from real exports.`, "OEM_NOT_SUPPORTED");
+  return a;
+}
+
 async function checkDealer(ctx: Ctx, dealerName: string): Promise<void> {
   if (!dealerName) return;
   const have = ctx.settings.dms_dealer_name;
@@ -238,7 +247,7 @@ export async function importStockReport(
   const asOf = opts.reportDate || dateInFilename(opts.filename) || today(ctx);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw bad("The report date is not valid");
   if (asOf > today(ctx)) throw bad(`The report date ${asOf} is in the future`);
-  const report = readStockReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
+  const report = adapterFor(ctx).readStockReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
   if (report.rows.length > MAX_ROWS) throw bad(`The report has more than ${MAX_ROWS} cars`);
   await checkDealer(ctx, report.dealer_name);
   const newer = await first<{ report_date: string }>(ctx.db, `SELECT MAX(report_date) AS report_date FROM uploads WHERE tenant_id = ? AND kind = 'STOCK' AND status = 'DONE'`, ctx.tenantId);
@@ -696,6 +705,7 @@ export async function importStockReport(
   if (!result.more) {
     await refreshBookingColours(ctx);
     result.allocations = (await allocateAll(ctx, ALLOCATE_AFTER_LOAD)).length;
+    await recordStockPositions(ctx, "STOCK_REPORT");
   }
   addInto(s, upload.prior, ["new_cars", "received", "invoiced", "returned", "left_stock.delivered", "left_stock.removed", "left_stock.on_hold", "orders.recorded", "orders.confirmed", "orders.bypassed", "orders.released_in_dms", "orders.out_of_turn", "variants_added"]);
   if (upload.continued) s.outlets_created = [...new Set([...(upload.prior.outlets_created ?? []), ...s.outlets_created])];
@@ -726,7 +736,7 @@ export async function importBookingSheet(
   const tz = ctx.tenant.timezone;
   const scope = opts.outletScope ?? null;
   const sheetDate = today(ctx);
-  const sheet = readBookingSheet(await readExport(bytes, opts.filename), { timeZone: tz });
+  const sheet = adapterFor(ctx).readBookingSheet(await readExport(bytes, opts.filename), { timeZone: tz });
   if (sheet.rows.length > MAX_ROWS) throw bad(`The sheet has more than ${MAX_ROWS} bookings; split it`);
   await checkDealer(ctx, sheet.dealer_name);
   const upload = await startUpload(ctx, "BOOKINGS", opts.continueUpload);
@@ -914,6 +924,7 @@ export async function importBookingSheet(
   if (!result.more) {
     await refreshBookingColours(ctx);
     result.allocations += (await allocateAll(ctx, ALLOCATE_AFTER_LOAD)).length;
+    await recordStockPositions(ctx, "BOOKING_SHEET");
   }
   addInto(s, upload.prior, ["new_bookings", "entered_queue", "cancelled_now", "cars_released", "invoiced_now", "delivered_now", "details_completed", "variants_added"]);
   if (upload.continued) s.outlets_created = [...new Set([...(upload.prior.outlets_created ?? []), ...s.outlets_created])];

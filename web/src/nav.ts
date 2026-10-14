@@ -27,6 +27,7 @@ export const DESTINATIONS: Destination[] = [
   { to: "/payments", label: "Payments", icon: "payments", allowed: canSeePayments },
   { to: "/owner", label: "Owner", icon: "owner", allowed: (can) => can("owner.view") },
   { to: "/dashboards", label: "Dashboards", icon: "dashboards", allowed: (can) => can("dashboards.view") },
+  { to: "/analytics", label: "Analytics", icon: "analytics", allowed: (can) => can("dashboards.view") },
   { to: "/eod", label: "End of day", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
   { to: "/recon", label: "Reconciliation", icon: "recon", allowed: (can) => can("recon.view") },
   { to: "/master", label: "Vehicle master", icon: "master", allowed: (can) => can("master.manage") },
