@@ -6,7 +6,7 @@ import { ApiError, errorMessage } from "../api";
 import { Dialog } from "../components/Dialog";
 import { Button, Card, Chip, DataTable, Empty, Field, Notice, Stat, type Column } from "../components/ui";
 import { fmtDateTime, fmtNumber } from "../format";
-import { PRODUCT, PRODUCT_BYLINE } from "../product";
+import { PRODUCT } from "../product";
 
 interface Admin { id: string; name: string; mobile: string; must_change_password: boolean }
 interface Tenant { id: string; slug: string; name: string; oem: string; timezone: string; is_active: boolean; created_at: string; outlets: number; users: number; cars_in_stock: number; open_bookings: number; last_file_at: string | null }
@@ -61,9 +61,7 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
     <div className="auth">
       <div className="auth-panel">
         <div className="auth-brand">
-          <img src="/brand/wordmark.png" alt={PRODUCT} className="auth-wordmark" />
-          <span className="auth-byline">{PRODUCT_BYLINE}</span>
-          <span className="auth-tagline">Platform console</span>
+          <img src="/brand/lockup-light.png" alt={`${PRODUCT}. A product by JBR Consulting.`} className="auth-lockup" />
         </div>
         <Card title={title}>{children}</Card>
       </div>
@@ -90,7 +88,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     }
   };
   return (
-    <Frame title="Sign in">
+    <Frame title="Platform sign-in">
       <form onSubmit={submit} className="form-grid">
         <Field label="Mobile number" hint="The platform administrator's number, as set on the deployment.">
           <input type="tel" inputMode="tel" autoComplete="username" value={mobile} onChange={(e) => setMobile(e.target.value)} required />
@@ -100,7 +98,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Sign in</Button>
-        <p className="muted small">This is not a dealership sign-in. People who work at a dealership sign in on the main screen.</p>
+        <p className="muted">This is not a dealership sign-in: the people who work at a dealership sign in on the main screen.</p>
       </form>
     </Frame>
   );
@@ -189,7 +187,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
   return (
     <div className="platform">
       <header className="platform-bar">
-        <img src="/brand/wordmark.png" alt={PRODUCT} className="platform-wordmark" />
+        <img src="/brand/wordmark-light.png" alt={PRODUCT} className="platform-wordmark" />
         <div className="platform-who">
           <span className="strong">{admin.name}</span>
           <span className="sub">Platform console</span>

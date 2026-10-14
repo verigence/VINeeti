@@ -4,7 +4,7 @@ import { PRODUCT } from "../product";
 export function Splash() {
   return (
     <div className="splash" role="status" aria-label={`${PRODUCT} is opening`}>
-      <img src="/brand/splash.png" alt={`${PRODUCT}. Fair allocation, smarter inventory. A product by JBR Consulting`} className="splash-image" />
+      <img src="/brand/lockup.png" alt={`${PRODUCT}. Fair allocation, smarter inventory. A product by JBR Consulting`} className="splash-image" />
     </div>
   );
 }

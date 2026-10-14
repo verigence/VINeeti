@@ -1879,9 +1879,10 @@ input[type="radio"] {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px 16px;
+  padding: 32px 16px;
   background: var(--navy);
-  background-image: linear-gradient(180deg, var(--navy) 0, var(--navy) 46%, var(--bg) 46%);
+  background-image: radial-gradient(120% 70% at 50% 0%, var(--navy-2) 0%, var(--navy) 55%), linear-gradient(180deg, var(--navy) 0, var(--navy) 58%, var(--bg) 58%);
+  background-blend-mode: normal;
 }
 .auth-panel {
   width: min(400px, 100%);
@@ -1890,7 +1891,7 @@ input[type="radio"] {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 18px;
+  margin-bottom: 22px;
   color: #fff;
 }
 .auth-logo {
@@ -3569,30 +3570,56 @@ input[type="radio"] {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: none; }
 }
+/* The logo is used as drawn: light version on the navy surfaces, dark on white. Never in a box. */
+/* The sign-in card is a single column at every width: two columns of fields read as a form to fill in, not a sign-in. */
+.auth-panel .form-grid {
+  grid-template-columns: 1fr;
+}
+.auth-lockup {
+  display: block;
+  width: min(340px, 86%);
+  height: auto;
+  margin: 0 auto 4px;
+}
 .auth-wordmark {
   display: block;
-  width: min(320px, 100%);
+  width: min(260px, 72%);
   height: auto;
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 14px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .brand-wordmark {
   display: block;
   width: 100%;
-  max-width: 180px;
+  max-width: 172px;
   height: auto;
-  background: #fff;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .more-wordmark {
   display: block;
-  width: 160px;
+  width: 150px;
   height: auto;
-  margin: 0 auto 4px;
+  margin: 0 auto 6px;
+}
+.topbar-mark {
+  height: 26px;
+  width: auto;
+  margin-right: 10px;
+  flex: none;
+}
+.topbar-mark-light {
+  display: none;
+}
+@media (max-width: 860px) {
+  .topbar-mark {
+    height: 24px;
+    margin-right: 8px;
+  }
+  .topbar-mark-dark {
+    display: none;
+  }
+  .topbar-mark-light {
+    display: block;
+  }
 }
 .install-icon {
   border-radius: 10px;
@@ -3680,11 +3707,8 @@ button.primary {
   color: #fff;
 }
 .platform-wordmark {
-  height: 34px;
+  height: 30px;
   width: auto;
-  background: #fff;
-  border-radius: 6px;
-  padding: 4px 8px;
 }
 .platform-who {
   margin-left: auto;

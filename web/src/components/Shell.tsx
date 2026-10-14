@@ -70,7 +70,7 @@ export function Shell() {
         {/* Wide screens: sidebar with every destination. */}
         <aside className="sidebar">
           <div className="brand">
-            <img src="/brand/wordmark.png" alt={product} className="brand-wordmark" />
+            <img src="/brand/wordmark-light.png" alt={product} className="brand-wordmark" />
             <span className="brand-dealer">{me.tenant.name}</span>
             <span className="brand-oem">{me.tenant.oem}</span>
           </div>
@@ -100,6 +100,9 @@ export function Shell() {
 
         <div className="content">
           <header className="topbar">
+            {/* The mark as drawn on the white bar of a wide screen, and the light version on the navy bar of a phone. */}
+            <img src="/brand/mark.png" alt="" className="topbar-mark topbar-mark-dark" />
+            <img src="/brand/mark-light.png" alt="" className="topbar-mark topbar-mark-light" />
             <div className="topbar-tenant">
               <span className="tenant-name">{me.tenant.name}</span>
               <span className="tenant-oem">{me.tenant.oem}</span>
