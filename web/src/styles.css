@@ -4653,3 +4653,138 @@ button.primary {
 .auth .brand-foot img {
   width: 300px;
 }
+.card-basis {
+  padding: 0 16px 10px;
+}
+.danger-text {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- where the cars have piled up
+   The numbers, above the list they summarise. Each row is a filter. */
+.by-model {
+  padding: 12px 16px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.by-model-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.by-model-clear {
+  border: 0;
+  background: transparent;
+  color: var(--gold-text);
+  font-size: 12px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0;
+}
+.by-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 4px 18px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.by-model-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-items: baseline;
+  gap: 1px 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.by-model-row:hover {
+  background: var(--gold-soft);
+}
+.by-model-row.on {
+  border-color: var(--teal);
+  background: var(--gold-soft);
+}
+.by-model-n {
+  grid-row: 1 / 3;
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.by-model-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.by-model-bar {
+  grid-column: 2;
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: #e7eef3;
+  overflow: hidden;
+}
+.by-model-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-image: linear-gradient(90deg, var(--navy) 0, var(--teal) 100%);
+}
+.by-model-sub {
+  grid-column: 2;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+@media (max-width: 860px) {
+  .by-model-list {
+    grid-template-columns: 1fr;
+  }
+}
+/* The money line above the models: the first thing an owner reads on a stock list. */
+.by-model-money {
+  margin: 0 0 10px;
+  font-size: 14.5px;
+  color: var(--text);
+}
+.by-model-money strong {
+  font-size: 19px;
+  font-weight: 650;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.by-model-money strong.danger-text {
+  color: var(--danger);
+}
+.by-model-money .hint {
+  display: block;
+  margin-top: 2px;
+}
+.by-model-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.by-model-value {
+  font-weight: 600;
+  color: var(--gold-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

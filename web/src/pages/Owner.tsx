@@ -13,7 +13,7 @@ import { canSeePayments } from "../nav";
 import { Link } from "../router";
 import { useSession } from "../session";
 import { Chart, PALETTE } from "../components/Chart";
-import type { AgeBucket, AtRiskRow, Measure, OutOfTurnRow, OwnerView } from "../types";
+import type { AtRiskRow, Measure, OutOfTurnRow, OwnerView } from "../types";
 
 type Tab = "overview" | "out-of-turn" | "measures";
 
@@ -36,42 +36,35 @@ export function OwnerPage({ tab }: { tab: Tab }) {
   );
 }
 
-// ---------------------------------------------------------------- the owner's numbers (also shown on Home)
+/**
+ * The owner's figures. Each one is a different fact.
+ *
+ * There used to be two tiles for the same cars — "Cars nobody has booked" and "Cars with no customer"
+ * differed only by the demo cars, and both sat above a chart and a bar list of the same four numbers.
+ * One figure is kept, and it is the one the chart and the table below are built from, so the page
+ * cannot disagree with itself. A figure at zero is left out: an owner is looking for what is wrong.
+ */
 export function OwnerTiles({ o }: { o: OwnerView }) {
   const { can } = useSession();
   const payments = canSeePayments(can) ? "/payments" : undefined;
+  const tiles = [
+    { label: "Customers waiting for a car", n: o.customers_waiting, to: can("booking.view") ? "/bookings?view=waiting" : undefined },
+    { label: "Cars nobody has booked", n: o.unsold_by_age.total, to: "/owner#unsold" },
+    { label: "Delivery dates at risk", n: o.delivery_dates_at_risk.count, to: "/owner#at-risk", tone: "danger" as const, hint: o.delivery_dates_at_risk.overdue ? `${fmtNumber(o.delivery_dates_at_risk.overdue)} already past the date` : undefined },
+    { label: "Given out of turn this month", n: o.out_of_turn.this_month, to: "/owner/out-of-turn", tone: "warn" as const, hint: o.out_of_turn.under_review ? `${fmtNumber(o.out_of_turn.under_review)} not looked at` : undefined },
+    { label: "Customers on hold", n: o.customers_on_hold, to: can("booking.view") ? "/bookings?view=hold" : undefined, tone: "warn" as const },
+    { label: "Billed, not yet handed over", n: o.invoiced_not_delivered, to: can("booking.view") ? "/bookings?status=INVOICED" : undefined },
+    { label: "Waiting for payment", n: o.payments.awaiting_payment, to: payments },
+    { label: "Payments to check", n: o.payments.to_verify, to: payments, tone: "warn" as const },
+    { label: "Customers with no car coming", n: o.bookings_with_no_car_coming.bookings, to: can("dashboards.view") ? "/dashboards/order-queue" : undefined, tone: "danger" as const, hint: `across ${plural(o.bookings_with_no_car_coming.configurations, "model, variant and colour", "model, variant and colour combinations")}` },
+  ].filter((x) => x.n > 0);
+  if (!tiles.length) return <p className="group-clear">Nothing needs the owner's attention today.</p>;
   return (
     <div className="tiles">
-      <Stat label="Customers waiting" value={fmtNumber(o.customers_waiting)} to={can("booking.view") ? "/bookings?view=waiting" : undefined} />
-      <Stat label="Cars nobody has booked" value={fmtNumber(o.cars_not_matched)} to={can("stock.view") ? "/stock/cars?commitment=FREE" : undefined} />
-      <Stat label="Delivery dates at risk" value={fmtNumber(o.delivery_dates_at_risk.count)} to="/owner#at-risk" tone={o.delivery_dates_at_risk.count ? "danger" : undefined} hint={o.delivery_dates_at_risk.overdue ? `${fmtNumber(o.delivery_dates_at_risk.overdue)} already past` : undefined} />
-      <Stat label="Given out of turn this month" value={fmtNumber(o.out_of_turn.this_month)} to="/owner/out-of-turn" tone={o.out_of_turn.this_month ? "warn" : undefined} />
-      <Stat label="Out of turn, not looked at" value={fmtNumber(o.out_of_turn.under_review)} to="/owner/out-of-turn" tone={o.out_of_turn.under_review ? "danger" : undefined} />
-      <Stat label="Waiting for payment" value={fmtNumber(o.payments.awaiting_payment)} to={payments} />
-      <Stat label="Payments to check" value={fmtNumber(o.payments.to_verify)} to={payments} tone={o.payments.to_verify ? "warn" : undefined} />
-      <Stat label="Cars with no customer" value={fmtNumber(o.unsold_by_age.total)} to="/owner#unsold" />
-    </div>
-  );
-}
-
-function AgeBars({ buckets }: { buckets: AgeBucket[] }) {
-  const max = Math.max(1, ...buckets.map((b) => b.cars));
-  return (
-    <ul className="bars">
-      {buckets.map((b) => (
-        <li key={b.label} className="bar-row">
-          <span className="bar-label">{b.label}</span>
-          <span className="bar-track" aria-hidden="true">
-            <span className="bar-fill" style={{ width: `${(b.cars / max) * 100}%` }} />
-          </span>
-          <span className="bar-value">{plural(b.cars, "car")}</span>
-          <span className="bar-detail">
-            {fmtNumber(b.in_yard)} in yard · {fmtNumber(b.in_transit)} in transit
-            {b.value !== undefined ? ` · ${fmtMoney(b.value)}` : ""}
-          </span>
-        </li>
+      {tiles.map((x) => (
+        <Stat key={x.label} label={x.label} value={fmtNumber(x.n)} to={x.to} tone={x.tone} hint={x.hint} />
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -130,42 +123,32 @@ function Overview() {
           <div className="tile-groups">
             <OwnerTiles o={o} />
           </div>
+          {/* Ageing was drawn three times on this page — a tile, a chart and a bar list of the same four
+              numbers. It is drawn once, as the chart, and the room that frees goes to the thing an owner
+              actually has to decide from: which models the money is sitting in. */}
           <div id="unsold" className="anchor">
-            <div className="chart-grid">
-              <Card title="Unsold stock by age" className="chart-card">
+            <Card title="Cars nobody has booked, by how long they have been here" note={o.unsold_by_age.basis} className="chart-card">
+              {o.unsold_by_age.total ? (
                 <Chart
-                  height={220}
+                  height={240}
                   option={{
-                    legend: { show: false },
+                    legend: { bottom: 0, data: ["In the yard", "On the way"] },
+                    grid: { left: 8, right: 16, top: 14, bottom: 42, containLabel: true },
                     xAxis: { type: "category", data: o.unsold_by_age.buckets.map((b) => b.label), axisLabel: { color: "#5b6672", fontSize: 11 }, axisTick: { show: false } },
                     yAxis: { type: "value", minInterval: 1, axisLabel: { color: "#5b6672" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
                     series: [
-                      { name: "In yard", type: "bar", stack: "a", barMaxWidth: 36, itemStyle: { color: PALETTE[0] }, data: o.unsold_by_age.buckets.map((b) => b.in_yard) },
-                      { name: "In transit", type: "bar", stack: "a", itemStyle: { color: PALETTE[2], borderRadius: [3, 3, 0, 0] }, data: o.unsold_by_age.buckets.map((b) => b.in_transit) },
+                      { name: "In the yard", type: "bar", stack: "a", barMaxWidth: 46, itemStyle: { color: PALETTE[0] }, data: o.unsold_by_age.buckets.map((b) => b.in_yard) },
+                      { name: "On the way", type: "bar", stack: "a", itemStyle: { color: PALETTE[2], borderRadius: [4, 4, 0, 0] }, data: o.unsold_by_age.buckets.map((b) => b.in_transit) },
                     ],
                   }}
                 />
-              </Card>
-              <Card title="Customers and cars by outlet" className="chart-card">
-                <Chart
-                  height={220}
-                  option={{
-                    xAxis: { type: "category", data: o.outlets.map((x) => x.name), axisLabel: { color: "#5b6672", fontSize: 11, interval: 0, rotate: o.outlets.length > 4 ? 20 : 0 }, axisTick: { show: false } },
-                    yAxis: { type: "value", minInterval: 1, axisLabel: { color: "#5b6672" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
-                    series: [
-                      { name: "Customers waiting", type: "bar", barMaxWidth: 20, itemStyle: { color: "#9a2a20", borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.waiting) },
-                      { name: "Holding a car", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[1], borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.holding_a_car) },
-                      { name: "Cars free", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[0], borderRadius: [3, 3, 0, 0] }, data: o.outlets.map((x) => x.cars_free) },
-                    ],
-                  }}
-                />
-              </Card>
-            </div>
-            <Card title={`Unsold stock by age (${fmtNumber(o.unsold_by_age.total)})`} note={o.unsold_by_age.basis}>
-              {o.unsold_by_age.total ? <AgeBars buckets={o.unsold_by_age.buckets} /> : <Empty title="No unsold stock" />}
+              ) : (
+                <Empty title="No unsold stock" hint="Every car in the latest stock report is held by a booking." />
+              )}
             </Card>
+            <WhichModelsAreSitting />
           </div>
-          <Card title="By outlet" flush>
+          <Card title="Each outlet" note="Who is waiting, what is holding a car, and what is free to offer, outlet by outlet." flush>
             {o.outlets.length ? <DataTable columns={outletColumns} rows={o.outlets} rowKey={(r) => r.outlet_id} caption="Position by outlet" /> : <Empty title="No outlets" />}
           </Card>
           <div id="at-risk" className="anchor">
@@ -389,5 +372,48 @@ function Measures() {
         </Async>
       )}
     </>
+  );
+}
+
+
+/**
+ * Which models the money is sitting in. The chart above says how old the unsold stock is; it does not
+ * say what to do about it. This does: the models with the oldest cars first, how many of each, how long
+ * the oldest one has been here, and — for the roles that may see stock value — what is tied up in it.
+ * That is the row an owner acts on, by discounting it, moving it, or stopping the next order of it.
+ */
+function WhichModelsAreSitting() {
+  const load = useLoad(() => api.ageing(), "owner:ageing");
+  const { can } = useSession();
+  const withValue = can("stock.value");
+  const d = load.data ?? null;
+  if (!d || !d.rows.length) return null;
+  const rows = [...d.rows].sort((a, b) => (b.oldest_days ?? 0) - (a.oldest_days ?? 0) || b.cars - a.cars).slice(0, 12);
+  const columns: Column<(typeof rows)[number]>[] = [
+    { header: "Model", primary: true, cell: (r) => <span className="strong">{r.model}</span> },
+    { header: "Cars", num: true, cell: (r) => fmtNumber(r.cars) },
+    { header: "In the yard", num: true, cell: (r) => fmtNumber(r.in_yard) },
+    { header: "On the way", num: true, cell: (r) => fmtNumber(r.in_transit) },
+    { header: "Oldest", num: true, cell: (r) => (r.oldest_days === null ? <span className="muted">—</span> : <span className={r.oldest_days > 60 ? "strong danger-text" : undefined}>{plural(r.oldest_days, "day")}</span>) },
+    { header: "Average age", num: true, cell: (r) => (r.average_days === null ? <span className="muted">—</span> : plural(Math.round(r.average_days), "day")) },
+    ...(withValue ? [{ header: "Money in it", num: true, cell: (r: (typeof rows)[number]) => (r.value === undefined ? <span className="muted">—</span> : fmtMoney(r.value)) }] : []),
+  ];
+  return (
+    <Card
+      title="Which models the money is sitting in"
+      note={`${plural(d.totals.cars, "unsold car")}, ${fmtNumber(d.totals.over_60_days)} of them here more than 60 days${d.totals.value !== undefined ? `, holding ${fmtMoney(d.totals.value)}` : ""}. Oldest model first.`}
+      actions={
+        <Link to="/analytics/ageing" className="btn btn-secondary btn-sm">
+          <span>All models</span>
+        </Link>
+      }
+      flush
+    >
+      <DataTable columns={columns} rows={rows} rowKey={(r) => r.model} caption="Unsold stock by model" />
+      <details className="chart-basis card-basis">
+        <summary>How this is counted</summary>
+        <p>{d.basis}</p>
+      </details>
+    </Card>
   );
 }

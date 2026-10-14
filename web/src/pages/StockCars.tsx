@@ -3,7 +3,7 @@ import { api } from "../api";
 import { CarName, SpecLine } from "../components/CarSpec";
 import { useCatalog } from "../components/ConfigPicker";
 import { ActionBar, Async, Button, Card, Chip, DataTable, Empty, Filter, FilterBar, Select, StatusChip, type Column } from "../components/ui";
-import { fmtDate, fmtMoney, plural, today } from "../format";
+import { fmtDate, fmtMoney, fmtNumber, plural, today } from "../format";
 import { useAction, useDebounced, useLoad } from "../hooks";
 import { allocationMessage, DMS_STOCK_TYPE_OPTIONS, dmsStockType, VEHICLE_STATUS_OPTIONS, vehicleStatus } from "../labels";
 import { Link, useQuery, useRouter } from "../router";
@@ -247,8 +247,13 @@ export function CarsTab() {
             if (!rows.length) return <Empty title="No cars match" hint="Change the filters or the search." />;
             return (
               <>
+                {/* The numbers first, then the detail. A list of several hundred chassis numbers cannot
+                    answer "where have I piled up", and that is the first thing anybody opening this list
+                    wants to know. Each model is a filter: press it and the list below narrows to it. */}
+                <ByModel rows={rows} chosen={q.model} onChoose={(m) => setQuery({ model: m, variant: null, colour: null })} />
                 <p className="list-count">
                   {plural(rows.length, "car")}
+                  {q.model ? ` · ${q.model}` : ""}
                   {all.length >= 1000 ? " (first 1,000 shown; narrow the filters to see the rest)" : ""}
                 </p>
                 <DataTable columns={columns} rows={rows} rowKey={(v) => v.id} caption="Cars" />
@@ -268,5 +273,99 @@ export function CarsTab() {
       )}
       {dialog === "bulk" && <ReceiveBulkDialog onClose={() => setDialog(null)} onDone={() => void load.reload()} />}
     </>
+  );
+}
+
+
+/**
+ * Where the cars have piled up, worked out from the rows on screen so it always agrees with the filters
+ * above it. Biggest first, with the oldest car in each model beside it, because a hundred of a model is
+ * one problem and a hundred of a model whose oldest has been standing ninety days is another.
+ *
+ * Pressing a model filters the list below; pressing it again clears it.
+ */
+function ByModel({ rows, chosen, onChoose }: { rows: VehicleListRow[]; chosen: string; onChoose: (model: string | null) => void }) {
+  if (rows.length < 2) return null;
+  // The money is shown only where the price is shown: the server leaves it out for roles that may not
+  // see stock value, and a total built from missing prices would be a lie told confidently.
+  const withValue = rows.some((v) => v.net_dealer_price !== undefined && v.net_dealer_price !== null);
+  const by = new Map<string, { model: string; cars: number; yard: number; transit: number; oldest: number | null; value: number; priced: number; old60: number; old60Value: number }>();
+  let total = 0;
+  let priced = 0;
+  let old60 = 0;
+  let old60Value = 0;
+  for (const v of rows) {
+    const g = by.get(v.model) ?? { model: v.model, cars: 0, yard: 0, transit: 0, oldest: null, value: 0, priced: 0, old60: 0, old60Value: 0 };
+    g.cars += 1;
+    if (v.status === "RECEIVED") g.yard += 1;
+    else if (v.status === "IN_TRANSIT") g.transit += 1;
+    if (v.age_days !== null && (g.oldest === null || v.age_days > g.oldest)) g.oldest = v.age_days;
+    const price = v.net_dealer_price ?? null;
+    if (price !== null) {
+      g.value += price;
+      g.priced += 1;
+      total += price;
+      priced += 1;
+    }
+    if (v.age_days !== null && v.age_days > 60) {
+      g.old60 += 1;
+      old60 += 1;
+      if (price !== null) {
+        g.old60Value += price;
+        old60Value += price;
+      }
+    }
+    by.set(v.model, g);
+  }
+  const groups = [...by.values()].sort((a, b) => b.value - a.value || b.cars - a.cars || a.model.localeCompare(b.model));
+  if (groups.length < 2 && !chosen) return null;
+  const max = Math.max(...groups.map((g) => g.cars));
+  const unpriced = rows.length - priced;
+  return (
+    <div className="by-model">
+      {withValue && (
+        <p className="by-model-money">
+          <strong>{fmtMoney(total)}</strong> is sitting in {plural(rows.length, "car")}
+          {old60 > 0 && (
+            <>
+              {" · "}
+              <strong className="danger-text">{fmtMoney(old60Value)}</strong> of it in {plural(old60, "car")} here more than 60 days
+            </>
+          )}
+          {unpriced > 0 && <span className="hint"> {plural(unpriced, "car has", "cars have")} no price in the stock report and {unpriced === 1 ? "is" : "are"} not in these totals.</span>}
+        </p>
+      )}
+      <p className="by-model-head">
+        {withValue ? "Where the money is, by model" : "Where these cars are, by model"}
+        {chosen && (
+          <button type="button" className="by-model-clear" onClick={() => onChoose(null)}>
+            Show every model
+          </button>
+        )}
+      </p>
+      <ul className="by-model-list">
+        {groups.map((g) => (
+          <li key={g.model}>
+            <button type="button" className={`by-model-row${chosen === g.model ? " on" : ""}`} onClick={() => onChoose(chosen === g.model ? null : g.model)} aria-pressed={chosen === g.model}>
+              <span className="by-model-n">{fmtNumber(g.cars)}</span>
+              <span className="by-model-name">
+                {g.model}
+                {withValue && g.priced > 0 && <span className="by-model-value">{fmtMoney(g.value)}</span>}
+              </span>
+              <span className="by-model-bar" aria-hidden="true">
+                <span style={{ width: `${Math.round((g.cars / max) * 100)}%` }} />
+              </span>
+              <span className="by-model-sub">
+                {g.yard > 0 ? `${fmtNumber(g.yard)} in the yard` : ""}
+                {g.yard > 0 && g.transit > 0 ? " · " : ""}
+                {g.transit > 0 ? `${fmtNumber(g.transit)} on the way` : ""}
+                {g.oldest !== null ? ` · oldest ${plural(g.oldest, "day")}` : ""}
+                {g.old60 > 0 ? ` · ${fmtNumber(g.old60)} over 60 days` : ""}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
