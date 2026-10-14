@@ -146,6 +146,25 @@ rests on, and the same files always give the same answer. Charts are drawn with 
 | Business Head / CEO and Dealer Principal | In-app alarms and one WhatsApp template | The alarms listed below |
 | Finance, Sales Lead, Stock In-charge | In-app alerts | Payment to verify, escalations, transfers needed, approvals waiting |
 
+### The platform console
+
+`/<address>/platform` is the deployment's own console, with its own sign-in. The **super admin** account
+is created by the first deployment from the repository secrets `SUPERADMIN_MOBILE` and
+`SUPERADMIN_PASSWORD`; its password follows that secret, so changing the secret and deploying again is
+how it is changed. From the console the super admin can:
+
+- see every dealership on the deployment with its size (outlets, people, cars in stock, open bookings,
+  when its last DMS file was loaded);
+- create a dealership and its first System Admin;
+- switch a dealership off (nobody there can sign in, and every open session there ends) and on again;
+- give a dealership's System Admin a new temporary password, shown once, for a dealership locked out of
+  its own account.
+
+What the console cannot do is read any dealership's customers, bookings, stock or messages: a platform
+session is refused by every dealership route, and a dealership's own people — their System Admin
+included — are refused by every console route. Everything done in the console is written to an
+append-only platform audit trail, and a password reset is recorded on the dealership's own trail too.
+
 ## Controls
 
 - **First booked, first served.** The queue is ordered by the booking's date and time in the DMS. The
@@ -307,17 +326,21 @@ check, tests, then deployment.
 1. In Cloudflare, create an API token for the account with the permissions **Workers Scripts: Edit** and
    **D1: Edit** (the "Edit Cloudflare Workers" template, plus D1). An R2 storage token will not work, and
    R2 is not used.
-2. In the GitHub repository, under Settings, Secrets and variables, Actions, add two repository secrets:
-   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+2. In the GitHub repository, under Settings, Secrets and variables, Actions, add:
+   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and (for the platform console)
+   `SUPERADMIN_MOBILE` and `SUPERADMIN_PASSWORD`.
 3. Push to `main`, or run the workflow by hand.
 
-The first run creates the D1 database (location hint `apac`) and the application's own secrets; every
-run applies new database migrations, deploys, and waits for the health check. The address is printed in
+The first run creates the D1 database (location hint `apac`), the application's own secrets and the
+super admin; every run applies new database migrations, deploys, waits for the health check and then
+runs unauthenticated checks against the live address. Everything goes through the project's Wrangler, so
+the token needs no permission beyond Wrangler's own. The address is printed in
 the run's summary: `https://verigence-vineeti.<your-subdomain>.workers.dev`. A custom domain can be
 attached to the Worker in the Cloudflare dashboard.
 
-Then run the workflow **Onboard a dealership** once per dealership: dealer code, name, and the first
-System Admin's name, mobile number and first password. It needs no further secret.
+Then add each dealership from the platform console at `/<address>/platform`, or run the workflow
+**Onboard a dealership** (dealer code, name, and the first System Admin's name, mobile number and first
+password). Either way needs no further secret.
 
 ### By hand
 
@@ -352,7 +375,7 @@ src/dms/            reading the stock report and the booking sheet
 src/domain/         DMS import and reconciliation, allocation, rules, bookings and payments, timers, alarms,
                     exceptions, dashboards, measures and analytics, day-end reconciliation, onboarding
 src/whatsapp/       templates, outbox, Cloud API client, webhook
-src/http/           the API, sign-in, permissions, the end-of-day feed
+src/http/           the API, sign-in, permissions, the end-of-day feed, the platform console
 src/scheduled.ts    the 15-minute job
 web/                the screens (React, Apache ECharts; one installable web app, laid out for phones first)
 test/               tests, with anonymised DMS files as fixtures

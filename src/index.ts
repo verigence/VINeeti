@@ -7,6 +7,7 @@ import { bookingRoutes } from "./http/routes-bookings";
 import { eodFeedRoutes, eodRoutes } from "./http/routes-eod";
 import { masterRoutes } from "./http/routes-master";
 import { opsRoutes } from "./http/routes-ops";
+import { platformRoutes } from "./http/routes-platform";
 import { stockRoutes } from "./http/routes-stock";
 import { runScheduled } from "./scheduled";
 
@@ -47,6 +48,7 @@ export function createApp() {
     return c.json([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: "com.jbrconsulting.vineeti", sha256_cert_fingerprints: prints } }]);
   });
 
+  platformRoutes(app); // the platform console: its own sign-in, no dealership data
   eodFeedRoutes(app); // the end-of-day feed proves itself with the dealership's key, not a sign-in
   authRoutes(app); // registers the authentication guard for everything after it
   eodRoutes(app);

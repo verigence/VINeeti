@@ -9,6 +9,11 @@
 # the same names also work, as for the other Verigence deployments):
 #   CLOUDFLARE_API_TOKEN   — CF API token with Workers Scripts: Edit + D1: Edit
 #   CLOUDFLARE_ACCOUNT_ID  — CF account ID (a1e15a39a0a8f86dc1ca9c6a8726e428)
+#   SUPERADMIN_MOBILE      — the platform administrator's mobile number (their
+#   SUPERADMIN_PASSWORD      sign-in ID) and password; the account is created on
+#                            the first deployment and its password follows this
+#                            secret, so changing the secret and deploying is how
+#                            the password is changed. SUPERADMIN_NAME optional.
 #   ANDROID_CERT_SHA256    — optional; the Android app's signing certificate
 #                            fingerprint, printed by the Android build workflow
 #
@@ -90,6 +95,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+          SUPERADMIN_MOBILE: ${{ secrets.SUPERADMIN_MOBILE }}
+          SUPERADMIN_PASSWORD: ${{ secrets.SUPERADMIN_PASSWORD }}
+          SUPERADMIN_NAME: ${{ secrets.SUPERADMIN_NAME }}
         run: node scripts/deploy.mjs
 
   smoke:

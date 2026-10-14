@@ -67,6 +67,15 @@ main(async () => {
     else if (missing.includes(name)) secrets[name] = randomSecret();
   }
   for (const name of OPTIONAL_SECRETS) if (process.env[name]) secrets[name] = process.env[name];
+  // The platform's own administrator ("super admin"): created, or its password brought up to date, on every
+  // deployment from the repository secrets. A fresh deployment token goes out with this deployment and is
+  // used once, right after it, to set the account up; it is never printed and never stored anywhere.
+  const superMobile = process.env.SUPERADMIN_MOBILE?.trim();
+  const superPassword = process.env.SUPERADMIN_PASSWORD;
+  const superName = process.env.SUPERADMIN_NAME?.trim() || "Super Admin";
+  if (superMobile && !superPassword) throw new Stop("SUPERADMIN_MOBILE is set but SUPERADMIN_PASSWORD is not. Set both (the password is at least 10 characters with a letter and a digit), or neither.");
+  const bootstrapToken = superMobile && superPassword ? randomSecret() : null;
+  if (bootstrapToken) secrets.PLATFORM_ADMIN_TOKEN = bootstrapToken;
   const names = Object.keys(secrets);
   let output = "";
   if (names.length) {
@@ -87,11 +96,32 @@ main(async () => {
   await waitHealthy(url);
   console.log(`Healthy: ${url}`);
 
+  if (bootstrapToken) {
+    // A secret set with this deployment takes a few seconds to reach every location, so a refusal is retried.
+    const until = Date.now() + 90_000;
+    for (;;) {
+      const res = await fetch(new URL("/api/platform/bootstrap", url), { method: "POST", headers: { Authorization: `Bearer ${bootstrapToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ mobile: superMobile, name: superName, password: superPassword }) }).catch((e) => ({ ok: false, status: 0, text: async () => e.message }));
+      if (res.ok) {
+        const body = await res.json();
+        console.log(`Super admin ${body.mobile}: ${body.created ? "created" : body.changed ? "password brought up to date" : "already set up"}.`);
+        break;
+      }
+      if (res.status === 401 && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      throw new Stop(`The super admin could not be set up (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+    }
+  } else {
+    console.log("No SUPERADMIN_MOBILE / SUPERADMIN_PASSWORD secret: the platform console has no account yet.");
+  }
+
   const created = names.filter((n) => missing.includes(n) && !process.env[n]);
   const lines = [
     `Verigence VINeeti is deployed at ${url}`,
     `Database: ${db.database_name} (${database.id})${database.created ? ", created in this run" : ""}`,
     created.length ? `Secrets created in this run: ${created.join(", ")}` : "Application secrets: unchanged",
+    bootstrapToken ? `Platform console: sign in at ${url}/platform with ${superMobile}` : "",
     names.filter((n) => OPTIONAL_SECRETS.includes(n)).length ? `Also set from the environment: ${names.filter((n) => OPTIONAL_SECRETS.includes(n)).join(", ")}` : "",
     have === null ? 'Next: create the dealership — run the workflow "Onboard a dealership".' : "",
   ].filter(Boolean);

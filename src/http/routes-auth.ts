@@ -73,13 +73,7 @@ async function tenantFor(db: D1Database, dealer: unknown, mobile: string | null)
 }
 
 export function authRoutes(app: App) {
-  // ------------------------------------------------------------ platform: onboarding a dealership
-  app.post("/api/platform/tenants", async (c) => {
-    const header = c.req.header("Authorization") ?? "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!c.env.PLATFORM_ADMIN_TOKEN || !token || !timingSafeEqual(token, c.env.PLATFORM_ADMIN_TOKEN)) throw new HttpError(401, "Not authorised", "UNAUTHENTICATED");
-    return c.json(await createTenant(c.env, await jsonBody(c), clock.now()), 201);
-  });
+  // Creating a dealership lives in the platform console (routes-platform.ts).
 
   // ------------------------------------------------------------ sign in / out
   app.post("/api/auth/login", async (c) => {

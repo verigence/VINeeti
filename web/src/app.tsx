@@ -11,6 +11,7 @@ import { setTimeZone } from "./format";
 import { ChangePasswordScreen, LoginScreen } from "./pages/Login";
 import { PRODUCT, productName } from "./product";
 import { Splash } from "./components/Splash";
+import { PlatformConsole } from "./pages/Platform";
 import { RouterProvider, useRouter } from "./router";
 import { SessionContext, type Session } from "./session";
 import type { Me, Permission } from "./types";
@@ -26,6 +27,10 @@ export function App() {
 }
 
 function Root() {
+  // The platform console is its own application: its own sign-in, its own session, no dealership data.
+  // It is matched before anything else so that none of the dealership screens are even mounted.
+  if (typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/platform") return <PlatformConsole />;
+
   const { navigate } = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [phase, setPhase] = useState<"loading" | "anon" | "ready" | "error">("loading");
