@@ -135,6 +135,21 @@ describe("what moved each day", () => {
     for (const day of res.body.days) for (const k of ["allocated", "released", "invoiced", "delivered"]) expect(typeof day[k]).toBe("number");
   });
 
+  // A dealership's whole back catalogue of allotments arrives in one file on the day it signs up. Dated
+  // by the load, every one of them lands on that single day and the chart says nothing about how the
+  // place trades. The stock report carries the allotment date, so that is the day the allotment counts.
+  it("counts an allotment the DMS made on the day the DMS says it was made, not the day the file was loaded", async () => {
+    const w = makeWorld("2026-10-10 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadBookings(w, d.users.crm.session, [{ no: "OTF27A000300", car: "THAR_WHITE", created: "01-Sep-2026 10:00 AM", customer: "ALLOTTED IN AUGUST" }]);
+    await loadStock(w, d.users.stock.session, [{ vin: "MA1THAR0000000300", car: "THAR_WHITE", order: "OTF27A000300", customer: "ALLOTTED IN AUGUST", allotDate: "2026-09-15", oemInvoiceDate: "2026-09-01", grnDate: "2026-09-05" }]);
+    const res = await get(w, d, "/api/views/daily?from=2026-09-01&to=2026-10-10");
+    const on = (date: string) => res.body.days.find((x: any) => x.date === date).allocated;
+    expect(on("2026-09-15")).toBe(1);
+    expect(on("2026-10-10")).toBe(0); // the day the file was loaded
+    expect(res.body.totals.allocated).toBe(1);
+  });
+
   it("adds the days up into the period's totals", async () => {
     const { w, d } = await start();
     const res = await get(w, d, "/api/views/daily?from=2026-10-01&to=2026-10-10");

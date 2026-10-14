@@ -193,10 +193,19 @@ a.mono,
   bottom: 0;
   left: 0;
   width: var(--sidebar-w);
-  overflow-y: auto;
+  /* The column itself never scrolls: if it did, a long menu would push the maker's logo off the bottom
+     of the screen and nobody would ever see it. The menu scrolls inside instead (see .sidebar nav), so
+     the brand stays at the top and the logo stays on the bottom edge however many entries a role has. */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   z-index: 20;
+}
+.sidebar > nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 /* The product's logo as its designer drew it, on a white band of its own. Putting it on navy would mean
    recolouring somebody else's mark, which is not ours to do. */
@@ -4802,12 +4811,35 @@ button.primary {
    the list that scrolls, inside its own panel, so the figures never leave the screen.
    A detail screen still scrolls; this rule is for a board somebody stands in front of. */
 .board-screen {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /* A column, not a grid with fixed rows: a board may or may not carry a stale-files line above the
+     figures, and the list has to be the thing that takes the leftover height whatever sits above it. */
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  /* The shell's top bar and the page's own padding. */
-  height: calc(100vh - var(--topbar-h) - 40px);
+  /* The shell's top bar, and the page's own padding above (20px) and below (56px). Getting this wrong
+     by a few pixels is what turns "one screen" into a page that scrolls by thirty pixels. */
+  height: calc(100vh - var(--topbar-h) - 76px);
   min-height: 420px;
+}
+.board-screen > * {
+  flex: none;
+}
+.board-screen > .board-panel-grow {
+  flex: 1 1 auto;
+}
+.board-stale {
+  margin: 0;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: #fff6e2;
+  border: 1px solid #e7cf9a;
+  color: #6b4a07;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.board-stale a {
+  color: #6b4a07;
+  font-weight: 600;
 }
 .board-kpis {
   display: grid;
@@ -4878,6 +4910,28 @@ button.primary {
   /* The list, and only the list, scrolls. */
   overflow: auto;
   padding: 0;
+}
+/* Two jobs in one panel: the heading itself is the switch, so the panel keeps its one-screen height. */
+.panel-tabs {
+  display: flex;
+  gap: 14px;
+}
+.panel-tabs button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  padding-bottom: 2px;
+}
+.panel-tabs button:hover {
+  color: var(--navy);
+}
+.panel-tabs button.on {
+  color: var(--navy);
+  border-bottom-color: var(--teal);
 }
 .board-panel > .chart-basis {
   flex: none;
@@ -5176,4 +5230,13 @@ button.primary {
   flex-wrap: wrap;
   gap: 5px;
   flex: none;
+}
+
+/* Home is the landing for the two people who have a board of their own; this is the way through to it. */
+.board-pointer {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+}
+.board-pointer a {
+  font-weight: 600;
 }

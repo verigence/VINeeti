@@ -106,7 +106,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> })
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} name="username" type="tel" inputMode="numeric" autoComplete="username" enterKeyHint="next" autoFocus={!mobile} />
         </Field>
         <Field label="Password">
-          <PasswordInput value={password} onChange={setPassword} name="password" autoComplete="current-password" enterKeyHint="go" autoFocus={Boolean(mobile)} />
+          <PasswordInput label="Password" value={password} onChange={setPassword} name="password" autoComplete="current-password" enterKeyHint="go" autoFocus={Boolean(mobile)} />
         </Field>
         <DealerCode value={dealer} onChange={setDealer} />
         {error && <Notice tone="error">{error}</Notice>}
@@ -212,10 +212,10 @@ function ResetPassword({ dealer, setDealer, mobile, setMobile, onBack, onSignedI
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} name="one-time-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mono" autoFocus />
         </Field>
         <Field label="New password" hint="At least 8 characters, with a letter and a number.">
-          <PasswordInput value={password} onChange={setPassword} name="new-password" autoComplete="new-password" />
+          <PasswordInput label="New password" value={password} onChange={setPassword} name="new-password" autoComplete="new-password" />
         </Field>
         <Field label="New password again">
-          <PasswordInput value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
+          <PasswordInput label="New password again" value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy} className="btn-block">
@@ -296,13 +296,13 @@ export function ChangePasswordForm({ forced }: { forced?: boolean }) {
   return (
     <form onSubmit={submit} noValidate className="form-stack">
       <Field label={forced ? "Password you were given" : "Current password"}>
-        <PasswordInput value={current} onChange={setCurrent} name="current-password" autoComplete="current-password" autoFocus />
+        <PasswordInput label="Current password" value={current} onChange={setCurrent} name="current-password" autoComplete="current-password" autoFocus />
       </Field>
       <Field label="New password" hint="At least 8 characters, with a letter and a number.">
-        <PasswordInput value={next} onChange={setNext} name="new-password" autoComplete="new-password" />
+        <PasswordInput label="New password" value={next} onChange={setNext} name="new-password" autoComplete="new-password" />
       </Field>
       <Field label="New password again">
-        <PasswordInput value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
+        <PasswordInput label="New password again" value={again} onChange={setAgain} name="new-password-again" autoComplete="new-password" />
       </Field>
       {error && <Notice tone="error">{error}</Notice>}
       <div className="form-actions">

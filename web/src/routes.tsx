@@ -11,7 +11,7 @@ import { AuditPage } from "./pages/Audit";
 import { BookingDetailPage } from "./pages/BookingDetail";
 import { BookingFormPage } from "./pages/BookingForm";
 import { BookingsPage } from "./pages/Bookings";
-import { TeamLeadBoard } from "./pages/TeamLead";
+import { BoardPage } from "./pages/Board";
 import { DashboardsPage } from "./pages/Dashboards";
 import { EodPage } from "./pages/Eod";
 import { HomePage } from "./pages/Home";
@@ -70,7 +70,7 @@ const ROUTES: Route[] = [
   { path: "/owner/out-of-turn", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="out-of-turn" /> },
   { path: "/owner/measures", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="measures" /> },
 
-  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <TeamLeadBoard /> },
+  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <BoardPage /> },
   { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
   { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
   { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="orders" /> },

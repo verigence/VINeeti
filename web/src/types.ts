@@ -1255,7 +1255,21 @@ export interface WaitingRow {
   model: string; variant: string; colour: string; outlet: string; sales_exec: string | null;
   booked_on: string; waiting_days: number; on_hold: boolean; free_now: number; on_order: number;
 }
-export interface WaitingResponse { as_of: string; rows: WaitingRow[]; buckets: { label: string; bookings: number }[]; source: DataStatus; basis: string }
+/** A booking that has not paid the dealership's minimum, so it takes no place in the queue. */
+export interface BelowMinimumRow {
+  booking_id: string; booking_no: string; customer_name: string;
+  model: string; variant: string; colour: string; outlet: string; sales_exec: string | null;
+  booked_on: string; waiting_days: number;
+  booking_amount: number;
+  /** How much more the customer has to pay before they take a place in the queue. */
+  short_by: number;
+}
+export interface WaitingResponse {
+  as_of: string; rows: WaitingRow[];
+  below_minimum: { minimum: number; bookings: BelowMinimumRow[] };
+  buckets: { label: string; bookings: number }[];
+  source: DataStatus; basis: string;
+}
 export interface DayRow { date: string; allocated: number; released: number; invoiced: number; delivered: number }
 export interface DailyResponse { period: { from: string; to: string }; days: DayRow[]; totals: DayRow; source: DataStatus; basis: string }
 export interface MyWork { as_of: string; counts: { waiting: number; allocated: number; invoiced: number; delivered_30: number; no_car_coming: number }; basis: string }

@@ -98,7 +98,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           <input type="tel" inputMode="tel" autoComplete="username" value={mobile} onChange={(e) => setMobile(e.target.value)} required />
         </Field>
         <Field label="Password">
-          <PasswordInput value={password} onChange={setPassword} autoComplete="current-password" required />
+          <PasswordInput label="Password" value={password} onChange={setPassword} autoComplete="current-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Sign in</Button>
@@ -130,10 +130,10 @@ function ChangePassword({ onDone }: { onDone: () => void }) {
     <Frame title="Set a new password">
       <form onSubmit={submit} className="form-grid">
         <Field label="Current password">
-          <PasswordInput value={current} onChange={setCurrent} autoComplete="current-password" required />
+          <PasswordInput label="Current password" value={current} onChange={setCurrent} autoComplete="current-password" required />
         </Field>
         <Field label="New password" hint="At least 10 characters, with a letter and a number.">
-          <PasswordInput value={next} onChange={setNext} autoComplete="new-password" required />
+          <PasswordInput label="New password" value={next} onChange={setNext} autoComplete="new-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Save</Button>
@@ -280,7 +280,7 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
           <input type="tel" inputMode="tel" value={form.admin_mobile} onChange={set("admin_mobile")} required />
         </Field>
         <Field label="First password" hint="At least 8 characters with a letter and a number. They must replace it at first sign-in.">
-          <PasswordInput value={form.password} onChange={(v) => set("password")({ target: { value: v } } as any)} autoComplete="new-password" required />
+          <PasswordInput label="First password" value={form.password} onChange={(v) => set("password")({ target: { value: v } } as any)} autoComplete="new-password" required />
         </Field>
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy}>Create the dealership</Button>

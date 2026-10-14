@@ -9,7 +9,7 @@
 import type { EChartsCoreOption } from "echarts/core";
 import { AGE_COLOURS, Chart, PALETTE, dayLabel } from "../components/Chart";
 import { Card } from "../components/ui";
-import { fmtMoney, fmtNumber } from "../format";
+import { fmtNumber } from "../format";
 import { useLoad } from "../hooks";
 import { api } from "../api";
 import { Link } from "../router";
@@ -408,36 +408,5 @@ export function TrendBoard({ m }: { m: MonthPace }) {
     <ChartCard title="Retails, month by month" basis={`A retail is a car whose retail invoice date falls in that month. The last bar is this month so far (${m.month.days_elapsed} of ${m.month.days_total} days), not a full month.`} empty={months.length < 2}>
       <Chart option={option} height={260} />
     </ChartCard>
-  );
-}
-
-/** What the stock is costing: how long it would take to sell, and what is tied up in it. */
-export function CapitalBoard({ m, owner }: { m: MonthPace; owner: OwnerView | null }) {
-  const over60 = (owner?.unsold_by_age.buckets ?? []).filter((b) => b.label === "Over 60 days");
-  const cars60 = over60.reduce((a, b) => a + b.cars, 0);
-  const value60 = over60.reduce((a, b) => a + (b.value ?? 0), 0);
-  return (
-    <Card title="What the stock is costing" className="capital-card">
-      <ul className="capital">
-        <li>
-          <strong>{m.stock.days_of_stock === null ? "—" : `${m.stock.days_of_stock} days`}</strong>
-          <span>of stock on hand, at this month's selling pace</span>
-        </li>
-        <li>
-          <strong>{fmtNumber(m.stock.on_hand)}</strong>
-          <span>cars in the yard or on the way, demo cars excluded</span>
-        </li>
-        <li>
-          <strong>{fmtNumber(cars60)}</strong>
-          <span>of them have been here more than 60 days{value60 > 0 ? `, holding ${fmtMoney(value60)}` : ""}</span>
-        </li>
-      </ul>
-      <details className="chart-basis">
-        <summary>How this is counted</summary>
-        <p>
-          Days of stock is the cars held now divided by this month's retails a day — how long the yard would last if nothing else arrived and selling continued at this pace. Value is the net dealer price in the stock report, where it carries one.
-        </p>
-      </details>
-    </Card>
   );
 }

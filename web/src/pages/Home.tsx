@@ -13,7 +13,7 @@ import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
 import { MyDesk } from "./MyDesk";
-import { CapitalBoard, HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
+import { HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 /**
  * The three or four figures that go across the top, chosen for the person looking at them: an owner
@@ -87,17 +87,26 @@ export function HomePage() {
       <HeadlineBand items={headlines({ o, owner: owner.data ?? null, payments: payments.data ?? null, failed: failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0, can, ownOnly })} />
       <NeedsYou overview={o} payments={payments.data ?? null} owner={owner.data ?? null} status={status.data ?? null} failed={failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0} />
 
-      {/* The Dealer Principal answers for this month and for this dealership's blockers; the Business
-          Head / CEO answers for the trend and for the money tied up in the yard. Same permission, two
-          different jobs, so two different screens. */}
+      {/* The Dealer Principal answers for this month and for each outlet's part in it; the Business
+          Head / CEO answers for the trend and for what the yard is costing. Same permission, two
+          different jobs, so two different cards.
+
+          Both of them also have a board of their own — what is blocked and what moved, for one; what is
+          piling up and what sells, for the other — and that is where the day's analysis lives. So Home
+          stays the landing: the month, and what needs them. Repeating the board's charts here would be
+          the same numbers twice in two shapes, which is how a screen stops being read. */}
       {runsTheBusiness && month.data && <PaceCard m={month.data} />}
       {runsTheBusiness && month.data && (
         <div className="board">
           {isCeo ? <TrendBoard m={month.data} /> : <OutletLeague m={month.data} owner={owner.data ?? null} />}
-          {isCeo ? <CapitalBoard m={month.data} owner={owner.data ?? null} /> : null}
         </div>
       )}
-      {can("owner.view") && !verifies && <OwnerBoard owner={owner.data ?? null} />}
+      {runsTheBusiness && (
+        <p className="board-pointer">
+          <Link to="/board">{isCeo ? "Open the operations board — what is piling up, what sells, who is waiting" : "Open the money board — what is blocked, what churned, what is not clearing"}</Link>
+        </p>
+      )}
+      {can("owner.view") && !verifies && !runsTheBusiness && <OwnerBoard owner={owner.data ?? null} />}
       {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
       {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
       {o && !ownOnly && !can("owner.view") && can("dashboards.view") && <QueueBoard o={o} />}

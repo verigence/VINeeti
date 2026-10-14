@@ -423,6 +423,8 @@ export interface StockLine {
   order?: string;
   customer?: string;
   invoiceId?: string;
+  /** Allotment Date: the day the DMS says this car was allotted to its order. */
+  allotDate?: string; // YYYY-MM-DD
   invoiceDate?: string; // YYYY-MM-DD
   oemInvoiceDate?: string; // YYYY-MM-DD
   grnDate?: string; // YYYY-MM-DD
@@ -450,7 +452,7 @@ export function stockFile(lines: StockLine[], dealer = "SAMPLE MOTORS"): Uint8Ar
         "Dealer Name": dealer, "Dealer Location Code": l.loc ?? "SM01", "Dealer Location Name": l.locName ?? (l.loc === "SM02" ? "JAJPUR" : l.loc && l.loc !== "SM01" ? l.loc : "CUTTACK"), Model: c.stockModel, "Model Description": c.desc, " Seating": c.seating, Color: c.colour, "Segment Code": c.segment, Emission: "BS6",
         " OEM Invoice Number": `OEM${String(i + 1).padStart(6, "0")}`, " OEM Invoice Date": l.oemInvoiceDate ?? "2026-09-20", "Net Dealer Price": l.price ?? 1000000, VIN: l.vin, " Engine Number": `ENG${l.vin.slice(-6)}`,
         "GRN No.": received ? `GRN${l.vin.slice(-6)}` : "", "GRN Date": received ? l.grnDate ?? "2026-09-25" : "", " Demo Vehicle": l.demo ? "YES" : "NO", " Vehicle Status": l.status ?? "Received",
-        "Order ID": l.order ?? "", " Order Date": l.order ? "2026-09-10" : "", "Customer Name": l.order ? l.customer ?? "CUSTOMER" : "", "Stock Type": type, "Allotment Id": l.order ? `ALT${l.vin.slice(-6)}` : "", "Allotment Date": l.order ? "2026-10-01" : "",
+        "Order ID": l.order ?? "", " Order Date": l.order ? "2026-09-10" : "", "Customer Name": l.order ? l.customer ?? "CUSTOMER" : "", "Stock Type": type, "Allotment Id": l.order ? `ALT${l.vin.slice(-6)}` : "", "Allotment Date": l.order ? l.allotDate ?? "2026-10-01" : "",
         "Invoice ID": l.invoiceId ?? "", "Invoice Date": l.invoiceId ? l.invoiceDate ?? "2026-10-02" : "", "SC Name": l.order ? l.sc ?? "CONSULTANT 001" : "",
         ...(l.raw ?? {}),
       };

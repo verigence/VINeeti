@@ -185,11 +185,11 @@ export async function holdingCars(ctx: Ctx, outletIds: string[] | null): Promise
   const today = localParts(ctx.now, tz).date;
   const rows = await all<{
     booking_id: string; booking_no: string; customer_name: string; model: string; variant: string; colour: string; vin: string; outlet: string; sales_exec: string | null;
-    allocated_at: string; clock_started_at: string | null; vehicle_status: string; payment_reported_at: string | null; payment_received_at: string | null; invoiced_at: string | null;
+    allocated_at: string; alloc_source: string; dms_allotment_date: string | null; clock_started_at: string | null; vehicle_status: string; payment_reported_at: string | null; payment_received_at: string | null; invoiced_at: string | null;
   }>(
     ctx.db,
     `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, v.vin, o.name AS outlet, u.name AS sales_exec,
-            a.allocated_at, a.clock_started_at, v.status AS vehicle_status, b.payment_reported_at, b.payment_received_at, b.invoiced_at
+            a.allocated_at, a.source AS alloc_source, v.dms_allotment_date, a.clock_started_at, v.status AS vehicle_status, b.payment_reported_at, b.payment_received_at, b.invoiced_at
        FROM allocations a
        JOIN bookings b ON b.id = a.booking_id
        JOIN vehicles v ON v.id = a.vehicle_id
@@ -212,7 +212,9 @@ export async function holdingCars(ctx: Ctx, outletIds: string[] | null): Promise
       vin: r.vin,
       outlet: r.outlet,
       sales_exec: r.sales_exec,
-      held_days: Math.max(0, days(asDate(r.allocated_at), today)),
+      // How long this customer has had this car, which for an allotment the DMS made is counted from the
+      // DMS's own allotment date — not from the day the file that disclosed it happened to be loaded.
+      held_days: Math.max(0, days(r.alloc_source === "DMS" && r.dms_allotment_date ? r.dms_allotment_date : asDate(r.allocated_at), today)),
       window_days: r.clock_started_at ? Math.max(0, days(asDate(r.clock_started_at), today)) : null,
       at_dealership: r.vehicle_status !== "IN_TRANSIT",
       payment: r.payment_received_at ? "RECEIVED" : r.payment_reported_at ? "REPORTED" : "NONE",
@@ -221,7 +223,8 @@ export async function holdingCars(ctx: Ctx, outletIds: string[] | null): Promise
     })),
     source: await dataStatus(ctx),
     basis:
-      "Every car a booking is holding now. Held is days since the car was allocated. The payment window counts from the day the car was at the dealership, so a car still in transit has no window yet. " +
+      "Every car a booking is holding now. Held is days since the car was allotted — for an allotment the DMS made, from the allotment date in the stock report rather than the day that file was loaded. " +
+      "The payment window counts from the day the car was at the dealership, so a car still in transit has no window yet. " +
       "Payment is what the system holds: reported by sales, or received once Finance has checked it against the bank.",
   };
 }
@@ -341,9 +344,15 @@ export async function dailyMovement(ctx: Ctx, from: string, to: string, outletId
   const o = outletIds ?? [];
   const pick = async (sql: string, ...p: unknown[]) => all<{ d: string; n: number }>(ctx.db, sql, ...p);
 
+  // The day an allotment happened, not the day this system heard about it. An allotment made in the DMS
+  // arrives in a file, often weeks later and in a batch with hundreds of others; counting those on the
+  // day of the load would put a dealership's whole history on one spike and say nothing about how it
+  // trades. The stock report carries its own allotment date, so that is the day used wherever there is
+  // one; the system's own allocations are counted on the day it made them.
+  const allocDay = `date(COALESCE(CASE WHEN al.source = 'DMS' THEN v.dms_allotment_date END, al.allocated_at))`;
   const allocated = await pick(
-    `SELECT date(al.allocated_at) AS d, COUNT(*) AS n FROM allocations al JOIN bookings b ON b.id = al.booking_id
-      WHERE al.tenant_id = ? AND al.allocated_at >= ? AND al.allocated_at < ?${bScope} GROUP BY d`, T, a, b, ...o);
+    `SELECT ${allocDay} AS d, COUNT(*) AS n FROM allocations al JOIN bookings b ON b.id = al.booking_id JOIN vehicles v ON v.id = al.vehicle_id
+      WHERE al.tenant_id = ? AND ${allocDay} >= date(?) AND ${allocDay} <= date(?)${bScope} GROUP BY d`, T, from, to, ...o);
   const released = await pick(
     `SELECT date(al.released_at) AS d, COUNT(*) AS n FROM allocations al JOIN bookings b ON b.id = al.booking_id
       WHERE al.tenant_id = ? AND al.released_at IS NOT NULL AND al.released_at >= ? AND al.released_at < ?${bScope} GROUP BY d`, T, a, b, ...o);
@@ -364,7 +373,8 @@ export async function dailyMovement(ctx: Ctx, from: string, to: string, outletId
     totals: { date: `${from}..${to}`, allocated: sum((r) => r.allocated), released: sum((r) => r.released), invoiced: sum((r) => r.invoiced), delivered: sum((r) => r.delivered) },
     source: await dataStatus(ctx),
     basis:
-      "Counted by the day each thing happened: the day a car was allocated, the day an allocation was released and the car went back to free stock, the day the retail invoice was raised, and the day the car was handed over. " +
+      "Counted by the day each thing happened: the day a car was allotted, the day an allotment was released and the car went back to free stock, the day the retail invoice was raised, and the day the car was handed over. " +
+      "An allotment the DMS made is counted on the allotment date in the stock report, not the day the file was loaded; one this system made is counted on the day it made it. " +
       "A day with no activity is shown as zero rather than left out.",
   };
 }

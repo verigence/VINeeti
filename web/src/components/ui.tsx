@@ -348,8 +348,14 @@ export function Field({ label, hint, error, optional, children, wide }: { label:
  * phone keyboard will mistype it, and a row of dots gives them nothing to check against; the eye is how
  * they check. It starts hidden, so nothing is on screen unless the person asks for it, and the button
  * says which state it is in for a screen reader.
+ *
+ * `label` is what the field is called, and it is not optional. A Field is a wrapping label, so without
+ * it the eye button's own text is read as part of the box's name and the field announces itself as
+ * "Password Show the password". Naming the input directly settles that: the box is the label, the
+ * button is the button.
  */
 export function PasswordInput({
+  label,
   value,
   onChange,
   name,
@@ -360,6 +366,7 @@ export function PasswordInput({
   disabled,
   enterKeyHint,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   name?: string;
@@ -377,6 +384,7 @@ export function PasswordInput({
         type={shown ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
         name={name}
         autoComplete={autoComplete}
         autoFocus={autoFocus}

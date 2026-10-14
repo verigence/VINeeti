@@ -115,6 +115,22 @@ export function fmtMoney(n: number | null | undefined): string {
   return money.format(Number(n));
 }
 
+/**
+ * Money the way it is said out loud in a dealership: ₹42.3 Cr, ₹7.5 L. For the big figures on a board,
+ * where ₹42,30,00,000 is fourteen characters of digits nobody reads to the end. Below a lakh it is the
+ * exact amount, because at that size the rupees matter.
+ */
+export function fmtMoneyShort(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  const v = Number(n);
+  const a = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  const say = (x: number, unit: string) => `${sign}₹${(Math.round(x * 10) / 10).toLocaleString("en-IN", { maximumFractionDigits: x >= 100 ? 0 : 1 })} ${unit}`;
+  if (a >= 1e7) return say(a / 1e7, "Cr");
+  if (a >= 1e5) return say(a / 1e5, "L");
+  return fmtMoney(v);
+}
+
 const num = new Intl.NumberFormat("en-IN");
 export const fmtNumber = (n: number | null | undefined) => num.format(Number(n ?? 0));
 
