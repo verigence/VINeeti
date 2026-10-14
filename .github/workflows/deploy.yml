@@ -81,8 +81,12 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
-      # What the token can actually do, on the run itself. A deployment that stops because the token is
-      # the wrong kind is the commonest failure, and this says so without anyone opening a step log.
+      # What the token can actually do, written to the run summary before anything is deployed. This
+      # reports, it does not judge: Wrangler has written its scope names more than one way over the
+      # years ("Workers Scripts Write", "workers_scripts:write"), and a check that guesses the spelling
+      # turns a working token into a failed build. Only a missing or rejected token stops the run; a
+      # token that is merely short of a permission is stopped by the deployment itself, with Cloudflare's
+      # own words for it.
       - name: Check the Cloudflare credentials
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
@@ -103,16 +107,10 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "$out"
+          scopes=$(echo "$out" | tr 'A-Z' 'a-z' | tr -d ' _' | grep -o 'workersscripts[a-z:]*\|d1[a-z:]*' | sort -u | tr '\n' ' ')
+          echo "::notice title=Cloudflare token scopes::${scopes:-none of workers_scripts or d1 were named in the token's scopes; if the deployment stops next, that is why}"
           if [ $code -ne 0 ]; then
             echo "::error title=Cloudflare token rejected::$(echo "$out" | tail -5 | tr '\n' ' ')"
-            exit 1
-          fi
-          if ! echo "$out" | grep -qi 'Workers Scripts'; then
-            echo "::error title=Token cannot deploy Workers::This API token has no \"Workers Scripts: Edit\" permission. Create a token with Workers Scripts: Edit and D1: Edit on this account and put it in CLOUDFLARE_API_TOKEN."
-            exit 1
-          fi
-          if ! echo "$out" | grep -qi 'D1'; then
-            echo "::error title=Token cannot use D1::This API token has no D1 permission. Add \"D1: Edit\" to it; the deployment creates and migrates the database."
             exit 1
           fi
 
