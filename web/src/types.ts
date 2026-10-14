@@ -67,6 +67,7 @@ export interface TenantSettings {
   payment_verify_hours: number;
   funding_rate_pct: number | null;
   transit_days: number | null;
+  monthly_retail_target: number | null;
 }
 
 export interface Outlet {
@@ -1172,3 +1173,33 @@ export interface AllocationDayRow { at: string; kind: "ALLOCATED" | "RELEASED"; 
 export interface AllocationsByDayResponse { period: { from: string; to: string }; source: DataStatus; totals: { allocated: number; released: number }; days: { date: string; allocated: number; released: number; outlets: { outlet: string; allocated: number; released: number }[]; reasons: Record<string, number> }[]; rows: AllocationDayRow[]; basis: string }
 export interface StockDayRow { date: string; outlet_id?: string; outlet?: string; in_transit_free: number; in_transit_reserved: number; in_yard_free: number; in_yard_reserved: number; invoiced_in_stock: number; blocked: number; total: number; value_unsold?: number | null; source?: string }
 export interface StockByDayResponse { period: { from: string; to: string }; source: DataStatus; days: { date: string; outlets: StockDayRow[]; total: StockDayRow }[]; basis: string }
+
+export interface MonthPace {
+  month: { from: string; to: string; days_elapsed: number; days_total: number; days_left: number };
+  retails: { this_month: number; previous_month_to_date: number; target: number | null; per_day: number; projected: number };
+  months: { month: string; retails: number }[];
+  outlets: { outlet_id: string; code: string; name: string; retails: number }[];
+  stock: { on_hand: number; value: number | null; days_of_stock: number | null };
+  basis: string;
+}
+
+export type StockFacet = "model" | "trim_level" | "transmission" | "fuel" | "seater" | "drive" | "variant" | "colour" | "outlet";
+export interface BrowseGroup {
+  model: string; variant: string; colour: string;
+  trim_level: string; transmission: string; fuel: string; seater: string;
+  in_yard: number; in_transit: number;
+  outlets: Record<string, number>;
+  soonest: string | null; soonest_indicative: boolean;
+}
+export interface BrowseResponse {
+  show: "FREE" | "ALL";
+  chosen: Partial<Record<StockFacet, string>>;
+  total: number;
+  in_yard: number;
+  in_transit: number;
+  facets: Record<StockFacet, { value: string; cars: number }[]>;
+  groups: BrowseGroup[];
+  as_on: string;
+  source: { stock_as_on: string | null; bookings_as_on: string | null; stale: boolean };
+  basis: string;
+}

@@ -51,6 +51,7 @@ const ROUTES: Route[] = [
   },
 
   { path: "/stock", allowed: (can) => can("stock.view"), render: () => <StockPage tab="summary" /> },
+  { path: "/stock/browse", allowed: (can) => can("stock.view"), render: () => <StockPage tab="browse" /> },
   { path: "/stock/availability", allowed: (can) => can("stock.view"), render: () => <StockPage tab="availability" /> },
   { path: "/stock/cars", allowed: (can) => can("stock.view"), render: () => <StockPage tab="cars" /> },
   { path: "/stock/cars/:id", allowed: (can) => can("stock.view"), render: (p) => <VehicleDetailPage key={p.id} id={p.id} /> },

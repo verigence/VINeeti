@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "../api";
 import { personName } from "../labels";
 import { canApprove, destinationsFor, isActive, tabsFor, type Destination } from "../nav";
-import { PRODUCT_BYLINE, productName } from "../product";
+import { productName } from "../product";
 import { Link, useRouter } from "../router";
 import { Routes } from "../routes";
 import { AlertsContext, useSession, type AlertsState } from "../session";
@@ -93,10 +93,11 @@ export function Shell() {
               ))}
             </ul>
           </nav>
-          <p className="sidebar-foot">
-            <span>{product}</span>
-            <span className="byline">{PRODUCT_BYLINE}</span>
-          </p>
+          {/* Who makes it, in JBR Consulting's own logo rather than words set in the page's type. */}
+          <div className="sidebar-foot">
+            <span className="sidebar-foot-label">A product by</span>
+            <img src="/brand/jbr-light.png" alt="JBR Consulting" />
+          </div>
         </aside>
 
         <div className="content">
@@ -217,7 +218,7 @@ export function Shell() {
             </ul>
             <p className="more-product">
               <img src="/brand/wordmark.png" alt={product} className="more-wordmark" />
-              <span className="byline">{PRODUCT_BYLINE}</span>
+              <img src="/brand/lockup.png" alt="A product by JBR Consulting" className="more-lockup" />
             </p>
           </Dialog>
         )}

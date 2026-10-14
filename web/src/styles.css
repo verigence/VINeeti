@@ -168,6 +168,9 @@ a.mono,
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: 100vh;
+  /* The sidebar itself is one screen tall and pinned; this paints its column for the whole length of
+     the page, so the navy runs top to bottom however far the content scrolls. */
+  background-image: linear-gradient(90deg, var(--navy-2) 0 var(--sidebar-w), transparent var(--sidebar-w));
 }
 .skip-link {
   position: absolute;
@@ -2176,13 +2179,33 @@ input[type="radio"] {
 }
 .sidebar-foot {
   margin-top: auto;
-  padding: 14px 18px 16px;
+  padding: 14px 18px 18px;
   border-top: 1px solid var(--navy-line);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 7px;
   color: #a9b6c4;
   font-size: 12px;
+}
+.sidebar-foot-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7f93a8;
+}
+.sidebar-foot img {
+  width: 150px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  opacity: 0.92;
+}
+.more-lockup {
+  width: 200px;
+  max-width: 70%;
+  height: auto;
+  display: block;
+  margin-top: 8px;
 }
 .byline {
   display: block;
@@ -4008,4 +4031,390 @@ button.primary {
   margin: 0 0 16px;
   padding-left: 12px;
   border-left: 3px solid var(--teal);
+}
+
+/* ---------------------------------------------------------------- using the width
+   A wide screen is wide: a column of full-width cards wastes two thirds of it and buys the person a
+   long scroll in return. The work that goes together goes side by side. */
+.work-split {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.work-split > * {
+  min-width: 0;
+}
+.work-split-main > .card:last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 1100px) {
+  .work-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- how the month is going */
+.pace-card .card-body {
+  padding: 14px 16px 10px;
+}
+.pace-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+  justify-content: space-between;
+}
+.pace-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pace-value {
+  font-size: 44px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.pace-unit {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.pace-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 2px 22px;
+  flex: 1;
+  min-width: 260px;
+}
+.pace-facts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.pace-facts strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pace-facts .up,
+.pace-verdict .up {
+  color: var(--ok);
+}
+.pace-facts .down,
+.pace-verdict .down {
+  color: var(--danger);
+}
+.pace-bar-wrap {
+  margin-top: 14px;
+}
+.pace-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: #e7eef3;
+  overflow: hidden;
+}
+.pace-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background-image: linear-gradient(90deg, var(--teal) 0, var(--cyan) 100%);
+}
+.pace-fill.behind {
+  background-image: linear-gradient(90deg, #c98a2e 0, #e0ad55 100%);
+}
+.pace-mark {
+  /* Where an even run through the month would have reached by today. */
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--navy);
+  opacity: 0.55;
+}
+.pace-verdict {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pace-no-target {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- each outlet, what stock costs */
+.league {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.league-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(60px, 2fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.league-name {
+  font-size: 13.5px;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.league-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: #eef3f6;
+  overflow: hidden;
+}
+.league-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-image: linear-gradient(90deg, var(--navy) 0, var(--teal) 100%);
+}
+.league-n {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--navy);
+}
+.league-sub {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: -6px;
+}
+.capital {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.capital li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.capital strong {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.capital span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- what have we got
+   A shop's filter, for the sales floor: big targets, the count beside every choice, and the chips at
+   the top showing what has been narrowed to so far. */
+.browse-lead {
+  color: var(--muted);
+  font-size: 13.5px;
+  margin: 0 0 12px;
+}
+.picked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.picked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--navy);
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 34px;
+}
+.picked-what {
+  color: #9fc3dc;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.picked-value {
+  font-weight: 600;
+}
+.browse-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.browse-total {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+.browse-total strong {
+  font-size: 24px;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.browse-split {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.browse-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--card);
+}
+.browse-switch button {
+  border: 0;
+  background: transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  min-height: 36px;
+}
+.browse-switch button.on {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 600;
+}
+.facet-card {
+  margin-bottom: 12px;
+}
+.facet-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.facet-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 13.5px;
+  cursor: pointer;
+  min-height: 40px;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.facet-option:hover {
+  border-color: var(--teal);
+  background: var(--gold-soft);
+}
+.facet-n {
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef3f6;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+}
+.car {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teal);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.car-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy);
+  line-height: 1.3;
+}
+.car-variant {
+  font-weight: 400;
+  color: var(--text);
+}
+.car-colour {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.car-specs {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.car-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.car-eta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.car-where {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.car .btn {
+  align-self: flex-start;
+}
+.browse-asof {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 10px 0 0;
+}
+@media (max-width: 860px) {
+  .cars {
+    grid-template-columns: 1fr;
+  }
+  .facet-option {
+    min-height: 44px;
+    font-size: 14.5px;
+  }
+  .browse-switch button {
+    min-height: 42px;
+    flex: 1;
+  }
+  .browse-switch {
+    width: 100%;
+  }
+}
+/* The questions sit in one card, one row each: five cards for five questions is five screenfuls. */
+.facet-row + .facet-row {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.facet-q {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy);
 }

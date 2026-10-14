@@ -71,6 +71,8 @@ export interface TenantSettings {
   funding_rate_pct: number | null;
   /** Days a car usually takes from OEM invoice to arrival, for an indicative arrival date. Null: no date is shown for a car in transit unless one was entered. */
   transit_days: number | null;
+  /** Retails the dealership is aiming for in a calendar month. Null until it is set: the pace is still shown, without a verdict against it. */
+  monthly_retail_target: number | null;
 }
 
 export const DEFAULT_SETTINGS: TenantSettings = {
@@ -99,6 +101,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   payment_verify_hours: 24,
   funding_rate_pct: null,
   transit_days: null,
+  monthly_retail_target: null,
 };
 
 const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CRM", "BUSINESS_HEAD", "SALES_MANAGER", "SALES_EXEC", "STOCK_INCHARGE", "ORDERING", "ACCOUNTS", "AUDITOR"];
@@ -151,11 +154,21 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
   int("approval_sla_hours", 1, 720);
   int("data_stale_days", 1, 30);
   int("payment_verify_hours", 1, 240);
-  for (const k of ["funding_rate_pct", "transit_days"] as const) {
+  for (const k of ["funding_rate_pct", "transit_days", "monthly_retail_target"] as const) {
     if (patch[k] === undefined) continue;
     if (patch[k] === null || patch[k] === "") { next[k] = null; continue; }
     const v = Number(patch[k]);
-    if (k === "funding_rate_pct" ? !(v > 0 && v <= 40) : !(Number.isInteger(v) && v >= 1 && v <= 90)) throw new Error(k === "funding_rate_pct" ? "Funding rate must be a percentage between 0 and 40" : "Transit days must be a whole number between 1 and 90");
+    const bad =
+      k === "funding_rate_pct" ? !(v > 0 && v <= 40)
+      : k === "transit_days" ? !(Number.isInteger(v) && v >= 1 && v <= 90)
+      : !(Number.isInteger(v) && v >= 1 && v <= 100_000);
+    if (bad) {
+      throw new Error(
+        k === "funding_rate_pct" ? "Funding rate must be a percentage between 0 and 40"
+        : k === "transit_days" ? "Transit days must be a whole number between 1 and 90"
+        : "The monthly target must be a whole number of cars",
+      );
+    }
     next[k] = v;
   }
   if (patch.dms_dealer_name !== undefined) next.dms_dealer_name = String(patch.dms_dealer_name ?? "").replace(/\s+/g, " ").trim().slice(0, 120);

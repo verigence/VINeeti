@@ -2,6 +2,7 @@ import { all, first } from "../lib/db";
 import { can } from "../lib/permissions";
 import { bad, forbidden, likeText, norm, notFound, parseDate, safeJson } from "../lib/util";
 import { allocateAll } from "../domain/allocation";
+import { FACETS, browseStock } from "../domain/browse";
 import { availabilityAnswer } from "../domain/dashboards";
 import { dataStatus } from "../domain/data-status";
 import { importBookingSheet, importStockReport } from "../domain/dms-import";
@@ -48,6 +49,18 @@ export function stockRoutes(app: App) {
     const q = c.req.query();
     // Sales teams see stock across the dealership so they can offer what is available elsewhere.
     return c.json(await stockSummary(c.get("ctx"), q.outlet_id ? [q.outlet_id] : null, { category: q.category, model: q.model, fuel: q.fuel, transmission: q.transmission }));
+  });
+
+  /**
+   * Browsing what is in stock, narrowing a choice at a time. The sales team browses across the whole
+   * dealership, as they do with the availability answer, so they can offer a car standing at another outlet.
+   */
+  app.get("/api/stock/browse", async (c) => {
+    need(c, "stock.view");
+    const q = c.req.query();
+    const pick: Record<string, string> = {};
+    for (const f of FACETS) if (q[f]) pick[f] = String(q[f]);
+    return c.json(await browseStock(c.get("ctx"), { ...pick, show: q.show === "ALL" ? "ALL" : "FREE" }, null));
   });
 
   app.get("/api/stock/availability", async (c) => {

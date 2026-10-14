@@ -10,9 +10,10 @@ import { Link, useQuery } from "../router";
 import { useSession } from "../session";
 import type { StockSummaryRow } from "../types";
 import { AvailabilityCheck } from "./Availability";
+import { BrowseTab } from "./Browse";
 import { CarsTab } from "./StockCars";
 
-export function StockPage({ tab }: { tab: "summary" | "availability" | "cars" }) {
+export function StockPage({ tab }: { tab: "summary" | "availability" | "cars" | "browse" }) {
   const current = tab === "summary" ? "/stock" : `/stock/${tab}`;
   return (
     <>
@@ -22,11 +23,13 @@ export function StockPage({ tab }: { tab: "summary" | "availability" | "cars" })
         current={current}
         tabs={[
           { to: "/stock", label: "Summary" },
+          { to: "/stock/browse", label: "What have we got?" },
           { to: "/stock/availability", label: "Availability" },
           { to: "/stock/cars", label: "Cars" },
         ]}
       />
       {tab === "summary" && <SummaryTab />}
+      {tab === "browse" && <BrowseTab />}
       {tab === "availability" && <AvailabilityCheck />}
       {tab === "cars" && <CarsTab />}
     </>

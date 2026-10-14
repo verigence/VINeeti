@@ -410,3 +410,81 @@ export async function nearMatches(ctx: Ctx, outletIds: string[] | null, onlyUser
   }
   return [...byBooking.values()];
 }
+
+/**
+ * How the month is going: retails so far, the same point of the month before, the target if the
+ * dealership has set one, and the pace that follows from them. A retail is a car with a retail invoice
+ * raised, dated by the invoice date in the DMS stock report — the same definition the OEM counts by.
+ *
+ * Nothing here is estimated except the projection, which is stated as what it is: today's pace carried
+ * to the end of the month, not a forecast. With no target set, the pace is still shown and the verdict
+ * is left out rather than invented.
+ */
+export async function monthPace(ctx: Ctx, outletIds: string[] | null, withValue: boolean) {
+  const tz = ctx.tenant.timezone;
+  const T = ctx.tenantId;
+  const today = localParts(ctx.now, tz).date;
+  const first_ = `${today.slice(0, 7)}-01`;
+  const daysInMonth = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
+  const elapsed = daysFrom(first_, today) + 1;
+  const total = daysInMonth(today);
+
+  const scope = outletIds ? ` AND outlet_id IN (${outletIds.map(() => "?").join(",")})` : "";
+  const args = outletIds ?? [];
+  const retailsBetween = async (from: string, to: string) => {
+    const [a, b] = [localDayBounds(from, tz).start, localDayBounds(to, tz).end];
+    const r = await first<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM vehicles WHERE tenant_id = ? AND status IN ('INVOICED','DELIVERED') AND invoiced_at >= ? AND invoiced_at < ?${scope}`, T, a, b, ...args);
+    return r?.n ?? 0;
+  };
+
+  // The month before, counted to the same day of the month, so a comparison on the 9th is nine days against nine.
+  const prevMonthEnd = addDays(first_, -1);
+  const prevFirst = `${prevMonthEnd.slice(0, 7)}-01`;
+  const prevSameDay = addDays(prevFirst, Math.min(elapsed, daysInMonth(prevFirst)) - 1);
+
+  const [mtd, prev] = [await retailsBetween(first_, today), await retailsBetween(prevFirst, prevSameDay)];
+  const target = ctx.settings.monthly_retail_target;
+  const perDay = elapsed > 0 ? mtd / elapsed : 0;
+  const projected = Math.round(perDay * total);
+
+  // Retails month by month, for the twelve months ending with this one: the CEO's trend line.
+  const ym = (y: number, mo: number) => `${y}-${String(mo).padStart(2, "0")}`;
+  const [y0, m0] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
+  const keys: string[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const n = m0 - i;
+    keys.push(ym(y0 + Math.floor((n - 1) / 12), ((n - 1) % 12 + 12) % 12 + 1));
+  }
+  const since = localDayBounds(`${keys[0]}-01`, tz).start;
+  const monthRows = await all<{ ym: string; n: number }>(
+    ctx.db,
+    `SELECT substr(invoiced_at, 1, 7) AS ym, COUNT(*) AS n FROM vehicles WHERE tenant_id = ? AND status IN ('INVOICED','DELIVERED') AND invoiced_at >= ?${scope} GROUP BY ym ORDER BY ym`,
+    T, since, ...args,
+  );
+  const months = keys.map((k) => ({ month: k, retails: monthRows.find((r) => r.ym === k)?.n ?? 0 }));
+
+  // Each outlet's own month, so the one that is behind can be seen rather than worked out.
+  const outletRows = await all<{ outlet_id: string; code: string; name: string; n: number }>(
+    ctx.db,
+    `SELECT o.id AS outlet_id, o.code, o.name, (SELECT COUNT(*) FROM vehicles v WHERE v.tenant_id = o.tenant_id AND v.outlet_id = o.id AND v.status IN ('INVOICED','DELIVERED') AND v.invoiced_at >= ?) AS n
+       FROM outlets o WHERE o.tenant_id = ? AND o.is_active = 1${outletIds ? ` AND o.id IN (${outletIds.map(() => "?").join(",")})` : ""} ORDER BY n DESC, o.name`,
+    localDayBounds(first_, tz).start, T, ...(outletIds ?? []),
+  );
+
+  // Cars in stock now, and how many days of selling they represent at this month's pace.
+  const held = await first<{ n: number; value: number | null }>(
+    ctx.db,
+    `SELECT COUNT(*) AS n, SUM(net_dealer_price) AS value FROM vehicles WHERE tenant_id = ? AND status IN ('IN_TRANSIT','RECEIVED') AND is_demo = 0${scope}`,
+    T, ...args,
+  );
+  const onHand = held?.n ?? 0;
+
+  return {
+    month: { from: first_, to: today, days_elapsed: elapsed, days_total: total, days_left: total - elapsed },
+    retails: { this_month: mtd, previous_month_to_date: prev, target, per_day: Math.round(perDay * 10) / 10, projected },
+    months,
+    outlets: outletRows.map((r) => ({ outlet_id: r.outlet_id, code: r.code, name: r.name, retails: r.n })),
+    stock: { on_hand: onHand, value: withValue ? (held?.value ?? null) : null, days_of_stock: perDay > 0 ? Math.round((onHand / perDay) * 10) / 10 : null },
+    basis: `A retail is a car whose retail invoice date in the DMS stock report falls in the period. ${mtd} this month to ${today}, ${prev} in the same first ${Math.min(elapsed, daysInMonth(prevFirst))} days of ${prevFirst.slice(0, 7)}. Pace is this month's retails divided by the ${elapsed} days elapsed; the projection is that pace carried to all ${total} days, not a forecast.`,
+  };
+}

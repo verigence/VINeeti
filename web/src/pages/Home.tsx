@@ -13,7 +13,7 @@ import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
 import { AvailabilityCheck } from "./Availability";
-import { HeadlineBand, MessagesBoard, MoneyBoard, OwnerBoard, QueueBoard } from "./HomeBoards";
+import { CapitalBoard, HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 /**
  * The three or four figures that go across the top, chosen for the person looking at them: an owner
@@ -70,6 +70,10 @@ export function HomePage() {
   const owner = useLoad(() => (can("owner.view") ? api.ownerView() : Promise.resolve(null)), "home:owner");
   const payments = useLoad(() => (verifies || reports ? api.payments() : Promise.resolve(null)), "home:payments");
   const failed = useLoad(() => (followsMessages ? api.waMessages({ status: "FAILED" }) : Promise.resolve(null)), "home:wa-failed");
+  // The two people who answer for the month: the Dealer Principal and the Business Head / CEO.
+  const isCeo = me.user.role === "BUSINESS_HEAD";
+  const runsTheBusiness = can("owner.view") && !verifies && (isCeo || me.user.role === "DEALER_PRINCIPAL");
+  const month = useLoad(() => (runsTheBusiness ? api.monthPace() : Promise.resolve(null)), "home:month");
   const o = overview.data ?? null;
   const stockLink = (q: string) => (can("stock.view") ? `/stock/cars?${q}` : undefined);
   const bookingLink = (q: string) => (can("booking.view") ? `/bookings?${q}` : undefined);
@@ -83,6 +87,16 @@ export function HomePage() {
       <HeadlineBand items={headlines({ o, owner: owner.data ?? null, payments: payments.data ?? null, failed: failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0, can, ownOnly })} />
       <NeedsYou overview={o} payments={payments.data ?? null} owner={owner.data ?? null} status={status.data ?? null} failed={failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0} />
 
+      {/* The Dealer Principal answers for this month and for this dealership's blockers; the Business
+          Head / CEO answers for the trend and for the money tied up in the yard. Same permission, two
+          different jobs, so two different screens. */}
+      {runsTheBusiness && month.data && <PaceCard m={month.data} />}
+      {runsTheBusiness && month.data && (
+        <div className="board">
+          {isCeo ? <TrendBoard m={month.data} /> : <OutletLeague m={month.data} owner={owner.data ?? null} />}
+          {isCeo ? <CapitalBoard m={month.data} owner={owner.data ?? null} /> : null}
+        </div>
+      )}
       {can("owner.view") && !verifies && <OwnerBoard owner={owner.data ?? null} />}
       {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
       {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
@@ -94,9 +108,17 @@ export function HomePage() {
         </Async>
       )}
 
-      {ownOnly && can("stock.view") && <AvailabilityCheck compact />}
-      {ownOnly && <MyBookings />}
-      {ownOnly && can("dashboards.view") && <MyOffers />}
+      {/* A sales executive's two jobs sit side by side on a wide screen: answer the customer in front of
+          them, and work through their own bookings. On a phone they stack, answer first. */}
+      {ownOnly && (
+        <div className="work-split">
+          {can("stock.view") && <AvailabilityCheck compact />}
+          <div className="work-split-main">
+            <MyBookings />
+            {can("dashboards.view") && <MyOffers />}
+          </div>
+        </div>
+      )}
 
       {overview.loading ? (
         <Loading />

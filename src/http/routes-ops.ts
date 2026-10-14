@@ -4,7 +4,7 @@ import { can } from "../lib/permissions";
 import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, localParts, normMobile, notFound, parseDate, safeJson, toCsv } from "../lib/util";
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
-import { allocationDashboard, delayedDashboard, measures, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
+import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
@@ -120,6 +120,13 @@ export function opsRoutes(app: App) {
     need(c, "owner.view");
     const ctx = c.get("ctx");
     return c.json(await ownerView(ctx, outletScope(c), can(c.get("user"), ctx.settings, "stock.value")));
+  });
+
+  /** How the month is going: retails so far, the month before to the same day, the target and the pace. */
+  app.get("/api/dashboards/month", async (c) => {
+    need(c, "owner.view");
+    const ctx = c.get("ctx");
+    return c.json(await monthPace(ctx, outletScope(c), can(c.get("user"), ctx.settings, "stock.value")));
   });
 
   /** The agreed measures for a period (from, to as YYYY-MM-DD; default: this month to date) against the period before it. */

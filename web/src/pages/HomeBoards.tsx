@@ -9,11 +9,11 @@
 import type { EChartsCoreOption } from "echarts/core";
 import { AGE_COLOURS, Chart, PALETTE, dayLabel } from "../components/Chart";
 import { Card } from "../components/ui";
-import { fmtNumber } from "../format";
+import { fmtMoney, fmtNumber } from "../format";
 import { useLoad } from "../hooks";
 import { api } from "../api";
 import { Link } from "../router";
-import type { Overview, OwnerView } from "../types";
+import type { MonthPace, Overview, OwnerView } from "../types";
 
 const MUTED = "#5b6672";
 const axis = {
@@ -279,3 +279,165 @@ export function MessagesBoard({ counts }: { counts: { status: string; n: number 
 
 const statusWord = (s: string) =>
   s === "DELIVERED" ? "Delivered" : s === "READ" ? "Read" : s === "SENT" ? "Sent" : s === "QUEUED" ? "Waiting to go" : s === "FAILED" ? "Did not go" : s === "SKIPPED" ? "Not sent" : s;
+
+// ---------------------------------------------------------------- how the month is going
+/**
+ * The month on one line, for the two people who answer for it. A retail is a car with its retail
+ * invoice raised — what the manufacturer counts — so the figure here is the figure that will be
+ * argued about at the review. The projection is today's pace carried to the end of the month and is
+ * labelled as that, not as a forecast: nothing here is modelled.
+ */
+export function PaceCard({ m }: { m: MonthPace }) {
+  const { retails: r, month } = m;
+  const target = r.target;
+  const pctOfTarget = target ? Math.min(100, Math.round((r.this_month / target) * 100)) : null;
+  // Where the month should be by now if it ran evenly: the mark the bar is read against.
+  const expected = target ? Math.round((target * month.days_elapsed) / month.days_total) : null;
+  const ahead = expected === null ? null : r.this_month - expected;
+  const vsLast = r.this_month - r.previous_month_to_date;
+
+  return (
+    <Card title="How the month is going" className="pace-card">
+      <div className="pace-head">
+        <div className="pace-figure">
+          <span className="pace-value">{fmtNumber(r.this_month)}</span>
+          <span className="pace-unit">retails so far</span>
+        </div>
+        <ul className="pace-facts">
+          <li>
+            <span>Last month, same {month.days_elapsed} days</span>
+            <strong className={vsLast < 0 ? "down" : vsLast > 0 ? "up" : undefined}>
+              {fmtNumber(r.previous_month_to_date)}
+              {vsLast !== 0 && ` (${vsLast > 0 ? "+" : ""}${fmtNumber(vsLast)})`}
+            </strong>
+          </li>
+          <li>
+            <span>Running at</span>
+            <strong>{r.per_day} a day</strong>
+          </li>
+          <li>
+            <span>At this pace, the month closes near</span>
+            <strong>{fmtNumber(r.projected)}</strong>
+          </li>
+          <li>
+            <span>Days left</span>
+            <strong>{fmtNumber(month.days_left)}</strong>
+          </li>
+        </ul>
+      </div>
+      {target ? (
+        <div className="pace-bar-wrap">
+          <div className="pace-bar" role="img" aria-label={`${fmtNumber(r.this_month)} of a target of ${fmtNumber(target)}`}>
+            <span className={`pace-fill${ahead !== null && ahead < 0 ? " behind" : ""}`} style={{ width: `${pctOfTarget}%` }} />
+            {expected !== null && <span className="pace-mark" style={{ left: `${Math.min(100, Math.round((expected / target) * 100))}%` }} />}
+          </div>
+          <p className="pace-verdict">
+            {pctOfTarget}% of a target of {fmtNumber(target)}.{" "}
+            {ahead === null ? null : ahead >= 0 ? <span className="up">{fmtNumber(ahead)} ahead of an even run through the month.</span> : <span className="down">{fmtNumber(-ahead)} behind an even run through the month.</span>}
+          </p>
+        </div>
+      ) : (
+        <p className="pace-no-target">
+          No monthly target is set, so the pace above is shown without a verdict against it. A target can be set under Settings.
+        </p>
+      )}
+      <details className="chart-basis">
+        <summary>How this is counted</summary>
+        <p>{m.basis}</p>
+      </details>
+    </Card>
+  );
+}
+
+/** Each outlet's own month, so the one that is behind is seen rather than worked out. */
+export function OutletLeague({ m, owner }: { m: MonthPace; owner: OwnerView | null }) {
+  if (m.outlets.length < 2) return null;
+  const waiting = new Map((owner?.outlets ?? []).map((o) => [o.outlet_id, o]));
+  const max = Math.max(1, ...m.outlets.map((o) => o.retails));
+  return (
+    <Card title="Each outlet this month" className="league-card">
+      <ul className="league">
+        {m.outlets.map((o) => {
+          const w = waiting.get(o.outlet_id);
+          return (
+            <li key={o.outlet_id} className="league-row">
+              <span className="league-name">{o.name}</span>
+              <span className="league-bar">
+                <span style={{ width: `${Math.round((o.retails / max) * 100)}%` }} />
+              </span>
+              <span className="league-n">{fmtNumber(o.retails)}</span>
+              {w && (
+                <span className="league-sub">
+                  {fmtNumber(w.waiting)} waiting · {fmtNumber(w.cars_free)} free
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <details className="chart-basis">
+        <summary>How this is counted</summary>
+        <p>Retails this month at each outlet, counted by the retail invoice date in the stock report. "Waiting" and "free" are today's position from the latest files.</p>
+      </details>
+    </Card>
+  );
+}
+
+/** Retails month by month: the question a CEO asks is which way the line is going, not today's count. */
+export function TrendBoard({ m }: { m: MonthPace }) {
+  const months = m.months;
+  const target = m.retails.target;
+  const label = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "short", year: "2-digit", timeZone: "UTC" });
+  const option: EChartsCoreOption = {
+    tooltip: { trigger: "axis" },
+    legend: { show: false },
+    grid: { left: 8, right: 16, top: 16, bottom: 28, containLabel: true },
+    xAxis: { type: "category", data: months.map((x) => label(x.month)), ...axis, splitLine: { show: false } },
+    yAxis: { type: "value", ...axis },
+    series: [
+      {
+        type: "bar",
+        data: months.map((x, i) => ({ value: x.retails, itemStyle: { color: i === months.length - 1 ? PALETTE[1] : PALETTE[0], borderRadius: [4, 4, 0, 0] } })),
+        barMaxWidth: 34,
+        // The month in progress is not a full month: it is drawn in the lighter colour, not compared as if it were.
+        markLine: target ? { silent: true, symbol: "none", lineStyle: { color: "#c98a2e", type: "dashed" }, data: [{ yAxis: target, label: { formatter: `Target ${target}`, color: "#7a5200", fontSize: 11 } }] } : undefined,
+      },
+    ],
+  };
+  return (
+    <ChartCard title="Retails, month by month" basis={`A retail is a car whose retail invoice date falls in that month. The last bar is this month so far (${m.month.days_elapsed} of ${m.month.days_total} days), not a full month.`} empty={months.length < 2}>
+      <Chart option={option} height={260} />
+    </ChartCard>
+  );
+}
+
+/** What the stock is costing: how long it would take to sell, and what is tied up in it. */
+export function CapitalBoard({ m, owner }: { m: MonthPace; owner: OwnerView | null }) {
+  const over60 = (owner?.unsold_by_age.buckets ?? []).filter((b) => b.label === "Over 60 days");
+  const cars60 = over60.reduce((a, b) => a + b.cars, 0);
+  const value60 = over60.reduce((a, b) => a + (b.value ?? 0), 0);
+  return (
+    <Card title="What the stock is costing" className="capital-card">
+      <ul className="capital">
+        <li>
+          <strong>{m.stock.days_of_stock === null ? "—" : `${m.stock.days_of_stock} days`}</strong>
+          <span>of stock on hand, at this month's selling pace</span>
+        </li>
+        <li>
+          <strong>{fmtNumber(m.stock.on_hand)}</strong>
+          <span>cars in the yard or on the way, demo cars excluded</span>
+        </li>
+        <li>
+          <strong>{fmtNumber(cars60)}</strong>
+          <span>of them have been here more than 60 days{value60 > 0 ? `, holding ${fmtMoney(value60)}` : ""}</span>
+        </li>
+      </ul>
+      <details className="chart-basis">
+        <summary>How this is counted</summary>
+        <p>
+          Days of stock is the cars held now divided by this month's retails a day — how long the yard would last if nothing else arrived and selling continued at this pace. Value is the net dealer price in the stock report, where it carries one.
+        </p>
+      </details>
+    </Card>
+  );
+}

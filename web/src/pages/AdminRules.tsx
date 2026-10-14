@@ -146,6 +146,7 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
   const [s, setS] = useState<TenantSettings>(data.settings);
   // Optional numbers are typed as text so that an empty box means "not set".
   const [fundingRate, setFundingRate] = useState(data.settings.funding_rate_pct === null ? "" : String(data.settings.funding_rate_pct));
+  const [monthTarget, setMonthTarget] = useState(data.settings.monthly_retail_target === null ? "" : String(data.settings.monthly_retail_target));
   const [transitDays, setTransitDays] = useState(data.settings.transit_days === null ? "" : String(data.settings.transit_days));
   const [problem, setProblem] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ patch: Partial<TenantSettings>; result: RulesPreview } | null>(null);
@@ -154,7 +155,7 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
   const int = (v: string) => (v.trim() === "" ? NaN : Number(v));
   const num = (v: number) => (Number.isNaN(v) ? "" : v);
 
-  const edited: TenantSettings = { ...s, funding_rate_pct: fundingRate.trim() === "" ? null : Number(fundingRate), transit_days: transitDays.trim() === "" ? null : Number(transitDays) };
+  const edited: TenantSettings = { ...s, funding_rate_pct: fundingRate.trim() === "" ? null : Number(fundingRate), transit_days: transitDays.trim() === "" ? null : Number(transitDays), monthly_retail_target: monthTarget.trim() === "" ? null : Number(monthTarget) };
   /** Only what was changed is sent, so a setting somebody else may not change is never touched. */
   const patch = (): Partial<TenantSettings> => {
     const out: Record<string, unknown> = {};
@@ -173,6 +174,7 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
     if (s.business_hours_from >= s.business_hours_to) return "Business hours must start before they end.";
     if (!s.booking_approver_roles.length || !s.exception_approver_roles.length || !s.alarm_roles.length) return "Choose at least one role to approve bookings, one to approve exceptions and one to receive alarms.";
     if (fundingRate.trim() !== "" && !(Number(fundingRate) > 0 && Number(fundingRate) <= 40)) return "The funding rate must be a percentage between 0 and 40, or left blank.";
+    if (monthTarget.trim() !== "" && !(Number.isInteger(Number(monthTarget)) && Number(monthTarget) >= 1)) return "The monthly target must be a whole number of cars, or left blank.";
     if (transitDays.trim() !== "" && !(Number.isInteger(Number(transitDays)) && Number(transitDays) >= 1 && Number(transitDays) <= 90)) return "Usual transit days must be a whole number between 1 and 90, or left blank.";
     return null;
   };
@@ -282,6 +284,9 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
             <Field label="Annual funding rate (%)" optional hint="The yearly cost of stock funding. Used only for the funding-interest measure; left blank, that measure is not shown.">
               <input type="number" min={0} max={40} step="any" value={fundingRate} onChange={(e) => setFundingRate(e.target.value)} inputMode="decimal" />
             </Field>
+            <Field label="Retails the dealership aims for in a month" optional hint="Used to say whether the month is ahead or behind on the home screen. Left blank, the pace is still shown, without a verdict against it.">
+              <input type="number" min={1} step={1} value={monthTarget} onChange={(e) => setMonthTarget(e.target.value)} inputMode="numeric" />
+            </Field>
             <Field label="DMS dealer name" hint={isAdmin ? "The dealership's name as its DMS files write it. A file for another dealer is refused." : "Set by the first DMS file loaded. Only the system administrator can change it."}>
               <input value={s.dms_dealer_name} onChange={(e) => set("dms_dealer_name", e.target.value)} disabled={!isAdmin} maxLength={120} />
             </Field>
@@ -335,6 +340,7 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
             onClick={() => {
               setS(data.settings);
               setFundingRate(data.settings.funding_rate_pct === null ? "" : String(data.settings.funding_rate_pct));
+              setMonthTarget(data.settings.monthly_retail_target === null ? "" : String(data.settings.monthly_retail_target));
               setTransitDays(data.settings.transit_days === null ? "" : String(data.settings.transit_days));
               setProblem(null);
             }}
