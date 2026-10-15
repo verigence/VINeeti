@@ -16,6 +16,18 @@ export interface Env {
   WA_APP_SECRET?: string;
   /** Optional: SHA-256 fingerprint(s) of the Android app's signing certificate, comma-separated, so the app may open the site full screen. */
   ANDROID_CERT_SHA256?: string;
+  /**
+   * The Verigence platform. Documents uploaded by a sales consultant are read by Document Intelligence
+   * there rather than here: it holds the extraction schemas for a booking form and a payment receipt,
+   * and it keeps the files. Left unset, document upload is simply not offered and everything else in
+   * VINeeti works as before.
+   */
+  SECURITY_BASE_URL?: string;
+  DI_BASE_URL?: string;
+  AUDIT_CORE_BASE_URL?: string;
+  /** VINeeti's own machine identity on the platform. The secret is a Worker secret, never in code. */
+  VERIGENCE_CLIENT_ID?: string;
+  VERIGENCE_CLIENT_SECRET?: string;
 }
 
 export type Role =
