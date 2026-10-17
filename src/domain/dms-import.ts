@@ -131,11 +131,19 @@ async function checkDealer(ctx: Ctx, dealerName: string): Promise<void> {
   }
 }
 
-/** Outlets are the DMS's Dealer Location Codes. One the system has not seen is created (by someone who may see every outlet). */
-async function outletsFor(ctx: Ctx, seen: Map<string, string>, scope: string[] | null): Promise<{ byCode: Map<string, string>; created: string[] }> {
-  const rows = await all<{ id: string; code: string }>(ctx.db, `SELECT id, code FROM outlets WHERE tenant_id = ?`, ctx.tenantId);
-  const byCode = new Map(rows.map((o) => [norm(o.code), o.id]));
+/**
+ * Outlets are the DMS's Dealer Location Codes. One the system has not seen is created (by someone who
+ * may see every outlet).
+ *
+ * `by: "name"` is for the one export that carries no location code at all: its outlets are matched
+ * against the names the stock report gave them, and nothing is ever created, because an outlet
+ * invented from a name would collide with the real one the moment a file with codes arrives.
+ */
+async function outletsFor(ctx: Ctx, seen: Map<string, string>, scope: string[] | null, by: "code" | "name" = "code"): Promise<{ byCode: Map<string, string>; created: string[] }> {
+  const rows = await all<{ id: string; code: string; name: string }>(ctx.db, `SELECT id, code, name FROM outlets WHERE tenant_id = ?`, ctx.tenantId);
+  const byCode = new Map(rows.map((o) => [norm(by === "name" ? o.name : o.code), o.id]));
   const created: string[] = [];
+  if (by === "name") return { byCode, created };
   if (scope === null) {
     const stmts: D1PreparedStatement[] = [];
     for (const [code, name] of seen) {
@@ -810,10 +818,21 @@ export async function importBookingSheet(
   const at = iso(ctx.now);
   const errors: RowError[] = [...sheet.errors];
 
-  const { byCode: outletByCode, created: outletsCreated } = await outletsFor(ctx, new Map(sheet.rows.map((r) => [r.outlet_code, r.outlet_name])), scope);
+  const { byCode: outletByCode, created: outletsCreated } = await outletsFor(ctx, new Map(sheet.rows.map((r) => [r.outlet_code, r.outlet_name])), scope, sheet.outlet_by);
   let rows = sheet.rows.filter((r) => {
     const id = outletByCode.get(r.outlet_code);
-    if (!id) { errors.push({ row: r.row, key: r.booking_no, message: `Outlet ${r.outlet_code} (${r.outlet_name}) is not set up; ask the administrator to load this sheet once` }); return false; }
+    if (!id) {
+      // This export names its outlets and gives no codes, so one it names that the system does not
+      // hold cannot be created from the file: it would be a second outlet for the same branch.
+      errors.push({
+        row: r.row,
+        key: r.booking_no,
+        message: sheet.outlet_by === "name"
+          ? `There is no outlet called ${r.outlet_name}. Load the stock report, which names the outlets with their codes, or have the administrator add it.`
+          : `Outlet ${r.outlet_code} (${r.outlet_name}) is not set up; ask the administrator to load this sheet once`,
+      });
+      return false;
+    }
     if (scope && !scope.includes(id)) { errors.push({ row: r.row, key: r.booking_no, message: `Outlet ${r.outlet_code} is not one of your outlets` }); return false; }
     if (r.booking_date > new Date(ctx.now.getTime() + 86_400_000).toISOString()) { errors.push({ row: r.row, key: r.booking_no, message: "Created Date is in the future" }); return false; }
     return true;
@@ -868,7 +887,10 @@ export async function importBookingSheet(
       description: r.description, oem_model_code: r.oem_model_code || null, paint_alias: r.paint_alias, dms_colour: r.dms_colour, seating: r.seater || null,
       dms_stage: r.dms_stage, dms_enquiry_stage: r.dms_enquiry_stage, dms_ref: r.dms_ref, enquiry_no: r.enquiry_no, sc_name: r.sc_name, sc_code: r.sc_code, sm_name: r.sm_name,
     };
-    if (!r.customer_mobile && !cur) errors.push({ row: r.row, key: r.booking_no, message: "Customer mobile number is not valid; the booking was loaded, but this customer will not receive WhatsApp messages" });
+    // Only worth saying where the export has a phone column and this row's is unusable. One of the
+    // two booking exports carries no phone numbers at all, and saying so on every row of it would
+    // bury the errors that are about this dealership's data rather than about the file's shape.
+    if (!r.customer_mobile && !cur && sheet.has_mobile) errors.push({ row: r.row, key: r.booking_no, message: "Customer mobile number is not valid; the booking was loaded, but this customer will not receive WhatsApp messages" });
 
     if (!cur) {
       const status = r.stage === "BOOKED" ? queueStatus : r.stage;

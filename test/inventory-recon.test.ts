@@ -57,8 +57,8 @@ describe("daily data upload from the DMS", () => {
     expect(res.body).toMatchObject({ created: 1, updated: 0 });
     // First what the sheet itself has wrong, then what this dealership cannot take from it.
     expect(res.body.errors).toEqual([
-      { row: 4, key: "OTF27A000003", message: 'Created Date "32-Oct-2026 10:00 AM" is not a date' },
-      { row: 5, key: "OTF27A000004", message: 'Booking Stage "On Hold" is not recognised (expected Booked, Invoiced or Cancellation Initiated)' },
+      { row: 4, key: "OTF27A000003", message: 'Booking date "32-Oct-2026 10:00 AM" is not a date' },
+      { row: 5, key: "OTF27A000004", message: 'Booking status "On Hold" is not recognised (expected Booked, Allotted, Invoiced or Cancellation Initiated)' },
       { row: 6, key: "OTF27A000001", message: "DMS Booking Number appears more than once in the sheet; only the first row was used" },
       { row: 3, key: "OTF27A000002", message: "Outlet PURI (PURI) is not set up; ask the administrator to load this sheet once" },
       { row: 7, key: "OTF27A000006", message: "Created Date is in the future" },
@@ -71,7 +71,10 @@ describe("daily data upload from the DMS", () => {
     // A file that is not the booking sheet is refused whole.
     const notIt = await w.send("/api/uploads/bookings?filename=x.csv", new TextEncoder().encode("booking_no,customer_name\nBK-9,X\n"), d.users.stock.session);
     expect(notIt.status).toBe(400);
-    expect(notIt.body.error.message).toContain("This is not the DMS booking sheet: no sheet has the headings DMS Booking Number");
+    // The dealership has two booking exports with different headings, so the refusal names both.
+    expect(notIt.body.error.message).toContain("This is not a DMS booking export");
+    expect(notIt.body.error.message).toContain("DMS Booking Number");
+    expect(notIt.body.error.message).toContain("OTF Number");
   });
 
   it("a booking cancelled in the DMS leaves the queue and its car goes to the next customer", async () => {

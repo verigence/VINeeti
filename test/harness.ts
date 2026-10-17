@@ -355,6 +355,8 @@ export const RETAIL_FILE = "Retail_Aug26_till_Date.xlsx";
 export const stockReport = () => fixture("stock_report.sample.xlsx");
 export const bookingSheet = () => fixture("booking_sheet.sample.xlsx");
 export const retailExport = () => fixture("retail_export.sample.xlsx");
+/** The dealership's other booking export: its live order book, from a different DMS screen. */
+export const liveBookings = () => fixture("live_bookings.sample.xlsx");
 
 /**
  * A dealership as it is on day one: no outlets, cars or bookings yet (the DMS files bring them), an

@@ -147,6 +147,8 @@ const VEHICLE_STATUS: Record<string, StockRow["status"]> = { RECEIVED: "RECEIVED
 
 export const STOCK_HEADINGS = ["VIN", "Model Description", "Stock Type", "Vehicle Status", "Dealer Location Code"];
 export const BOOKING_HEADINGS = ["DMS Booking Number", "Booking Stage", "Created Date", "Model Description", "Model Code", "Location Code", "Customer Name"];
+/** The live order book: the same dealership's open bookings, exported from a different DMS screen. */
+export const LIVE_BOOKING_HEADINGS = ["OTF Number", "Booking Number", "Booking Status", "Booking Date", "Model Description", "Dealer Location Name", "Booking Customer Name"];
 
 /** Reads a stock report. `asOf` is the date the report describes (YYYY-MM-DD), used only for the date checks. */
 export function readStockReport(sheets: Sheet[], opts: { timeZone: string; asOf: string }): StockReport {
@@ -278,70 +280,175 @@ export interface BookingSheet {
   dealer_name: string;
   rows: BookingSheetRow[];
   errors: RowError[];
+  /** Which of the dealership's two booking exports this was. */
+  layout: string;
+  /** How `outlet_code` on each row is to be matched: by the DMS's code, or by the outlet's name. */
+  outlet_by: "code" | "name";
+  /** Whether this export carries customer phone numbers at all. One of the two does not. */
+  has_mobile: boolean;
 }
 
 function stageOf(bookingStage: string, enquiryStage: string): BookingStage | null {
   const s = norm(bookingStage);
   if (s.includes("CANCEL")) return "CANCELLED";
   if (s === "BOOKED") return "BOOKED";
+  // A booking the DMS calls "Allotted" is an open booking that has a car against it. The booking is
+  // still waiting to be invoiced, and which car it has is the stock report's to say, not this file's.
+  if (s === "ALLOTTED" || s === "ALLOTED") return "BOOKED";
   if (s === "INVOICED") return norm(enquiryStage) === "DELIVERED" ? "DELIVERED" : "INVOICED";
   return null;
 }
 
+/**
+ * The dealership exports its bookings from two different DMS screens, and they do not agree on a
+ * single heading. The September order book names the DMS order "DMS Booking Number"; the live
+ * booking data calls the same number "OTF Number", gives the outlet by name with no code at all,
+ * and carries the full model description with its colour and model codes in it -- the same form the
+ * stock report uses, where the older sheet had it stripped.
+ *
+ * Both are the dealership's own bookings. Which file arrived is worked out from its headings rather
+ * than asked of the person uploading it, because they have one word for both ("the booking sheet")
+ * and no reason to know which screen produced which.
+ */
+interface BookingLayout {
+  name: string;
+  headings: string[];
+  /**
+   * How the Model Description is written.
+   *
+   *   "text"  the core only -- "XUV3XO REVX M(O) PM MT ZX" -- with the model code in a column of its
+   *           own and the colour code nowhere at all.
+   *   "full"  the stock report's form -- "XUV3XO AX5 PM MT RQ(A3TNTRISRD)(M0431)" -- carrying its own
+   *           colour and model codes, which is the only place this export states them.
+   */
+  description_form: "text" | "full";
+  /** The heading each thing is read from in this layout; null where the file does not carry it. */
+  of: {
+    booking_no: string;
+    dms_ref: string | null;
+    enquiry_no: string | null;
+    dealer_name: string | null;
+    outlet_code: string | null;
+    outlet_name: string;
+    stage: string;
+    enquiry_stage: string | null;
+    created: string;
+    description: string;
+    /** A column carrying the M-code. Null where the description is the only place it appears. */
+    model_code: string | null;
+    product_family: string | null;
+    seating: string | null;
+    fuel: string | null;
+    customer: string;
+    mobile: string | null;
+    amount: string | null;
+    colour: string;
+    sc_name: string | null;
+    sc_code: string | null;
+    sm_name: string | null;
+  };
+}
+
+const BOOKING_LAYOUTS: BookingLayout[] = [
+  {
+    name: "order book",
+    headings: BOOKING_HEADINGS,
+    description_form: "text",
+    of: {
+      booking_no: "dms booking number", dms_ref: "booking number", enquiry_no: "enquiry number", dealer_name: "dealer name",
+      outlet_code: "location code", outlet_name: "dealer location", stage: "booking stage", enquiry_stage: "enquiry stage",
+      created: "created date", description: "model description", model_code: "model code", product_family: "product family",
+      seating: "seating capacity", fuel: "fuel type", customer: "customer name", mobile: "customer mobile phone",
+      amount: "booking amount", colour: "color", sc_name: "sales consultant", sc_code: "sc mile id", sm_name: "sales manager",
+    },
+  },
+  {
+    name: "live booking data",
+    headings: LIVE_BOOKING_HEADINGS,
+    description_form: "full",
+    of: {
+      booking_no: "otf number", dms_ref: "booking number", enquiry_no: null, dealer_name: null,
+      // No code anywhere in this export, so the outlet is matched by the name the stock report gave it.
+      outlet_code: null, outlet_name: "dealer location name", stage: "booking status", enquiry_stage: null,
+      created: "booking date", description: "model description", model_code: null, product_family: "model group",
+      seating: "seating", fuel: null, customer: "booking customer name", mobile: null,
+      amount: null, colour: "color", sc_name: "sc name", sc_code: "sc code", sm_name: null,
+    },
+  },
+];
+
 export function readBookingSheet(sheets: Sheet[], opts: { timeZone: string }): BookingSheet {
-  const t = tableWith(sheets, BOOKING_HEADINGS);
-  if (!t) {
+  const match = BOOKING_LAYOUTS.map((l) => ({ l, t: tableWith(sheets, l.headings) })).find((x) => x.t);
+  if (!match?.t) {
     if (tableWith(sheets, ["VIN", "Stock Type"])) throw bad("This looks like the stock report, not the booking sheet. Upload it under Stock report.");
-    throw bad(`This is not the DMS booking sheet: no sheet has the headings ${BOOKING_HEADINGS.join(", ")}`);
+    if (tableWith(sheets, RETAIL_HEADINGS)) throw bad("This looks like the retail export, not the booking sheet. Upload it under Retail export.");
+    throw bad(`This is not a DMS booking export. One of two sets of headings is expected: either ${BOOKING_HEADINGS.join(", ")}, or ${LIVE_BOOKING_HEADINGS.join(", ")}.`);
   }
-  const out: BookingSheet = { sheet: t.sheet, dealer_name: "", rows: [], errors: [] };
+  const { l, t } = match as { l: BookingLayout; t: NonNullable<ReturnType<typeof tableWith>> };
+  const at = l.of;
+  const out: BookingSheet = { sheet: t.sheet, dealer_name: "", rows: [], errors: [], layout: l.name, outlet_by: at.outlet_code ? "code" : "name", has_mobile: Boolean(at.mobile) };
   const seen = new Set<string>();
+  /** A cell of this row, by whichever heading this layout keeps the thing under. */
   for (const r of t.records) {
+    const cell = (key: string | null): string => (key ? r[key] ?? "" : "");
     const row = Number(r._row);
-    const bookingNo = norm(r["dms booking number"]);
+    const bookingNo = norm(cell(at.booking_no));
+    const numberLabel = at.booking_no === "otf number" ? "OTF Number" : "DMS Booking Number";
     if (!bookingNo) {
-      if (text(r["booking number"]) || text(r["customer name"])) out.errors.push({ row, key: "(no number)", message: "DMS Booking Number is blank" });
+      if (text(cell(at.dms_ref)) || text(cell(at.customer))) out.errors.push({ row, key: "(no number)", message: `${numberLabel} is blank` });
       continue;
     }
     const fail = (message: string) => out.errors.push({ row, key: bookingNo, message });
-    if (seen.has(bookingNo)) { fail("DMS Booking Number appears more than once in the sheet; only the first row was used"); continue; }
-    const stage = stageOf(r["booking stage"] ?? "", r["enquiry stage"] ?? "");
-    if (!stage) { fail(`Booking Stage "${text(r["booking stage"])}" is not recognised (expected Booked, Invoiced or Cancellation Initiated)`); continue; }
-    const outletCode = norm(r["location code"]);
-    if (!outletCode) { fail("Location Code is blank"); continue; }
-    const bookingDate = cellInstant(r["created date"], opts.timeZone);
-    if (!bookingDate) { fail(`Created Date "${text(r["created date"])}" is not a date`); continue; }
-    const description = text(r["model description"]);
+    if (seen.has(bookingNo)) { fail(`${numberLabel} appears more than once in the sheet; only the first row was used`); continue; }
+    const stage = stageOf(cell(at.stage), cell(at.enquiry_stage));
+    if (!stage) { fail(`Booking status "${text(cell(at.stage))}" is not recognised (expected Booked, Allotted, Invoiced or Cancellation Initiated)`); continue; }
+    // One of the two exports has no location code at all, so the outlet travels as its name and is
+    // matched against the outlets the stock report set up.
+    const outletName = text(cell(at.outlet_name));
+    const outletCode = at.outlet_code ? norm(cell(at.outlet_code)) : norm(outletName);
+    if (!outletCode) { fail(`${at.outlet_code ? "Location Code" : "Dealer Location Name"} is blank`); continue; }
+    const bookingDate = cellInstant(cell(at.created), opts.timeZone);
+    if (!bookingDate) { fail(`Booking date "${text(cell(at.created))}" is not a date`); continue; }
+    const description = text(cell(at.description));
     if (!description) { fail("Model Description is blank"); continue; }
-    const customer = text(r["customer name"]);
+    const customer = text(cell(at.customer));
     if (!customer) { fail("Customer Name is blank"); continue; }
     seen.add(bookingNo);
 
-    const p = parseText(description);
-    const car = carFrom(p, oemModelCodeOf(r["model code"]), { model: r["product family"] ?? "", seating: r["seating capacity"] ?? "", fuel: fuelFromDms(r["fuel type"]) });
-    const amount = Number(text(r["booking amount"]).replace(/[,₹\s]/g, ""));
-    if (!out.dealer_name) out.dealer_name = text(r["dealer name"]);
+    // The two exports write the description differently, and only one of the two readings recovers
+    // the colour and model codes: on the full form they are in the text itself, and reading it as
+    // bare text would leave them in the variant and lose them as codes.
+    const p = l.description_form === "full"
+      ? parseDescription(description, { colour: cell(at.colour), seating: cell(at.seating) })
+      : parseText(description);
+    const car = carFrom(p, at.model_code ? oemModelCodeOf(cell(at.model_code)) : p.oem_model_code, {
+      model: cell(at.product_family),
+      seating: cell(at.seating),
+      fuel: at.fuel ? fuelFromDms(cell(at.fuel)) : "",
+    });
+    const amount = Number(text(cell(at.amount)).replace(/[,₹\s]/g, ""));
+    if (!out.dealer_name) out.dealer_name = text(cell(at.dealer_name));
     out.rows.push({
       ...car,
       row,
       booking_no: bookingNo,
-      dms_ref: orNull(r["booking number"]),
-      enquiry_no: orNull(r["enquiry number"]),
-      dealer_name: text(r["dealer name"]),
+      dms_ref: orNull(cell(at.dms_ref)),
+      enquiry_no: orNull(cell(at.enquiry_no)),
+      dealer_name: text(cell(at.dealer_name)),
       outlet_code: outletCode,
-      outlet_name: text(r["dealer location"]) || outletCode,
+      outlet_name: outletName || outletCode,
       stage,
-      dms_stage: text(r["booking stage"]),
-      dms_enquiry_stage: text(r["enquiry stage"]),
+      dms_stage: text(cell(at.stage)),
+      dms_enquiry_stage: text(cell(at.enquiry_stage)),
       booking_date: bookingDate,
       customer_name: customer.slice(0, 120),
-      customer_mobile: normMobile(r["customer mobile phone"]),
+      customer_mobile: normMobile(cell(at.mobile)),
       booking_amount: Number.isFinite(amount) && amount > 0 ? amount : 0,
       description,
-      dms_colour: norm(r["color"]),
-      sc_name: orNull(r["sales consultant"]),
-      sc_code: norm(r["sc mile id"]) || null,
-      sm_name: orNull(r["sales manager"]),
+      dms_colour: norm(cell(at.colour)),
+      sc_name: orNull(cell(at.sc_name)),
+      sc_code: norm(cell(at.sc_code)) || null,
+      sm_name: orNull(cell(at.sm_name)),
     });
   }
   if (!out.rows.length) throw bad("The booking sheet has no bookings in it");
