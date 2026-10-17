@@ -6,7 +6,7 @@
 // customer who politely asks for a later date should not lose their place to someone who didn't ask.
 
 import { describe, expect, it } from "vitest";
-import { addCar, approvedBooking, booking, CRETA, makeDealer, makeWorld, PASSWORD, type Dealer, type World } from "./harness";
+import { addCar, approvedBooking, booking, CRETA, makeDealer, makeWorld, PASSWORD, VENUE, type Dealer, type World } from "./harness";
 
 const one = <T = any>(w: World, sql: string, ...p: unknown[]) => w.db.q<T>(sql, ...p)[0];
 const activeVin = (w: World, bookingId: string) =>
@@ -139,6 +139,100 @@ describe("what approval does with the car", () => {
     expect(activeVin(w, next.id)).toBe("VINREL00000000001");
     expect(one(w, `SELECT status, on_hold, hold_reason, hold_until, priority_ts FROM bookings WHERE id = ?`, b.id)).toMatchObject({
       status: "APPROVED", on_hold: 1, hold_reason: "MANAGEMENT_PRIORITY", hold_until: "2026-11-01", priority_ts: before,
+    });
+  });
+});
+
+/**
+ * The move and the release are one request. Whoever takes a car off a customer usually knows who it
+ * is really for, and splitting that into a second request would leave the car loose in between for
+ * the queue to take -- which is exactly the decision the approver was asked to make.
+ */
+describe("naming the booking the car goes to", () => {
+  it("sends a cancelled booking's car to the customer named in the same request, not to the queue", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    // Someone has waited longer than the customer this is going to. That is the approver's to weigh,
+    // and the request has to say so.
+    w.at("2026-10-14 10:00");
+    const older = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Waited longer", "9811100006");
+    w.at("2026-10-15 10:00");
+    const named = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Taking it today", "9811100007");
+    const ex = await raise(w, d, b.id, { release_reason: "BOOKING_CANCELLED", cancellation_ref: "CAN27A000900", to_booking_id: named.id }, "Cancelled; the car is spoken for");
+    expect(ex.status).toBe(201);
+    expect(payload(w, ex.body.id)).toMatchObject({ to_booking_no: named.booking_no, to_customer_name: "Taking it today", jumped: 1, jumped_booking_nos: [older.booking_no] });
+
+    expect((await approve(w, d, ex.body.id)).status).toBe(200);
+    expect(activeVin(w, named.id)).toBe("VINREL00000000001");
+    expect(activeVin(w, older.id)).toBe(null);
+    expect(one(w, `SELECT status FROM bookings WHERE id = ?`, b.id).status).toBe("CANCELLED");
+    // The release is recorded under why the car left, and where it went.
+    expect(one(w, `SELECT release_reason, released_to_booking_id FROM allocations WHERE booking_id = ? AND status = 'RELEASED'`, b.id)).toMatchObject({
+      release_reason: "BOOKING_CANCELLED", released_to_booking_id: named.id,
+    });
+  });
+
+  it("sends a priority change's car to the named booking and still stands the holder down", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    const named = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Management's customer", "9811100008");
+    const ex = await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01", to_booking_id: named.id }, "Fleet order, agreed with the customer");
+    expect((await approve(w, d, ex.body.id)).status).toBe(200);
+    expect(activeVin(w, named.id)).toBe("VINREL00000000001");
+    expect(one(w, `SELECT status, on_hold, hold_reason, hold_until FROM bookings WHERE id = ?`, b.id)).toMatchObject({
+      status: "APPROVED", on_hold: 1, hold_reason: "MANAGEMENT_PRIORITY", hold_until: "2026-11-01",
+    });
+  });
+
+  it("leaves the car to the queue when no booking is named", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    w.at("2026-10-14 10:00");
+    const next = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Next in line", "9811100009");
+    const ex = await raise(w, d, b.id, { release_reason: "BOOKING_CANCELLED", cancellation_ref: "CAN27A000901" }, "Cancelled, no one in mind");
+    expect(payload(w, ex.body.id).to_booking_id).toBeUndefined();
+    expect((await approve(w, d, ex.body.id)).status).toBe(200);
+    expect(activeVin(w, next.id)).toBe("VINREL00000000001");
+  });
+
+  it("will not name a booking waiting for a different car", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    const other = await approvedBooking(w, d, "se1", VENUE, "PATIA", "Booked something else", "9811100010");
+    const ex = await raise(w, d, b.id, { release_reason: "BOOKING_CANCELLED", cancellation_ref: "CAN27A000902", to_booking_id: other.id }, "Cancelled");
+    expect(ex.status).toBe(400);
+    expect(ex.body.error.message).toContain("Change the booking first");
+    expect(activeVin(w, b.id)).toBe("VINREL00000000001");
+  });
+
+  it("refuses to both keep the car and give it away", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    const named = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Hoping for it", "9811100011");
+    // Inside the window the deferring customer keeps the car, so there is nothing to pass on.
+    const ex = await raise(w, d, b.id, { release_reason: "CUSTOMER_DEFERRED", until: "2026-10-20", document_id: "doc-1", to_booking_id: named.id }, "Customer away for a week");
+    expect(ex.status).toBe(400);
+    expect(ex.body.error.message).toContain("keeps the car with this customer");
+    expect(activeVin(w, b.id)).toBe("VINREL00000000001");
+  });
+
+  it("gives a long deferral's car to the named booking, with the holder keeping their place", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const { b } = await held(w, d);
+    const before = one(w, `SELECT priority_ts FROM bookings WHERE id = ?`, b.id).priority_ts;
+    const named = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Ready now", "9811100012");
+    const ex = await raise(w, d, b.id, { release_reason: "CUSTOMER_DEFERRED", until: "2026-12-20", document_id: "doc-2", to_booking_id: named.id }, "Customer abroad until December");
+    expect(ex.status).toBe(201);
+    expect((await approve(w, d, ex.body.id)).status).toBe(200);
+    expect(activeVin(w, named.id)).toBe("VINREL00000000001");
+    expect(one(w, `SELECT on_hold, hold_until, priority_ts, expected_delivery_date FROM bookings WHERE id = ?`, b.id)).toMatchObject({
+      on_hold: 1, hold_until: "2026-12-20", priority_ts: before, expected_delivery_date: "2026-12-20",
     });
   });
 });

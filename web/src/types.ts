@@ -515,6 +515,10 @@ export interface ReleaseReason {
   evidenceHint: string;
   holds: boolean;
   reallocates: boolean;
+  /** Whether this reason may also name the booking the car goes to. */
+  mayName: boolean;
+  /** For a deferral: how many days away still keeps the car with this customer. */
+  keepDays: number | null;
 }
 
 export type ExceptionType = "PRIORITY_CHANGE" | "SKIP_ALLOCATION" | "DEFER_DELIVERY" | "OUTLET_CHANGE" | "MANUAL_ALLOCATION" | "WINDOW_EXTENSION" | "RELEASE_ALLOCATION" | "OTHER";

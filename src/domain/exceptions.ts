@@ -90,6 +90,48 @@ function aheadOf(other: QueueBooking): { priority_ts: string; priority_override_
   return { priority_ts: new Date(new Date(v.date).getTime() - 1000).toISOString(), priority_override_json: JSON.stringify({ expected_delivery_date: v.commitment, booking_amount: v.amount }) };
 }
 
+/**
+ * The booking a release request names as the one to receive the car, checked, and described for the
+ * approver. Returns nothing when none was named: only REALLOCATED_TO_BOOKING has to name one, and the
+ * other reasons may, in which case the car goes there instead of back to the queue.
+ *
+ * It lives here rather than in each reason's branch because the checks are the same whatever the
+ * reason: who is giving the car up does not change what the booking taking it has to be.
+ */
+async function namedReceiver(ctx: Ctx, p: Record<string, unknown>, from: BookingRow, car: ReleaseCar): Promise<Record<string, unknown>> {
+  const id = String(p.to_booking_id ?? "").trim();
+  if (!id) return {};
+  const to = await first<Receiving>(
+    ctx.db,
+    `SELECT id, booking_no, customer_name, outlet_id, model, variant, colour, status, on_hold, priority_ts, booking_date, priority_override_json, expected_delivery_date, booking_amount
+     FROM bookings WHERE id = ? AND tenant_id = ?`,
+    id, ctx.tenantId,
+  );
+  if (!to) throw bad("The booking to give the car to was not found");
+  if (to.id === from.id) throw bad("That is the booking the car is already held for");
+  // These three are about the state of the receiving booking, which can change between the request
+  // being raised and an approver reaching it, so they are conflicts rather than bad input: the
+  // request stays pending and can be approved once it is true again.
+  if (to.status !== "APPROVED") throw conflict("The car can only go to a booking that is waiting for one");
+  if (to.on_hold) throw conflict("That booking is on hold, so it is not waiting for a car");
+  if (await activeAllocationForBooking(ctx, to.id)) throw conflict("That booking already holds a car");
+  // A customer gets the car they booked. Handing them a different colour or trim is a different sale
+  // and belongs in a changed booking, not in a release request.
+  if (car.model !== to.model || car.variant !== to.variant || car.colour !== to.colour) {
+    throw bad(`Booking ${to.booking_no} is for a ${to.colour} ${to.model} ${to.variant}, and this car is a ${car.colour} ${car.model} ${car.variant}. Change the booking first if the customer has agreed to this car.`);
+  }
+  // What the approver has to see: taking this car off one customer and giving it to another may also
+  // step over people who have waited longer than either of them.
+  const passed = await bookingsPassedOver(ctx, to as unknown as BookingRow, car, true);
+  return {
+    to_booking_id: to.id,
+    to_booking_no: to.booking_no,
+    to_customer_name: to.customer_name,
+    jumped: passed.length,
+    jumped_booking_nos: passed.slice(0, 10).map((x) => x.booking_no),
+  };
+}
+
 /** Checks the request up front so an approver never sees one that cannot be applied. */
 async function validate(ctx: Ctx, input: ExceptionInput, deciding?: string): Promise<Record<string, unknown>> {
   const p = input.payload ?? {};
@@ -152,36 +194,12 @@ async function validate(ctx: Ctx, input: ExceptionInput, deciding?: string): Pro
           // records agree rather than having to be reconciled later.
           const ref = String(p.cancellation_ref ?? "").trim();
           if (!ref) throw bad("Give the cancellation reference already raised in the DMS");
-          return { ...out, cancellation_ref: ref.slice(0, 60) };
+          return { ...out, cancellation_ref: ref.slice(0, 60), ...(await namedReceiver(ctx, p, b, car)) };
         }
-        case "REALLOCATED_TO_BOOKING": {
-          const to = await first<Receiving>(
-            ctx.db,
-            `SELECT id, booking_no, customer_name, outlet_id, model, variant, colour, status, on_hold, priority_ts, booking_date, priority_override_json, expected_delivery_date, booking_amount
-             FROM bookings WHERE id = ? AND tenant_id = ?`,
-            String(p.to_booking_id ?? ""), ctx.tenantId,
-          );
-          if (!to) throw bad("The booking to give the car to was not found");
-          if (to.id === b.id) throw bad("That is the booking the car is already held for");
-          // These three are about the state of the receiving booking, which can change between the
-          // request being raised and an approver reaching it, so they are conflicts rather than bad
-          // input: the request stays pending and can be approved once it is true again.
-          if (to.status !== "APPROVED") throw conflict("The car can only go to a booking that is waiting for one");
-          if (to.on_hold) throw conflict("That booking is on hold, so it is not waiting for a car");
-          if (await activeAllocationForBooking(ctx, to.id)) throw conflict("That booking already holds a car");
-          if (car.model !== to.model || car.variant !== to.variant || car.colour !== to.colour) throw bad("The car does not match that booking's model, variant and colour");
-          // What the approver has to see: taking this car off one customer and giving it to another
-          // may also step over people who have waited longer than either of them.
-          const passed = await bookingsPassedOver(ctx, to as unknown as BookingRow, car, true);
-          return {
-            ...out,
-            to_booking_id: to.id,
-            to_booking_no: to.booking_no,
-            to_customer_name: to.customer_name,
-            jumped: passed.length,
-            jumped_booking_nos: passed.slice(0, 10).map((x) => x.booking_no),
-          };
-        }
+        case "REALLOCATED_TO_BOOKING":
+          // The one reason that is nothing but the move, so here the booking is not optional.
+          if (!String(p.to_booking_id ?? "").trim()) throw bad("Choose the booking the car is going to");
+          return { ...out, ...(await namedReceiver(ctx, p, b, car)) };
         case "CUSTOMER_DEFERRED": {
           const until = parseDate(p.until);
           if (!until) throw bad("Give the date the customer wants delivery from");
@@ -191,9 +209,15 @@ async function validate(ctx: Ctx, input: ExceptionInput, deciding?: string): Pro
           const doc = String(p.document_id ?? "").trim();
           if (!doc) throw bad("Attach the customer's own email or letter asking for a later date");
           const away = daysApart(today, until);
+          // A short deferral never frees the car, so there is nothing to give anybody. Honouring one
+          // half of a request that says both would take a car off a customer who asked politely to
+          // wait for it, which is the opposite of what the reason is for.
+          if (away <= DEFERRAL_KEEP_DAYS && String(p.to_booking_id ?? "").trim()) {
+            throw bad(`A deferral of ${away} day${away === 1 ? "" : "s"} keeps the car with this customer, so it cannot also go to another booking. Past ${DEFERRAL_KEEP_DAYS} days the car is freed and another booking can be named.`);
+          }
           // Decided here rather than at approval so the approver is told which of the two this is
           // before they agree to it: the customer keeps the car, or the customer loses the car.
-          return { ...out, until, document_id: doc.slice(0, 120), days_away: away, ...(away <= DEFERRAL_KEEP_DAYS ? { keep_days: away } : {}) };
+          return { ...out, until, document_id: doc.slice(0, 120), days_away: away, ...(away <= DEFERRAL_KEEP_DAYS ? { keep_days: away } : await namedReceiver(ctx, p, b, car)) };
         }
         case "MANAGEMENT_PRIORITY": {
           // A car taken off the front of the queue is handed straight back by the queue unless the
@@ -202,10 +226,10 @@ async function validate(ctx: Ctx, input: ExceptionInput, deciding?: string): Pro
           const until = parseDate(p.until);
           if (!until) throw bad("Give the date this booking stands down until, so the car is genuinely free");
           if (until <= today) throw bad("The date must be in the future");
-          return { ...out, until };
+          return { ...out, until, ...(await namedReceiver(ctx, p, b, car)) };
         }
         default:
-          return out;
+          return { ...out, ...(await namedReceiver(ctx, p, b, car)) };
       }
     }
     case "MANUAL_ALLOCATION": {
@@ -335,18 +359,6 @@ async function applyException(ctx: Ctx, ex: ExceptionRow, approver: SessionUser,
       if (!spec) throw conflict("That reason is no longer one that can be asked for");
       const link = { requestId: ex.id, toBookingId: (p.to_booking_id as string | undefined) ?? null };
 
-      if (code === "REALLOCATED_TO_BOOKING") {
-        // Release and re-allocation are one batch, so the car is never briefly free for the queue to
-        // take: the customer named in the request is the one who gets it, or nobody does.
-        try {
-          await reallocateToBooking(ctx, alloc, String(p.to_booking_id), approver.id, ex.id, decision);
-        } catch (e) {
-          if (e instanceof HttpError || isGuardFailure(e)) throw e;
-          throw conflict((e as Error).message);
-        }
-        return null;
-      }
-
       // A short deferral keeps the car: the customer asked, so they do not lose it, and the payment
       // window moves out to cover the date they gave. Nothing is released, so there is no moment in
       // which the queue could hand their car to somebody else.
@@ -368,6 +380,21 @@ async function applyException(ctx: Ctx, ex: ExceptionRow, approver: SessionUser,
       const close = code === "BOOKING_CANCELLED"
         ? [stmt(ctx.db, `UPDATE bookings SET status = 'CANCELLED', cancelled_at = ?, cancel_reason = ?, on_hold = 0, hold_reason = NULL, hold_until = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?`, at, ex.reason.slice(0, 500), at, b.id, ctx.tenantId)]
         : [];
+
+      // A request that names the booking the car is going to -- whatever its reason -- releases and
+      // re-allocates in one batch, so the car is never briefly loose for the queue to take: the
+      // customer named in the request is the one who gets it, or nobody does. Without a name the car
+      // goes back to the queue and whoever is next by the rules gets it.
+      if (p.to_booking_id) {
+        try {
+          await reallocateToBooking(ctx, alloc, String(p.to_booking_id), approver.id, ex.id, { reason: code, hold, also: [...extra, ...close, ...decision] });
+        } catch (e) {
+          if (e instanceof HttpError || isGuardFailure(e)) throw e;
+          throw conflict((e as Error).message);
+        }
+        return null;
+      }
+
       await releaseAllocation(ctx, alloc, code, { hold, reallocate: spec.reallocates, also: [...extra, ...close, ...decision], link });
       return null;
     }

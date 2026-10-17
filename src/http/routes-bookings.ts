@@ -2,7 +2,7 @@ import { all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { can } from "../lib/permissions";
 import { bad, forbidden, iso, likeText, newId, norm, normMobile, notFound, parseDate, safeJson } from "../lib/util";
 import { activeAllocationForBooking, heldCars } from "../domain/allocation";
-import { REQUESTABLE, REQUESTABLE_ORDER } from "../domain/release-reasons";
+import { DEFERRAL_KEEP_DAYS, REQUESTABLE, REQUESTABLE_ORDER } from "../domain/release-reasons";
 import {
   approveBooking,
   backdatedDays,
@@ -297,7 +297,9 @@ export function bookingRoutes(app: App) {
 
   app.get("/api/release-reasons", async (c) => {
     need(c, "exception.request");
-    return c.json(REQUESTABLE_ORDER.map((code) => ({ code, ...REQUESTABLE[code] })));
+    // keepDays travels with the reason so the form can tell, before it is sent, which side of the
+    // line a date falls on -- the rule stays here and the screen does not get its own copy of it.
+    return c.json(REQUESTABLE_ORDER.map((code) => ({ code, ...REQUESTABLE[code], keepDays: code === "CUSTOMER_DEFERRED" ? DEFERRAL_KEEP_DAYS : null })));
   });
 
   // ------------------------------------------------------------ exception requests

@@ -450,7 +450,13 @@ export async function reallocateToBooking(
   toBookingId: string,
   approver: string,
   requestId: string,
-  also: D1PreparedStatement[] = [],
+  /**
+   * `reason` is why the car left the booking it was on, which is not always "it went to someone
+   * else": a cancellation or a priority change can name a recipient too, and the release has to be
+   * recorded under its own reason or the history of the losing booking reads wrongly. `hold` is
+   * that reason's effect on the booking that gives the car up.
+   */
+  opts: { reason?: string; hold?: Hold; also?: D1PreparedStatement[] } = {},
 ): Promise<AllocationOutcome> {
   const b = await first<BookingRow>(ctx.db, `SELECT * FROM bookings WHERE id = ? AND tenant_id = ?`, toBookingId, ctx.tenantId);
   const v = await first<VehicleRow>(ctx.db, `SELECT v.*, ${LAST_BOOKING} FROM vehicles v WHERE v.id = ? AND v.tenant_id = ?`, from.vehicle_id, ctx.tenantId);
@@ -463,8 +469,8 @@ export async function reallocateToBooking(
   if (v.model !== b.model || v.variant !== b.variant || v.colour !== b.colour) throw new Error("The car does not match that booking's model, variant and colour");
   if (!["RECEIVED", "IN_TRANSIT"].includes(v.status) || v.is_blocked) throw new Error("The car is no longer available to allocate");
   const done = await commitMatch(ctx, { booking: b, vehicle: v, queuePosition: 0, pass: "MANUAL_APPROVED_EXCEPTION" }, approver, requestId, {
-    before: releaseStmts(ctx, from, "REALLOCATED_TO_BOOKING", undefined, { requestId, toBookingId: b.id }),
-    also,
+    before: releaseStmts(ctx, from, opts.reason ?? "REALLOCATED_TO_BOOKING", opts.hold, { requestId, toBookingId: b.id }),
+    also: opts.also ?? [],
   });
   if (!done) throw new Error("The car or one of the two bookings was changed by someone else just now");
   return done;

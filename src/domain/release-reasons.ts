@@ -54,6 +54,19 @@ export interface Requestable {
   holds: boolean;
   /** Whether the freed car is offered straight back to the queue in the same breath. */
   reallocates: boolean;
+  /**
+   * Whether the request may also name the booking the car goes to.
+   *
+   * Every reason that frees a car can: the request that takes the car off one customer is the only
+   * place where the person raising it knows who it is really for, and splitting that into a second
+   * request would leave the car loose in between for the queue to take. For REALLOCATED_TO_BOOKING
+   * naming one is the whole point and so required; for the others it is offered and optional, and
+   * leaving it blank returns the car to the queue as before.
+   *
+   * A short deferral is the exception, decided when the request is made rather than here: that path
+   * never frees the car, so there is nothing to give anybody.
+   */
+  mayName: boolean;
 }
 
 /**
@@ -73,15 +86,17 @@ export const REQUESTABLE: Record<string, Requestable> = {
     evidenceHint: "The cancellation entry already raised in the DMS, so the two records agree.",
     holds: false,
     reallocates: true,
+    mayName: true,
   },
   REALLOCATED_TO_BOOKING: {
     label: "The car is going to another customer",
     hint: "The car moves straight to the booking you name. This customer keeps their place in the queue.",
     evidence: "booking",
     evidenceLabel: "Booking that receives the car",
-    evidenceHint: "Search by booking number, customer or model. You will be shown how many earlier bookings this moves the car past.",
+    evidenceHint: "Search by booking number or customer name. You will be shown how many earlier bookings this moves the car past.",
     holds: false,
     reallocates: false,
+    mayName: true,
   },
   CUSTOMER_DEFERRED: {
     label: "The customer asked to take delivery later",
@@ -93,6 +108,7 @@ export const REQUESTABLE: Record<string, Requestable> = {
     // Only reached on the long path, where the car has genuinely been freed and so should go to
     // whoever is next. A short deferral never releases it, so this does not apply.
     reallocates: true,
+    mayName: true,
   },
   MANAGEMENT_PRIORITY: {
     label: "Management is changing the priority",
@@ -102,6 +118,7 @@ export const REQUESTABLE: Record<string, Requestable> = {
     evidenceHint: "",
     holds: true,
     reallocates: true,
+    mayName: true,
   },
 };
 

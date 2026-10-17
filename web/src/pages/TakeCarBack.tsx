@@ -8,11 +8,11 @@
 // The reasons and what each one demands come from the server, not from here, so this form cannot
 // drift from the rule it is collecting for.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { Dialog } from "../components/Dialog";
 import { Async, Button, Card, Chip, DataTable, Empty, Field, Filter, Notice, PageHeader, RadioGroup, type Column } from "../components/ui";
-import { addDays, fmtDate, fmtDateTime, today } from "../format";
+import { addDays, daysBetween, fmtDate, fmtDateTime, today } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { plainText } from "../labels";
 import { Link } from "../router";
@@ -161,6 +161,11 @@ function TakeBackDialog({ car, onClose, onDone }: { car: HeldCar; onClose: () =>
   const tomorrow = addDays(today(), 1);
 
   const spec = useMemo(() => (reasons.data ?? []).find((r) => r.code === code) ?? null, [reasons.data, code]);
+  // A deferral inside the window never frees the car, so there is nobody to give it to.
+  const keepsCar = Boolean(spec?.keepDays && until && daysBetween(today(), until) <= spec.keepDays);
+  useEffect(() => {
+    if (keepsCar && chosen) setChosen(null);
+  }, [keepsCar, chosen]);
 
   const submit = async () => {
     if (!spec) return setProblem("Say why the car is being taken off this customer.");
@@ -169,10 +174,10 @@ function TakeBackDialog({ car, onClose, onDone }: { car: HeldCar; onClose: () =>
       if (!ref.trim()) return setProblem(`${spec.evidenceLabel} is needed.`);
       payload.cancellation_ref = ref.trim();
     }
-    if (spec.evidence === "booking") {
-      if (!chosen) return setProblem("Choose the booking that is to receive the car.");
-      payload.to_booking_id = chosen.id;
-    }
+    // Every reason that frees the car may name the booking it goes to; for this one that is the
+    // whole request, so it is the only one where leaving it blank is an error.
+    if (chosen) payload.to_booking_id = chosen.id;
+    if (spec.evidence === "booking" && !chosen) return setProblem("Choose the booking that is to receive the car.");
     if (spec.evidence === "document") {
       if (!documentId.trim()) return setProblem("Attach the customer's own email or letter.");
       payload.document_id = documentId.trim();
@@ -235,8 +240,26 @@ function TakeBackDialog({ car, onClose, onDone }: { car: HeldCar; onClose: () =>
         </Field>
       )}
 
-      {spec?.evidence === "booking" && (
-        <ReceivingBooking car={car} query={pick} onQuery={setPick} chosen={chosen} onChoose={setChosen} hint={spec.evidenceHint} busy={action.busy} />
+      {/*
+        The car has to go somewhere, and the person raising this request is the one who knows where.
+        Asking here keeps the move in the same request the approver sees, rather than leaving the car
+        loose between two approvals.
+      */}
+      {spec?.mayName && !keepsCar && (
+        <ReceivingBooking
+          car={car}
+          query={pick}
+          onQuery={setPick}
+          chosen={chosen}
+          onChoose={setChosen}
+          required={spec.evidence === "booking"}
+          hint={
+            spec.evidence === "booking"
+              ? spec.evidenceHint
+              : "Optional. Search by booking number or customer name. Named, the car goes straight to that booking when this is approved; left blank, it goes back to the queue."
+          }
+          busy={action.busy}
+        />
       )}
 
       {spec?.evidence === "document" && (
@@ -264,10 +287,17 @@ function TakeBackDialog({ car, onClose, onDone }: { car: HeldCar; onClose: () =>
         </Field>
       )}
 
+      {keepsCar && (
+        <Notice tone="info">
+          A deferral this close keeps the car. The customer holds it and their payment window moves to the date you gave, so there is nothing to pass on to anybody else. Past {spec?.keepDays} days the
+          car is freed and you can name the booking it goes to.
+        </Notice>
+      )}
+
       {spec?.code === "MANAGEMENT_PRIORITY" && (
         <Notice tone="warn">
-          This is the one reason with nothing to attach, so it is counted and reported by who asked for it. If the car is going to a particular customer, say so instead — that choice shows the approver
-          how many people are being stepped over.
+          This is the one reason with nothing to attach, so it is counted and reported by who asked for it. Naming the booking the car is going to shows the approver how many people are being stepped
+          over, which a bare priority change does not.
         </Notice>
       )}
 
@@ -278,8 +308,12 @@ function TakeBackDialog({ car, onClose, onDone }: { car: HeldCar; onClose: () =>
 }
 
 /**
- * The booking that is to receive the car. Only bookings waiting for this exact car can take it, so
- * the search is narrowed to them rather than offering every booking and refusing later.
+ * The booking that is to receive the car, searched for by booking number or customer name.
+ *
+ * A customer gets the car they booked, so only a booking for this exact model, trim and colour can
+ * take it. Bookings that match the search but not the car are still listed, greyed, saying what they
+ * are waiting for: a search that comes back empty tells the person nothing, and the one thing they
+ * need to know is whether the customer they have in mind can have this car at all.
  */
 function ReceivingBooking({
   car,
@@ -287,6 +321,7 @@ function ReceivingBooking({
   onQuery,
   chosen,
   onChoose,
+  required,
   hint,
   busy,
 }: {
@@ -295,14 +330,18 @@ function ReceivingBooking({
   onQuery: (v: string) => void;
   chosen: BookingListRow | null;
   onChoose: (b: BookingListRow | null) => void;
+  required?: boolean;
   hint: string;
   busy?: boolean;
 }) {
   const found = useLoad(
-    () => (query.trim().length < 2 ? Promise.resolve([] as BookingListRow[]) : api.bookings({ view: "waiting", model: car.model, q: query.trim() })),
-    `receiving:${car.model}:${query.trim()}`,
+    () => (query.trim().length < 2 ? Promise.resolve([] as BookingListRow[]) : api.bookings({ view: "waiting", q: query.trim() })),
+    `receiving:${query.trim()}`,
   );
-  const eligible = (found.data ?? []).filter((b) => b.id !== car.booking_id && b.variant === car.variant && b.colour === car.colour);
+  const candidates = (found.data ?? [])
+    .filter((b) => b.id !== car.booking_id)
+    .map((b) => ({ booking: b, fits: b.model === car.model && b.variant === car.variant && b.colour === car.colour }))
+    .sort((x, y) => Number(y.fits) - Number(x.fits));
 
   // The list of candidates sits outside the Field rather than inside it. A label wraps one control:
   // put buttons inside it and the browser forwards their clicks to the labelled input, so choosing
@@ -329,25 +368,30 @@ function ReceivingBooking({
 
   return (
     <div className="field field-wide">
-      <Field label="Booking that receives the car" hint={hint}>
+      <Field label={required ? "Booking that receives the car" : "Booking that receives the car (optional)"} hint={hint}>
         <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Booking number or customer name" disabled={busy} />
       </Field>
       {query.trim().length >= 2 && (
-        <Async load={found} isEmpty={() => eligible.length === 0} empty={<Empty title={`No booking waiting for a ${car.colour} ${car.model} ${car.variant} matches that.`} />}>
+        <Async load={found} isEmpty={() => candidates.length === 0} empty={<Empty title="No booking waiting for a car matches that number or name." />}>
           {() => (
             <ul className="request-list">
-              {eligible.slice(0, 8).map((b) => (
+              {candidates.slice(0, 8).map(({ booking: b, fits }) => (
                 <li key={b.id} className="request">
                   <div className="request-head">
                     <span>
                       <span className="strong">{b.booking_no}</span>
                       <span className="sub">
                         {b.customer_name} · booked {fmtDate(b.booking_date)}
+                        {!fits && ` · waiting for a ${b.colour} ${b.model} ${b.variant}`}
                       </span>
                     </span>
-                    <Button size="sm" onClick={() => onChoose(b)} disabled={busy}>
-                      Choose
-                    </Button>
+                    {fits ? (
+                      <Button size="sm" onClick={() => onChoose(b)} disabled={busy}>
+                        Choose
+                      </Button>
+                    ) : (
+                      <Chip tone="grey">Different car</Chip>
+                    )}
                   </div>
                 </li>
               ))}
