@@ -23,6 +23,7 @@ export type Permission =
   | "wa.resend"
   | "exception.request"
   | "exception.decide"
+  | "release.decide"
   | "allocation.run"
   | "orders.manage"
   | "dashboards.view"
@@ -481,7 +482,39 @@ export interface BookingAllocation {
   window: PaymentWindow | null;
 }
 
-export type ExceptionType = "PRIORITY_CHANGE" | "SKIP_ALLOCATION" | "DEFER_DELIVERY" | "OUTLET_CHANGE" | "MANUAL_ALLOCATION" | "WINDOW_EXTENSION" | "OTHER";
+/** A car standing in a customer's name, as the search for one returns it. */
+export interface HeldCar {
+  booking_id: string;
+  booking_no: string;
+  customer_name: string;
+  model: string;
+  variant: string;
+  colour: string;
+  vin: string;
+  outlet_id: string;
+  outlet: string;
+  allocated_at: string;
+  vehicle_status: string;
+  /** Set when a release has already been asked for and not yet decided. */
+  pending_request_id: string | null;
+}
+
+/**
+ * Why a car may be taken back, and what that choice has to bring with it. Served by the API rather
+ * than written here, so the form cannot drift from the rule it is collecting for.
+ */
+export interface ReleaseReason {
+  code: string;
+  label: string;
+  hint: string;
+  evidence: "reference" | "booking" | "document" | "none";
+  evidenceLabel: string;
+  evidenceHint: string;
+  holds: boolean;
+  reallocates: boolean;
+}
+
+export type ExceptionType = "PRIORITY_CHANGE" | "SKIP_ALLOCATION" | "DEFER_DELIVERY" | "OUTLET_CHANGE" | "MANUAL_ALLOCATION" | "WINDOW_EXTENSION" | "RELEASE_ALLOCATION" | "OTHER";
 export type ExceptionStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface ExceptionRow {

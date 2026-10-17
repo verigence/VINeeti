@@ -143,6 +143,10 @@ export const api = {
   requestException: (input: T.ExceptionInput) => post<T.ExceptionRow>("/api/exceptions", input),
   decideException: (id: string, decision: "approve" | "reject", remarks?: string) => post<T.ExceptionRow>(`/api/exceptions/${enc(id)}/${decision}`, { remarks: remarks || undefined }),
 
+  // ---- taking a car back from a customer
+  heldCars: (q: string) => get<T.HeldCar[]>("/api/held-cars", { q }),
+  releaseReasons: () => get<T.ReleaseReason[]>("/api/release-reasons"),
+
   // ---- dashboards and manufacturer orders
   allocationDashboard: () => get<T.AllocationDashRow[]>("/api/dashboards/allocation"),
   orderQueue: () => get<T.OrderQueueRow[]>("/api/dashboards/order-queue"),

@@ -9,6 +9,7 @@ import type { Ctx } from "../env";
 import { all, stmt } from "../lib/db";
 import { addDays, iso, localDayBounds, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
+import { releaseWords } from "./release-reasons";
 
 const inList = (ids: string[] | null, col: string) => (ids ? `AND ${col} IN (${ids.map(() => "?").join(",") || "''"})` : "");
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to.slice(0, 10)}T00:00:00Z`) - Date.parse(`${from.slice(0, 10)}T00:00:00Z`)) / 86_400_000);
@@ -312,12 +313,6 @@ export interface AllocationDayRow {
   by: string;
 }
 
-const RELEASE_WORDS: Record<string, string> = {
-  BOOKING_CANCELLED: "Booking cancelled", PAYMENT_TIMEOUT: "Payment window over", ALLOTTED_IN_DMS_TO_ANOTHER_BOOKING: "Bypassed in the DMS", ALLOTTED_ANOTHER_CAR_IN_DMS: "DMS gave another car",
-  RELEASED_IN_DMS: "Allotment removed in the DMS", BILLED_WITH_ANOTHER_CAR: "Billed with another car", CAR_LEFT_STOCK: "Car left stock", VEHICLE_BLOCKED: "Car blocked", DEFER_DELIVERY: "Delivery deferred",
-  SKIP_ALLOCATION: "Allocation skipped by request", OUTLET_CHANGE: "Outlet changed", MANUAL_ALLOCATION: "Named car by request", PRIORITY_CHANGE: "Priority changed by request",
-};
-
 /** Allocations made and releases (de-allocations) in a period, by day and outlet, with every one listed. */
 export async function allocationsByDay(ctx: Ctx, outletIds: string[] | null, period: { from: string; to: string }) {
   const tz = ctx.tenant.timezone;
@@ -328,7 +323,7 @@ export async function allocationsByDay(ctx: Ctx, outletIds: string[] | null, per
   const who = (r: any) => (r.allocated_by === "SYSTEM" ? "System (queue)" : r.allocated_by === "DMS" || r.source === "DMS" ? "DMS allotment" : r.by_name ?? r.allocated_by);
   const rows: AllocationDayRow[] = [
     ...made.map((r) => ({ at: r.at, kind: "ALLOCATED" as const, outlet: r.outlet, outlet_id: r.outlet_id, booking_id: r.booking_id, booking_no: r.booking_no, customer_name: r.customer_name, model: r.model, variant: r.variant, colour: r.colour, vin: r.vin, how: `${r.type === "IN_TRANSIT" ? "Car in transit" : r.type === "REALLOCATED" ? "Re-allocated car" : "Free stock"}${r.source === "EXCEPTION" ? ", by approved request" : r.source === "DMS" ? ", allotted in the DMS" : ""}${r.out_of_turn ? " (out of turn)" : ""}`, by: who(r) })),
-    ...released.map((r) => ({ at: r.at, kind: "RELEASED" as const, outlet: r.outlet, outlet_id: r.outlet_id, booking_id: r.booking_id, booking_no: r.booking_no, customer_name: r.customer_name, model: r.model, variant: r.variant, colour: r.colour, vin: r.vin, how: RELEASE_WORDS[r.release_reason] ?? r.release_reason ?? "Released", by: "" })),
+    ...released.map((r) => ({ at: r.at, kind: "RELEASED" as const, outlet: r.outlet, outlet_id: r.outlet_id, booking_id: r.booking_id, booking_no: r.booking_no, customer_name: r.customer_name, model: r.model, variant: r.variant, colour: r.colour, vin: r.vin, how: releaseWords(r.release_reason), by: "" })),
   ].sort((x, y) => x.at.localeCompare(y.at) || x.booking_no.localeCompare(y.booking_no));
   const days = new Map<string, { date: string; allocated: number; released: number; outlets: Record<string, { outlet: string; allocated: number; released: number }>; reasons: Record<string, number> }>();
   for (const r of rows) {

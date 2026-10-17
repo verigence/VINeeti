@@ -110,7 +110,13 @@ const ALLOCATION_STATUS: Record<string, Label> = {
 };
 export const allocationStatus = (s: string) => pick(ALLOCATION_STATUS, s);
 
+// Kept in step with the catalogue in src/domain/release-reasons.ts. These read mid-sentence
+// ("released because ..."), which is why they are fragments rather than the server's labels.
+// The four a person can ask for come first.
 const RELEASE_REASON: Record<string, string> = {
+  REALLOCATED_TO_BOOKING: "the car was given to another booking, with approval",
+  CUSTOMER_DEFERRED: "the customer asked to take delivery later",
+  MANAGEMENT_PRIORITY: "management changed the priority, with approval",
   VEHICLE_BLOCKED: "the car was blocked",
   VEHICLE_REMOVED: "the car was removed from stock",
   BOOKING_CANCELLED: "the booking was cancelled",
@@ -162,6 +168,7 @@ const EXCEPTION_TYPE: Record<ExceptionType, string> = {
   OUTLET_CHANGE: "Change of outlet",
   MANUAL_ALLOCATION: "Manual allocation",
   WINDOW_EXTENSION: "Extend the payment window",
+  RELEASE_ALLOCATION: "Take the car back",
   OTHER: "Other request",
 };
 export const exceptionType = (t: string | null | undefined) => (t ? EXCEPTION_TYPE[t as ExceptionType] ?? humanize(t) : "—");
@@ -172,6 +179,7 @@ export const EXCEPTION_HELP: Record<ExceptionType, string> = {
   OUTLET_CHANGE: "Move the booking to another outlet.",
   MANUAL_ALLOCATION: "Give this booking a specific car, outside the queue order.",
   WINDOW_EXTENSION: "Give the customer more days to pay before the car is re-allocated.",
+  RELEASE_ALLOCATION: "Take the car this booking is holding away from the customer, and say what happens to it.",
   OTHER: "Anything else that needs an approver's decision. Nothing changes automatically.",
 };
 
@@ -199,6 +207,26 @@ export function exceptionDetail(e: Pick<ExceptionRow, "type" | "payload" | "vin"
       return e.vin ? `Allocate car ${e.vin} to this booking.` : "Allocate a specific car to this booking.";
     case "WINDOW_EXTENSION":
       return `Give ${p.days} more day${Number(p.days) === 1 ? "" : "s"} to pay.`;
+    case "RELEASE_ALLOCATION":
+      // Each reason does something different with the car, and the approver has to see which — above
+      // all whether anyone else is losing their place for it.
+      switch (String(p.release_reason ?? "")) {
+        case "BOOKING_CANCELLED":
+          return `Cancel the booking and free ${e.vin ?? "the car"}. DMS cancellation ${p.cancellation_ref ?? "not given"}.`;
+        case "REALLOCATED_TO_BOOKING": {
+          const jumped = Number(p.jumped ?? 0);
+          const over = jumped ? ` This steps over ${jumped} earlier booking${jumped === 1 ? "" : "s"}: ${(p.jumped_booking_nos as string[] | undefined)?.join(", ") ?? ""}.` : "";
+          return `Give ${e.vin ?? "the car"} to booking ${p.to_booking_no ?? "—"}${p.to_customer_name ? ` (${p.to_customer_name})` : ""}.${over}`;
+        }
+        case "CUSTOMER_DEFERRED":
+          return p.keep_days !== undefined
+            ? `Customer asked to take delivery from ${fmtDate(String(p.until))}. They keep ${e.vin ?? "the car"} and the payment window moves out ${p.keep_days} days.`
+            : `Customer asked to take delivery from ${fmtDate(String(p.until))}, ${p.days_away} days away, so ${e.vin ?? "the car"} is freed and they keep their place in the queue.`;
+        case "MANAGEMENT_PRIORITY":
+          return `Free ${e.vin ?? "the car"} for someone else. This booking stands down until ${fmtDate(String(p.until))}, keeping its place.`;
+        default:
+          return `Take ${e.vin ?? "the car"} back from this booking.`;
+      }
     default:
       return "";
   }

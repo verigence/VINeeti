@@ -22,6 +22,7 @@ export type Permission =
   | "wa.resend" // send a failed customer message again
   | "exception.request"
   | "exception.decide"
+  | "release.decide"
   | "allocation.run"
   | "orders.manage"
   | "dashboards.view"
@@ -73,6 +74,10 @@ export function permissionsFor(role: Role, settings: TenantSettings): Permission
   const set = new Set<Permission>(MATRIX[role] ?? []);
   if (settings.booking_approver_roles.includes(role)) set.add("booking.approve");
   if (settings.exception_approver_roles.includes(role)) set.add("exception.decide");
+  // Taking a car back from a customer who holds it is a heavier act than extending a window, and
+  // allocation by hand no longer exists, so this is the one door left to a named car. It gets its
+  // own, narrower list of approvers.
+  if (settings.release_approver_roles.includes(role)) set.add("release.decide");
   return [...set];
 }
 
@@ -132,6 +137,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "booking.ready": "Release a booking from hold",
   "exception.request": "Raise an exception request",
   "exception.decide": "Approve or reject exceptions",
+  "release.decide": "Approve taking a car back from a customer",
   "allocation.run": "Run allocation now",
   "orders.manage": "Manage orders on the manufacturer",
   "dashboards.view": "See dashboards",

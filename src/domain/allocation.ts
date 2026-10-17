@@ -292,6 +292,54 @@ export interface ActiveAllocation {
   escalated_at: string | null;
 }
 
+export interface HeldCar {
+  booking_id: string;
+  booking_no: string;
+  customer_name: string;
+  model: string;
+  variant: string;
+  colour: string;
+  vin: string;
+  outlet_id: string;
+  outlet: string;
+  allocated_at: string;
+  vehicle_status: string;
+  /** Set when a release has already been asked for and not yet decided, so nobody asks twice. */
+  pending_request_id: string | null;
+}
+
+/**
+ * The cars currently standing in a customer's name, narrowed by free text — the starting point for
+ * taking one back.
+ *
+ * Every word has to be found somewhere, so "white scorpio" is one car rather than two searches, and
+ * punctuation is treated as a break: a chassis read off paper as "S6H-93001" still finds the car.
+ * Chassis is not a column of its own — the DMS writes the VIN with the chassis as its tail — so a
+ * chassis typed on its own matches the end of the VIN.
+ */
+export async function heldCars(ctx: Ctx, text: string, outletIds: string[] | null, limit = 50): Promise<HeldCar[]> {
+  const words = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean).slice(0, 6);
+  const hay = `lower(b.booking_no || ' ' || b.customer_name || ' ' || b.model || ' ' || b.variant || ' ' || b.colour || ' ' || v.vin)`;
+  const scope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+  return all<HeldCar>(
+    ctx.db,
+    `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, v.vin,
+            b.outlet_id, o.name AS outlet, a.allocated_at, v.status AS vehicle_status,
+            (SELECT e.id FROM exceptions e WHERE e.tenant_id = b.tenant_id AND e.booking_id = b.id AND e.type = 'RELEASE_ALLOCATION' AND e.status = 'PENDING' LIMIT 1) AS pending_request_id
+     FROM allocations a
+     JOIN bookings b ON b.id = a.booking_id AND b.tenant_id = a.tenant_id
+     JOIN vehicles v ON v.id = a.vehicle_id AND v.tenant_id = a.tenant_id
+     JOIN outlets o ON o.id = b.outlet_id
+     WHERE a.tenant_id = ? AND a.status = 'ACTIVE' ${scope}
+       ${words.map(() => `AND ${hay} LIKE ?`).join(" ")}
+     ORDER BY a.allocated_at DESC LIMIT ?`,
+    ctx.tenantId,
+    ...(outletIds ?? []),
+    ...words.map((x) => `%${x}%`),
+    limit,
+  );
+}
+
 export async function activeAllocationForBooking(ctx: Ctx, bookingId: string) {
   return first<ActiveAllocation>(ctx.db, `SELECT * FROM allocations WHERE tenant_id = ? AND booking_id = ? AND status = 'ACTIVE'`, ctx.tenantId, bookingId);
 }
@@ -305,11 +353,21 @@ type Hold = { reason: string; until: string | null };
  * The statements that release an allocation and return its booking to the queue (or put it on hold).
  * The first one is guarded: if the allocation is no longer active the batch they are part of is rolled back.
  */
-export function releaseStmts(ctx: Ctx, alloc: Pick<ActiveAllocation, "id" | "booking_id" | "vehicle_id">, reason: string, hold?: Hold): D1PreparedStatement[] {
+export function releaseStmts(
+  ctx: Ctx,
+  alloc: Pick<ActiveAllocation, "id" | "booking_id" | "vehicle_id">,
+  reason: string,
+  hold?: Hold,
+  /**
+   * Where the release came from, and where the car went. Written onto the allocation that ends so
+   * the chain reads forwards: this car left this booking, by this approved request, to that one.
+   */
+  link?: { requestId?: string | null; toBookingId?: string | null },
+): D1PreparedStatement[] {
   const at = iso(ctx.now);
   return [
-    auditStmt(ctx, "ALLOCATION_RELEASED", "booking", alloc.booking_id, { allocation_id: alloc.id, vehicle_id: alloc.vehicle_id, reason, hold: hold ?? null }, { sql: `SELECT 1 FROM allocations WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'`, params: [alloc.id, ctx.tenantId] }),
-    stmt(ctx.db, `UPDATE allocations SET status = 'RELEASED', released_at = ?, release_reason = ? WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'`, at, reason, alloc.id, ctx.tenantId),
+    auditStmt(ctx, "ALLOCATION_RELEASED", "booking", alloc.booking_id, { allocation_id: alloc.id, vehicle_id: alloc.vehicle_id, reason, hold: hold ?? null, ...(link?.requestId ? { request_id: link.requestId } : {}), ...(link?.toBookingId ? { to_booking_id: link.toBookingId } : {}) }, { sql: `SELECT 1 FROM allocations WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'`, params: [alloc.id, ctx.tenantId] }),
+    stmt(ctx.db, `UPDATE allocations SET status = 'RELEASED', released_at = ?, release_reason = ?, release_request_id = ?, released_to_booking_id = ? WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'`, at, reason, link?.requestId ?? null, link?.toBookingId ?? null, alloc.id, ctx.tenantId),
     stmt(
       ctx.db,
       `UPDATE bookings SET status = CASE WHEN status = 'ALLOCATED' THEN 'APPROVED' ELSE status END, on_hold = ?, hold_reason = ?, hold_until = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`,
@@ -332,10 +390,10 @@ export async function releaseAllocation(
   ctx: Ctx,
   alloc: Pick<ActiveAllocation, "id" | "booking_id" | "vehicle_id">,
   reason: string,
-  opts: { hold?: Hold; reallocate?: boolean; also?: D1PreparedStatement[] } = {},
+  opts: { hold?: Hold; reallocate?: boolean; also?: D1PreparedStatement[]; link?: { requestId?: string | null; toBookingId?: string | null } } = {},
 ): Promise<AllocationOutcome[]> {
   try {
-    await ctx.db.batch([...releaseStmts(ctx, alloc, reason, opts.hold), ...(opts.also ?? [])]);
+    await ctx.db.batch([...releaseStmts(ctx, alloc, reason, opts.hold, opts.link), ...(opts.also ?? [])]);
   } catch (e) {
     if (isGuardFailure(e)) throw conflict("This was changed by someone else a moment ago. Refresh and try again.");
     throw e;
@@ -366,5 +424,45 @@ export async function manualAllocate(ctx: Ctx, bookingId: string, vehicleId: str
   });
   if (!done) throw new Error("The vehicle or the booking was changed by someone else just now");
   if (existing) await allocateConfig(ctx, v); // the car the booking held before can now go to the next customer
+  return done;
+}
+
+/**
+ * Moves a held car from the customer who holds it to another named booking, on an approved request.
+ *
+ * This is the only way a named car reaches a named booking. Allocation by hand is otherwise closed:
+ * a person cannot pair a free car with a booking of their choosing, because that is what the queue
+ * is for. What remains possible is taking a car away from the customer who holds it and saying who
+ * is to have it instead — which is a different act, visible as a loss to a named customer, and so
+ * carries an approval, a reason and the count of earlier bookings it passes.
+ *
+ * Releasing the car from the first booking, allocating it to the second, and the approval that
+ * authorised both are one batch: either all of it happens or none of it. The order matters — the
+ * release runs first so that the unique index on a vehicle's active allocation is free by the time
+ * the new row is written.
+ */
+export async function reallocateToBooking(
+  ctx: Ctx,
+  from: Pick<ActiveAllocation, "id" | "booking_id" | "vehicle_id">,
+  toBookingId: string,
+  approver: string,
+  requestId: string,
+  also: D1PreparedStatement[] = [],
+): Promise<AllocationOutcome> {
+  const b = await first<BookingRow>(ctx.db, `SELECT * FROM bookings WHERE id = ? AND tenant_id = ?`, toBookingId, ctx.tenantId);
+  const v = await first<VehicleRow>(ctx.db, `SELECT v.*, ${LAST_BOOKING} FROM vehicles v WHERE v.id = ? AND v.tenant_id = ?`, from.vehicle_id, ctx.tenantId);
+  if (!b || !v) throw new Error("Booking or vehicle not found");
+  if (b.id === from.booking_id) throw new Error("That is the booking the car is already held for");
+  // The receiving booking has to be one that is waiting. A booking already holding a car would be
+  // having a second one found for it by hand, which is the thing this closes off.
+  if (b.status !== "APPROVED") throw new Error("The car can only go to a booking that is waiting for one");
+  if (await activeAllocationForBooking(ctx, b.id)) throw new Error("That booking already holds a car");
+  if (v.model !== b.model || v.variant !== b.variant || v.colour !== b.colour) throw new Error("The car does not match that booking's model, variant and colour");
+  if (!["RECEIVED", "IN_TRANSIT"].includes(v.status) || v.is_blocked) throw new Error("The car is no longer available to allocate");
+  const done = await commitMatch(ctx, { booking: b, vehicle: v, queuePosition: 0, pass: "MANUAL_APPROVED_EXCEPTION" }, approver, requestId, {
+    before: releaseStmts(ctx, from, "REALLOCATED_TO_BOOKING", undefined, { requestId, toBookingId: b.id }),
+    also,
+  });
+  if (!done) throw new Error("The car or one of the two bookings was changed by someone else just now");
   return done;
 }

@@ -1,7 +1,8 @@
 import { all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { can } from "../lib/permissions";
 import { bad, forbidden, iso, likeText, newId, norm, normMobile, notFound, parseDate, safeJson } from "../lib/util";
-import { activeAllocationForBooking } from "../domain/allocation";
+import { activeAllocationForBooking, heldCars } from "../domain/allocation";
+import { REQUESTABLE, REQUESTABLE_ORDER } from "../domain/release-reasons";
 import {
   approveBooking,
   backdatedDays,
@@ -283,11 +284,29 @@ export function bookingRoutes(app: App) {
     return c.json({ checklist_missing: missingChecklist(c.get("ctx"), updated) });
   });
 
+  // ------------------------------------------------------------ taking a car back from a customer
+  //
+  // Finding the car is the first step, and the only one that is a search: by booking number,
+  // customer, model, trim, colour, VIN or chassis. What may then be asked for, and what each choice
+  // has to bring with it, comes from the server so the form cannot drift from the rules.
+  app.get("/api/held-cars", async (c) => {
+    need(c, "exception.request");
+    const ctx = c.get("ctx");
+    const text = c.req.query("q") ?? "";
+    if (!text.trim()) return c.json([]);
+    return c.json(await heldCars(ctx, text, can(c.get("user"), ctx.settings, "booking.view_all") ? outletScope(c) : null));
+  });
+
+  app.get("/api/release-reasons", async (c) => {
+    need(c, "exception.request");
+    return c.json(REQUESTABLE_ORDER.map((code) => ({ code, ...REQUESTABLE[code] })));
+  });
+
   // ------------------------------------------------------------ exception requests
   app.get("/api/exceptions", async (c) => {
     const ctx = c.get("ctx");
     const user = c.get("user");
-    if (!can(user, ctx.settings, "exception.decide") && !can(user, ctx.settings, "exception.request")) throw forbidden();
+    if (!can(user, ctx.settings, "exception.decide") && !can(user, ctx.settings, "release.decide") && !can(user, ctx.settings, "exception.request")) throw forbidden();
     let rows = (await listExceptions(ctx, c.req.query("status") ?? null, outletScope(c))) as any[];
     if (!can(user, ctx.settings, "booking.view_all")) rows = rows.filter((r) => r.requested_by === user.id);
     return c.json(rows.map((r) => ({ ...r, payload: safeJson(r.payload_json, {}), payload_json: undefined })));
@@ -301,10 +320,15 @@ export function bookingRoutes(app: App) {
   });
 
   app.post("/api/exceptions/:id/:decision{approve|reject}", async (c) => {
-    need(c, "exception.decide");
     const ctx = c.get("ctx");
-    const ex = await first<{ booking_id: string }>(ctx.db, `SELECT booking_id FROM exceptions WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
+    // Somebody who may decide nothing at all is turned away before being told whether the request
+    // exists; which of the two permissions is needed depends on the type, so that is checked after.
+    if (!can(c.get("user"), ctx.settings, "exception.decide") && !can(c.get("user"), ctx.settings, "release.decide")) throw forbidden();
+    const ex = await first<{ booking_id: string; type: string }>(ctx.db, `SELECT booking_id, type FROM exceptions WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!ex) throw notFound("Exception request");
+    // Taking a car back from the customer holding it answers to a narrower list of approvers than
+    // the rest, because allocation by hand is closed and this is the one way a named car moves.
+    need(c, ex.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide");
     await bookingFor(c, ex.booking_id);
     const body = await jsonBody(c).catch(() => ({}) as any);
     return c.json(await decideException(ctx, c.req.param("id"), c.req.param("decision") === "approve", c.get("user"), body.remarks));

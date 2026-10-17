@@ -270,26 +270,43 @@ describe("approvals are checked again at the moment they are given", () => {
     expect((await w.api("POST", `/api/exceptions/${ex.body.id}/reject`, { remarks: "Already delivered" }, d.users.head.session)).status).toBe(200);
   });
 
-  it("a manual allocation that can no longer be given leaves the booking's current car where it was", async () => {
+  // Allocation by hand is closed: pairing a free car with a booking of someone's choosing is what the
+  // queue is for. What can still be asked for is taking a car off the customer holding it, which names
+  // a loser as well as a winner and so goes through approval.
+  it("nobody can ask for a car to be allocated by hand any more", async () => {
     const w = makeWorld("2026-10-13 10:00");
     const d = await makeDealer(w);
-    await addCar(w, d, "VINMANUAL00000001", CRETA, "PATIA", "IN_TRANSIT");
     const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Cust", "9811100001");
     const wanted = await addCar(w, d, "VINMANUAL00000002", CRETA, "PATIA", "RECEIVED");
-    const ex = await w.api("POST", "/api/exceptions", { type: "MANUAL_ALLOCATION", booking_id: b.id, vehicle_id: wanted.id, reason: "Customer wants the car in the yard" }, d.users.sm.session);
+    const res = await w.api("POST", "/api/exceptions", { type: "MANUAL_ALLOCATION", booking_id: b.id, vehicle_id: wanted.id, reason: "Customer wants the car in the yard" }, d.users.sm.session);
+    expect(res.status).toBe(400);
+  });
+
+  it("a car promised to another booking stays where it is while the request cannot be applied", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await makeDealer(w);
+    const held = await addCar(w, d, "VINMANUAL00000001", CRETA, "PATIA", "RECEIVED");
+    const first = await approvedBooking(w, d, "se1", CRETA, "PATIA", "First", "9811100001");
+    const second = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Second", "9811100002");
+    expect((await booking(w, d, first.id)).allocation.vin).toBe("VINMANUAL00000001");
+    const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: first.id, payload: { release_reason: "REALLOCATED_TO_BOOKING", to_booking_id: second.id }, reason: "Second customer is paying cash today" }, d.users.sm.session);
     expect(ex.status).toBe(201);
-    // Before the approver gets to it, the wanted car is damaged and blocked.
-    await w.api("POST", `/api/vehicles/${wanted.id}/block`, { reason: "Hail damage" }, d.users.stock.session);
-    const res = await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
-    expect(res.status).toBe(409);
-    expect((await booking(w, d, b.id)).allocation.vin).toBe("VINMANUAL00000001");
+    // Before the approver gets to it, the second booking is given a car of its own by the queue.
+    const other = await addCar(w, d, "VINMANUAL00000003", CRETA, "PATIA", "RECEIVED");
+    expect((await booking(w, d, second.id)).allocation.vin).toBe("VINMANUAL00000003");
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(409);
+    expect((await booking(w, d, first.id)).allocation.vin).toBe("VINMANUAL00000001");
     expect(one(w, `SELECT status FROM exceptions WHERE id = ?`, ex.body.id).status).toBe("PENDING");
-    // Once the car is fit again the same request goes through: old car released, named car allocated, in one step.
-    await w.api("POST", `/api/vehicles/${wanted.id}/unblock`, undefined, d.users.stock.session);
+
+    // That car is damaged, so the second booking is waiting again and the request can go through:
+    // the first customer's car is released and allocated to the second in one step.
+    await w.api("POST", `/api/vehicles/${other.id}/block`, { reason: "Hail damage" }, d.users.stock.session);
     expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(200);
-    const after = await booking(w, d, b.id);
-    expect(after.allocation).toMatchObject({ vin: "VINMANUAL00000002", exception_id: ex.body.id, allocated_by: d.users.head.id });
-    expect(after.allocation_history[0]).toMatchObject({ vin: "VINMANUAL00000001", release_reason: "REPLACED_BY_MANUAL_ALLOCATION" });
+    expect((await booking(w, d, second.id)).allocation).toMatchObject({ vin: "VINMANUAL00000001", exception_id: ex.body.id, allocated_by: d.users.head.id });
+    const released = one(w, `SELECT release_reason, release_request_id, released_to_booking_id FROM allocations WHERE booking_id = ? AND vehicle_id = ? AND status = 'RELEASED'`, first.id, held.id);
+    expect(released).toMatchObject({ release_reason: "REALLOCATED_TO_BOOKING", release_request_id: ex.body.id, released_to_booking_id: second.id });
+    // The customer who lost the car keeps their place in the queue rather than going to the back.
+    expect(one(w, `SELECT status, on_hold FROM bookings WHERE id = ?`, first.id)).toMatchObject({ status: "APPROVED", on_hold: 0 });
     expect(integrity(w)).toEqual(CLEAN);
   });
 

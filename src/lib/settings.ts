@@ -53,6 +53,8 @@ export interface TenantSettings {
   allocate_in_transit: boolean;
   booking_approver_roles: Role[];
   exception_approver_roles: Role[];
+  /** Who may approve taking a car back from the customer holding it. Narrower than the above by default. */
+  release_approver_roles: Role[];
   /** Local time (HH:MM) at which the day-end reconciliation runs. */
   day_end_time: string;
   /** Text used in the in-transit message when the car has no expected arrival date. */
@@ -92,6 +94,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   allocate_in_transit: true,
   booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD"],
   exception_approver_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
+  release_approver_roles: ["BUSINESS_HEAD"],
   day_end_time: "21:00",
   in_transit_eta_text: "10-15 days",
   approval_sla_hours: 24,
@@ -136,7 +139,7 @@ const LABELS: Record<string, string> = {
   reminder_days: "Reminder day", escalation_days: "Escalation day", reallocate_days: "Re-allocation day", approval_sla_hours: "Approval time limit (hours)",
   min_booking_amount: "Minimum booking amount", business_hours_from: "Business hours start", business_hours_to: "Business hours end",
   required_documents: "Booking checklist", data_stale_days: "DMS files expected every (days)", payment_verify_hours: "Time for Finance to verify a payment (hours)", alarm_roles: "Alarm recipients", outlet_scope: "Outlet reach", queue_order: "Queue order", car_order: "Car order", booking_approver_roles: "Booking approvers",
-  exception_approver_roles: "Exception approvers", day_end_time: "Day-end time",
+  exception_approver_roles: "Exception approvers", release_approver_roles: "Approvers for taking a car back", day_end_time: "Day-end time",
 };
 
 /** Validates a settings patch. `outletIds`, when given, are the dealership's outlets, used to check the nearby-outlet lists. */
@@ -212,7 +215,7 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
     }
     next.nearby_outlets = out;
   }
-  for (const k of ["booking_approver_roles", "exception_approver_roles", "alarm_roles"] as const) {
+  for (const k of ["booking_approver_roles", "exception_approver_roles", "release_approver_roles", "alarm_roles"] as const) {
     if (patch[k] === undefined) continue;
     const v = patch[k] as unknown[];
     if (!Array.isArray(v) || v.length === 0 || v.some((r) => !ROLES.includes(r as Role))) throw new Error(`${LABELS[k]} must name at least one role`);
