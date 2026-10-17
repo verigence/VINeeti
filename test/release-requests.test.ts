@@ -6,7 +6,7 @@
 // customer who politely asks for a later date should not lose their place to someone who didn't ask.
 
 import { describe, expect, it } from "vitest";
-import { addCar, approvedBooking, booking, CRETA, makeDealer, makeWorld, type Dealer, type World } from "./harness";
+import { addCar, approvedBooking, booking, CRETA, makeDealer, makeWorld, PASSWORD, type Dealer, type World } from "./harness";
 
 const one = <T = any>(w: World, sql: string, ...p: unknown[]) => w.db.q<T>(sql, ...p)[0];
 const activeVin = (w: World, bookingId: string) =>
@@ -211,6 +211,27 @@ describe("what the approver is shown", () => {
     expect(one(w, `SELECT status FROM exceptions WHERE id = ?`, ex.body.id).status).toBe("PENDING");
     expect((await w.api("PUT", "/api/settings", { release_approver_roles: ["BUSINESS_HEAD"] }, d.users.admin.session)).status).toBe(200);
     expect((await approve(w, d, ex.body.id)).status).toBe(200);
+  });
+
+  // The role exists so that this decision sits above the day's running. Allocation by hand is
+  // closed, so a release is the only way a named car reaches a named booking, and the person who
+  // signs it off should not be the person running the queue.
+  it("is what a Vice President is for", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    const made = await w.api("POST", "/api/users", { name: "Varsha Prasad", mobile: "9000009999", role: "VP", password: PASSWORD, all_outlets: true, outlet_ids: [] }, d.users.admin.session);
+    expect(made.status).toBe(201);
+    // Every new user has to set a password before doing anything; the harness does the same for the
+    // people it creates, and the point here is the role, not the first sign-in.
+    w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE tenant_id = '${d.tenantId}'`);
+    const vp = await w.login(d.slug, "9000009999", PASSWORD);
+
+    const { b } = await held(w, d);
+    const ex = await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, "Board member's family");
+    // A Sales Lead may ask but not decide, whatever else they can approve.
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.sm.session)).status).toBe(403);
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, vp)).status).toBe(200);
+    expect(one(w, `SELECT decided_by FROM exceptions WHERE id = ?`, ex.body.id).decided_by).toBe(made.body.id);
   });
 
   it("will not take two requests for the same car at once", async () => {

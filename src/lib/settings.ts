@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   allocate_in_transit: true,
   booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD"],
   exception_approver_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
-  release_approver_roles: ["BUSINESS_HEAD"],
+  release_approver_roles: ["VP", "BUSINESS_HEAD"],
   day_end_time: "21:00",
   in_transit_eta_text: "10-15 days",
   approval_sla_hours: 24,
@@ -107,7 +107,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   monthly_retail_target: null,
 };
 
-const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CRM", "BUSINESS_HEAD", "SALES_MANAGER", "SALES_EXEC", "STOCK_INCHARGE", "ORDERING", "ACCOUNTS", "AUDITOR"];
+const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CRM", "BUSINESS_HEAD", "VP", "SALES_MANAGER", "SALES_EXEC", "STOCK_INCHARGE", "ORDERING", "ACCOUNTS", "AUDITOR"];
 const DOC_KINDS: DocumentKind[] = ["DOCKET", "KYC", "PAN_AADHAAR", "PAYMENT_PROOF"];
 const SCOPES: OutletScope[] = ["SAME_OUTLET_FIRST", "SAME_OUTLET_NEARBY", "SAME_OUTLET_ONLY", "ANY_OUTLET"];
 

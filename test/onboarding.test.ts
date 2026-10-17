@@ -116,7 +116,7 @@ describe("the employee sheet", () => {
     expect(res.body.errors.map((e: any) => [e.row, e.key, e.message])).toEqual([
       [3, "9876500011", "Name is blank"],
       [4, "Short Number", 'Mobile number "98765" is not valid'],
-      [5, "Odd Role", 'Role "Chief Happiness Officer" is not recognised. Use one of: System Admin, Dealer Principal, Business Head / CEO, Sales Lead, Sales Executive, Finance, CRM, Stock In-charge, Ordering Desk, Auditor'],
+      [5, "Odd Role", 'Role "Chief Happiness Officer" is not recognised. Use one of: System Admin, Dealer Principal, Business Head / CEO, Vice President, Sales Lead, Sales Executive, Finance, CRM, Stock In-charge, Ordering Desk, Auditor'],
       [6, "Wrong Outlet", "Outlet SM77 is not set up. Outlets here: SM01, SM02"],
       [7, "No Outlet", "Give the outlet codes this person works at, or ALL"],
       [8, "Same Number", "This mobile number appears more than once in the sheet"],

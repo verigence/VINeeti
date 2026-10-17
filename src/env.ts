@@ -34,6 +34,7 @@ export type Role =
   | "ADMIN"
   | "DEALER_PRINCIPAL"
   | "BUSINESS_HEAD"
+  | "VP"
   | "SALES_MANAGER"
   | "SALES_EXEC"
   | "STOCK_INCHARGE"

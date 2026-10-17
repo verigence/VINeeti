@@ -54,6 +54,10 @@ const MATRIX: Record<Role, Permission[]> = {
     ...VIEW_ALL, "stock.value", "owner.view", "owner.review", "booking.cancel", "booking.ready", "exception.request", "allocation.run", "orders.manage", "recon.view", "recon.manage", "wa.view",
     "admin.settings", "audit.view",
   ],
+  // Vice President: oversight above the day's running. Sees everything, changes almost nothing, and
+  // is the one who decides whether a car may be taken back from the customer holding it — the single
+  // way a named car reaches a named booking now that allocation by hand is closed.
+  VP: [...VIEW_ALL, "stock.value", "owner.view", "owner.review", "exception.request", "recon.view", "audit.view"],
   // Sales Lead: the team's bookings at their outlets.
   SALES_MANAGER: [...VIEW_ALL, "booking.create", "booking.cancel", "booking.ready", "booking.payment_report", "exception.request", "allocation.run", "recon.view", "wa.view"],
   // Sales Executive: stock and delivery answers, and their own bookings.
@@ -90,12 +94,13 @@ export function canSeeOutlet(user: SessionUser, outletId: string): boolean {
 }
 
 /** Roles that default to seeing every outlet of the dealership. */
-export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "BUSINESS_HEAD", "ORDERING", "AUDITOR"];
+export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "BUSINESS_HEAD", "VP", "ORDERING", "AUDITOR"];
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "System Admin",
   DEALER_PRINCIPAL: "Dealer Principal",
   BUSINESS_HEAD: "Business Head / CEO",
+  VP: "Vice President",
   SALES_MANAGER: "Sales Lead",
   SALES_EXEC: "Sales Executive",
   ACCOUNTS: "Finance",
@@ -110,6 +115,7 @@ export const ROLE_PURPOSE: Record<Role, string> = {
   ADMIN: "Sets up users, outlets, settings and WhatsApp.",
   DEALER_PRINCIPAL: "Owner's view across all outlets: fairness, out-of-turn allocations, ageing and results. Decides exceptions.",
   BUSINESS_HEAD: "Runs the business day to day: receives the alarms, decides exceptions, sets the allocation rules.",
+  VP: "Oversight above the day's running: sees every outlet, reviews what was done out of turn, and decides whether a car may be taken back from the customer holding it.",
   SALES_MANAGER: "Leads a sales team: sees the team's bookings at their outlets and approves them.",
   SALES_EXEC: "Answers the customer on stock and delivery, books, and follows their own bookings.",
   ACCOUNTS: "Verifies that payments have been received; records invoicing and delivery; sees stock value.",

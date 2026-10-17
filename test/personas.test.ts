@@ -243,7 +243,7 @@ describe("roles and controls", () => {
     const res = await w.api("GET", "/api/roles", undefined, d.users.lead.session);
     expect(res.status).toBe(200);
     const roles: any[] = res.body.roles;
-    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "Business Head / CEO", "Sales Lead", "Sales Executive", "Finance", "CRM", "Stock In-charge", "Ordering Desk", "Auditor"]);
+    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "Business Head / CEO", "Vice President", "Sales Lead", "Sales Executive", "Finance", "CRM", "Stock In-charge", "Ordering Desk", "Auditor"]);
     const perms = (role: string) => roles.find((r) => r.role === role).permissions as string[];
     expect(perms("ACCOUNTS")).toContain("booking.payment");
     expect(perms("SALES_EXEC")).toContain("booking.payment_report");
@@ -251,6 +251,11 @@ describe("roles and controls", () => {
     expect(perms("BUSINESS_HEAD")).toContain("exception.decide");
     expect(perms("DEALER_PRINCIPAL")).toContain("exception.decide");
     expect(perms("SALES_MANAGER")).not.toContain("exception.decide");
+    // Taking a car back is the Vice President's to decide, and nobody else's by default: it is the
+    // only way a named car reaches a named booking now that allocation by hand is closed.
+    expect(perms("VP")).toContain("release.decide");
+    expect(perms("DEALER_PRINCIPAL")).not.toContain("release.decide");
+    expect(perms("VP")).not.toContain("exception.decide");
     expect(roles.filter((r) => r.receives_alarms).map((r) => r.role)).toEqual(["DEALER_PRINCIPAL", "BUSINESS_HEAD"]);
     expect(res.body.permission_labels["booking.payment"]).toBe("Verify payments; record invoicing");
     // Exceptions need two people: whoever raises a request cannot decide it, even with the right role.
