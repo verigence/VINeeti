@@ -803,6 +803,16 @@ export interface UploadError {
   message: string;
 }
 
+/** Kept in step with RetailSummary in src/domain/dms-import.ts. */
+export interface RetailSummary {
+  invoices: { total: number; new: number; changed: number; unchanged: number; withdrawn: number };
+  money: { invoiced: number; selling: number; oem_discount: number; dealer_discount: number; unclaimed_discount: number };
+  attached: { financed: number; dealer_arranged: number; insured: number; exchanged: number; delivered: number };
+  issues: Record<string, number>;
+  claims_not_stated: string[];
+  outlets_created: string[];
+}
+
 export interface StockSummary {
   dealer_name: string;
   report_date: string;
@@ -860,7 +870,7 @@ export interface DmsUploadResult {
   unchanged: number;
   errors: UploadError[];
   allocations: number;
-  summary: StockSummary | BookingSummary;
+  summary: StockSummary | BookingSummary | RetailSummary;
 }
 export interface UploadRow {
   id: string;

@@ -108,11 +108,13 @@ describe("the end-of-day run", () => {
     expect(run.body.findings).toMatchObject({ high: 0 });
     expect(q(w, `SELECT trigger, business_date FROM recon_runs`)).toEqual([{ trigger: "EOD", business_date: "2026-10-06" }]);
 
-    // The End of day screen shows the three steps done, who did them, and nothing of the key.
+    // The Upload DMS files screen shows what was read, who read it, and nothing of the key. The retail
+    // export is not part of the feed here, so its step stands open while the day still closes.
     const status = (await w.api("GET", "/api/eod/status", undefined, d.users.head.session)).body;
     expect(status).toMatchObject({ business_date: "2026-10-06", day_end_time: "21:00" });
-    expect(status.steps.map((x: any) => [x.key, x.done])).toEqual([["BOOKINGS", true], ["STOCK", true], ["RECONCILIATION", true]]);
-    expect(status.steps[2].run).toMatchObject({ id: run.body.run_id, by: "End-of-day feed" });
+    expect(status.steps.map((x: any) => [x.key, x.done])).toEqual([["BOOKINGS", true], ["STOCK", true], ["RETAIL", false], ["RECONCILIATION", true]]);
+    expect(status.steps[2].optional).toBe(true);
+    expect(status.steps[3].run).toMatchObject({ id: run.body.run_id, by: "End-of-day feed" });
     expect(status.loads_today.map((l: any) => [l.kind, l.status, l.uploaded_by_name]).sort()).toEqual([["BOOKINGS", "DONE", "End-of-day feed"], ["STOCK", "DONE", "End-of-day feed"]]);
     expect(status.files).toMatchObject({ stale: false });
     // Uploads made by the feed are listed with the others, and the audit trail names the feed.
@@ -225,13 +227,13 @@ describe("the end-of-day run", () => {
     await push(w, d, "bookings", key, bookingFile(BOOKINGS));
     await push(w, d, "stock", key, stockFile(STOCK));
     let status = (await w.api("GET", "/api/eod/status", undefined, d.users.head.session)).body;
-    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, false]);
+    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, false, false]);
     w.at("2026-10-06 21:05");
     const report = (await w.tick())[0];
     expect(report.reconciliation).toBeTruthy();
     status = (await w.api("GET", "/api/eod/status", undefined, d.users.head.session)).body;
-    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, true]);
-    expect(status.steps[2].run).toMatchObject({ id: report.reconciliation, by: "Scheduled" });
+    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, false, true]);
+    expect(status.steps[3].run).toMatchObject({ id: report.reconciliation, by: "Scheduled" });
     // Once a day: the next firing does not run it again.
     w.at("2026-10-06 21:20");
     expect((await w.tick())[0].reconciliation).toBeUndefined();
@@ -243,8 +245,8 @@ describe("the end-of-day run", () => {
     expect((await w.send(`/api/uploads/stock?filename=stock.csv&report_date=2026-10-06`, stockFile(STOCK), d.users.crm.session)).status).toBe(200);
     expect((await w.api("POST", "/api/recon/run", undefined, d.users.head.session)).status).toBe(201);
     const status = (await w.api("GET", "/api/eod/status", undefined, d.users.crm.session)).body;
-    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, true]);
-    expect(status.steps[2].run.by).toBe("A user");
+    expect(status.steps.map((x: any) => x.done)).toEqual([true, true, false, true]);
+    expect(status.steps[3].run.by).toBe("A user");
     expect(status.loads_today.map((l: any) => l.uploaded_by_name)).toEqual(["Charu CRM", "Charu CRM"]);
     // A sales executive has no End of day screen.
     expect((await w.api("GET", "/api/eod/status", undefined, d.users.exec.session)).status).toBe(403);

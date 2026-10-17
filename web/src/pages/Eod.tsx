@@ -8,12 +8,12 @@ import { DataSource } from "../components/DataSource";
 import { Icon } from "../components/icons";
 import { useToast } from "../components/Toast";
 import { Async, Button, Card, Chip, CopyField, DataTable, Disclosure, Empty, Field, Notice, PageHeader, RadioGroup, Stat, type Column } from "../components/ui";
-import { fmtBytes, fmtDate, fmtDateTime, fmtNumber, fmtWhen, plural, today } from "../format";
+import { fmtBytes, fmtDate, fmtDateTime, fmtMoney, fmtNumber, fmtWhen, plural, today } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { plainText, uploadedBy, uploadKind } from "../labels";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
-import type { BookingSummary, DmsUploadResult, EodStatus, EodStep, StockSummary, UploadError, UploadRow } from "../types";
+import type { BookingSummary, DmsUploadResult, EodStatus, EodStep, RetailSummary, StockSummary, UploadError, UploadRow } from "../types";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
@@ -40,7 +40,7 @@ export function EodPage() {
 
   return (
     <>
-      <PageHeader title="Daily update" subtitle={`Read the booking sheet and the stock report, then run the reconciliation. The day ends at ${status.data?.day_end_time ?? me.settings.day_end_time}.`} />
+      <PageHeader title="Upload DMS files" subtitle={`Read the booking sheet, the stock report and the retail export, then run the reconciliation. The day ends at ${status.data?.day_end_time ?? me.settings.day_end_time}.`} />
       {/* The status carries the same file dates; re-read after every load so the line never lags behind. */}
       <DataSource key={status.data ? `${status.data.files.stock?.upload_id}:${status.data.files.bookings?.upload_id}` : "none"} status={status.data?.files} />
       {can("recon.view") && (
@@ -49,9 +49,10 @@ export function EodPage() {
         </Async>
       )}
       {mayLoad && (
-        <div className="split split-even">
+        <div className="split split-three">
           {can("upload.bookings") && <UploadCard kind="bookings" issueLabels={issueLabels} onDone={refresh} />}
           {can("upload.stock") && <UploadCard kind="stock" issueLabels={issueLabels} onDone={refresh} />}
+          {can("upload.bookings") && <UploadCard kind="retail" issueLabels={issueLabels} onDone={refresh} />}
         </div>
       )}
       <Card title="Files loaded" note="The latest 60 loads." flush>
@@ -124,11 +125,20 @@ interface Loaded {
   filename: string;
 }
 
-function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings"; issueLabels: Record<string, string>; onDone: () => void }) {
+function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings" | "retail"; issueLabels: Record<string, string>; onDone: () => void }) {
   const toast = useToast();
   const { reload: refreshBadges } = useAlerts();
   const inputRef = useRef<HTMLInputElement>(null);
   const stock = kind === "stock";
+  // The retail export is dated like the stock report but describes a period rather than a position,
+  // so it takes a report date and never the complete-or-partial question.
+  const dated = kind !== "bookings";
+  const WORDS = {
+    stock: { title: "Stock report", note: "The DMS stock report, as exported.", button: "Load stock report" },
+    bookings: { title: "Booking sheet", note: "The DMS booking sheet, as exported.", button: "Load booking sheet" },
+    retail: { title: "Retail export", note: "The DMS retail invoice export. What the dealership earned: discounts, what the manufacturer owes back, finance, insurance and the delivery note.", button: "Load retail export" },
+  } as const;
+  const words = WORDS[kind];
   const [file, setFile] = useState<File | null>(null);
   const [reportDate, setReportDate] = useState("");
   const [mode, setMode] = useState<"COMPLETE" | "PARTIAL">("COMPLETE");
@@ -146,16 +156,16 @@ function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings";
       return;
     }
     setFile(f);
-    if (f && stock) setReportDate(dateInName(f.name));
+    if (f && dated) setReportDate(dateInName(f.name));
   };
 
   /** Sends the file, and sends it again for as long as the server says there are steps left. */
   const send = async (confirmMissing: boolean) => {
     if (!file) return setProblem("Choose the file first.");
-    if (stock && reportDate && reportDate > today()) return setProblem("The report date cannot be in the future.");
+    if (dated && reportDate && reportDate > today()) return setProblem("The report date cannot be in the future.");
     setProblem(null);
     setConfirm(null);
-    const opts = stock ? { report_date: reportDate || undefined, mode, confirm_missing: confirmMissing } : {};
+    const opts = stock ? { report_date: reportDate || undefined, mode, confirm_missing: confirmMissing } : dated ? { report_date: reportDate || undefined } : {};
     try {
       let n = 1;
       setStep(n);
@@ -180,7 +190,7 @@ function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings";
   };
 
   return (
-    <Card title={stock ? "Stock report" : "Booking sheet"} note={stock ? "The DMS stock report, as exported." : "The DMS booking sheet, as exported."}>
+    <Card title={words.title} note={words.note}>
       <form
         className="form-stack"
         onSubmit={(e) => {
@@ -193,11 +203,13 @@ function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings";
           <input ref={inputRef} type="file" accept=".xlsx,.csv" disabled={busy} onChange={(e) => pick(e.target.files?.[0] ?? null)} />
           <span className="hint">Excel (.xlsx) or CSV, up to 12 MB.</span>
         </label>
+        {dated && (
+          <Field label="Report date" optional hint="The date the file is as on. Left blank, it is taken from the file name, otherwise today.">
+            <input type="date" value={reportDate} max={today()} disabled={busy} onChange={(e) => setReportDate(e.target.value)} />
+          </Field>
+        )}
         {stock && (
           <>
-            <Field label="Report date" optional hint="The date the report is as on. Left blank, it is taken from the file name, otherwise today.">
-              <input type="date" value={reportDate} max={today()} disabled={busy} onChange={(e) => setReportDate(e.target.value)} />
-            </Field>
             <RadioGroup
               legend="What is in this file?"
               value={mode}
@@ -219,7 +231,7 @@ function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings";
         )}
         <div className="form-actions">
           <Button type="submit" variant="primary" icon="upload" busy={busy} disabled={!file}>
-            {stock ? "Load stock report" : "Load booking sheet"}
+            {words.button}
           </Button>
         </div>
       </form>
@@ -235,12 +247,14 @@ function UploadCard({ kind, issueLabels, onDone }: { kind: "stock" | "bookings";
 }
 
 // ---------------------------------------------------------------- what a load did
-type AnySummary = Partial<StockSummary & BookingSummary>;
+type AnySummary = Partial<Omit<StockSummary & BookingSummary & RetailSummary, "issues">> & { issues?: Record<string, number> };
 
 function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }: { kind: string; counts: { rows: number; created: number; updated: number; unchanged: number }; allocations: number; summary: AnySummary; errors: UploadError[]; issueLabels: Record<string, string> }) {
   const s = summary;
   const n = (v: number | undefined) => (v === undefined ? "—" : fmtNumber(v));
   const stock = kind === "STOCK";
+  const retail = kind === "RETAIL";
+  const money = (v: number | undefined) => (v === undefined ? "—" : fmtMoney(v));
   const issues = Object.entries(s.issues ?? {}).filter(([, count]) => count > 0);
   const left = s.left_stock;
 
@@ -250,7 +264,19 @@ function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }:
         {plural(counts.rows, "row")} read · {fmtNumber(counts.created)} new · {fmtNumber(counts.updated)} updated · {fmtNumber(counts.unchanged)} unchanged
       </p>
       <h4 className="result-title">What the file says</h4>
-      {stock ? (
+      {retail ? (
+        <div className="tiles tiles-compact">
+          <Stat label="Invoices" value={n(s.invoices?.total)} />
+          <Stat label="Invoiced" value={money(s.money?.invoiced)} hint={`${money(s.money?.selling)} before tax`} />
+          <Stat label="Given away on the manufacturer's schemes" value={money(s.money?.oem_discount)} hint={`and ${money(s.money?.dealer_discount)} of the dealership's own margin`} />
+          <Stat
+            label="Not claimed back"
+            value={money(s.money?.unclaimed_discount)}
+            hint="Discount given with no credit note recorded against it"
+            tone={s.money?.unclaimed_discount ? "danger" : undefined}
+          />
+        </div>
+      ) : stock ? (
         <div className="tiles tiles-compact">
           <Stat label="Cars" value={n(s.cars)} />
           <Stat label="Unallocated" value={n(s.unallocated)} hint={`${n(s.unallocated_received)} received · ${n(s.unallocated_in_transit)} in transit`} />
@@ -267,7 +293,16 @@ function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }:
         </div>
       )}
       <h4 className="result-title">What changed</h4>
-      {stock ? (
+      {retail ? (
+        <div className="tiles tiles-compact">
+          <Stat label="New invoices" value={n(s.invoices?.new)} />
+          <Stat label="Changed" value={n(s.invoices?.changed)} />
+          <Stat label="Withdrawn" value={n(s.invoices?.withdrawn)} hint="Listed before, not in this file" tone={s.invoices?.withdrawn ? "danger" : undefined} />
+          <Stat label="Financed" value={n(s.attached?.financed)} hint={`${n(s.attached?.dealer_arranged)} arranged by the dealership`} />
+          <Stat label="Insured" value={n(s.attached?.insured)} />
+          <Stat label="Taken away" value={n(s.attached?.delivered)} hint="A delivery note is recorded" />
+        </div>
+      ) : stock ? (
         <div className="tiles tiles-compact">
           <Stat label="New cars" value={n(s.new_cars)} />
           <Stat label="Received" value={n(s.received)} />
@@ -291,11 +326,23 @@ function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }:
           <dt>Outlets created</dt>
           <dd>{s.outlets_created?.length ? s.outlets_created.join(", ") : "None"}</dd>
         </div>
-        <div>
-          <dt>Variants added</dt>
-          <dd>{n(s.variants_added)}</dd>
-        </div>
-        {stock && (
+        {!retail && (
+          <div>
+            <dt>Variants added</dt>
+            <dd>{n(s.variants_added)}</dd>
+          </div>
+        )}
+        {retail && (
+          <div>
+            <dt>Claims the file does not state</dt>
+            <dd>
+              {s.claims_not_stated?.length
+                ? `${s.claims_not_stated.join(", ")} — blank on every row, so nothing was read from the blanks.`
+                : "None: every claim column the file uses is filled somewhere."}
+            </dd>
+          </div>
+        )}
+        {(stock || retail) && (
           <div>
             <dt>Data issues</dt>
             <dd>
@@ -316,7 +363,7 @@ function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }:
       </dl>
       {errors.length > 0 ? (
         <Disclosure summary={`Rows with errors (${fmtNumber(errors.length)})`}>
-          <ErrorsTable errors={errors} keyLabel={stock ? "Chassis (VIN)" : "Booking"} />
+          <ErrorsTable errors={errors} keyLabel={stock ? "Chassis (VIN)" : retail ? "Invoice" : "Booking"} />
         </Disclosure>
       ) : (
         <p className="meta">No row had an error.</p>
@@ -341,7 +388,7 @@ function ErrorsTable({ errors, keyLabel }: { errors: UploadError[]; keyLabel: st
 // ---------------------------------------------------------------- history
 function HistoryTable({ rows, issueLabels }: { rows: UploadRow[]; issueLabels: Record<string, string> }) {
   const [open, setOpen] = useState<string | null>(null);
-  const hasDetail = (u: UploadRow) => u.kind === "STOCK" || u.kind === "BOOKINGS";
+  const hasDetail = (u: UploadRow) => u.kind === "STOCK" || u.kind === "BOOKINGS" || u.kind === "RETAIL";
   const columns: Column<UploadRow>[] = [
     {
       header: "File",

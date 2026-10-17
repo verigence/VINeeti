@@ -139,7 +139,7 @@ export function authRoutes(app: App) {
   app.use("/api/*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
     if (path === "/api/health" || path.startsWith("/api/wa/webhook") || path.startsWith("/api/platform/") || path.startsWith("/api/auth/login") || path.startsWith("/api/auth/logout") || path.startsWith("/api/auth/otp/") || path === "/api/auth/options") return next();
-    if (/^\/api\/eod\/[^/]+\/(stock|bookings|run)$/.test(path)) return next(); // answered by the end-of-day feed routes, registered before this guard
+    if (/^\/api\/eod\/[^/]+\/(stock|bookings|retail|run)$/.test(path)) return next(); // answered by the end-of-day feed routes, registered before this guard
     return authenticate(c, next);
   });
 

@@ -22,7 +22,7 @@ import type { Ctx } from "../env";
 import { alertStmt, all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
 import { readExport } from "../lib/xlsx";
 import { bad, conflict, HttpError, iso, localParts, newId, norm } from "../lib/util";
-import { dateInFilename, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
+import { dateInFilename, readRetailReport, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
 import { alarmStmts } from "./alarms";
 import { recordStockPositions } from "./analytics";
 import { oemAdapter, SUPPORTED_OEMS } from "../oem";
@@ -92,7 +92,7 @@ export interface BookingSummary {
 
 export interface DmsUploadResult {
   upload_id: string;
-  kind: "STOCK" | "BOOKINGS";
+  kind: "STOCK" | "BOOKINGS" | "RETAIL";
   report_date: string;
   /** True when the file still has steps left: send the same file again with `continue` set to upload_id. */
   more: boolean;
@@ -103,7 +103,7 @@ export interface DmsUploadResult {
   errors: RowError[];
   /** Cars the system allocated to waiting bookings after the load. */
   allocations: number;
-  summary: StockSummary | BookingSummary;
+  summary: StockSummary | BookingSummary | RetailSummary;
 }
 
 const RANK: Record<string, number> = { IN_TRANSIT: 0, RECEIVED: 1, INVOICED: 2 };
@@ -153,7 +153,7 @@ async function outletsFor(ctx: Ctx, seen: Map<string, string>, scope: string[] |
   return { byCode, created };
 }
 
-async function startUpload(ctx: Ctx, kind: "STOCK" | "BOOKINGS", continueId: string | null | undefined): Promise<{ id: string; continued: boolean; prior: Record<string, any> }> {
+async function startUpload(ctx: Ctx, kind: "STOCK" | "BOOKINGS" | "RETAIL", continueId: string | null | undefined): Promise<{ id: string; continued: boolean; prior: Record<string, any> }> {
   if (continueId) {
     const row = await first<{ id: string; summary_json: string }>(ctx.db, `SELECT id, summary_json FROM uploads WHERE id = ? AND tenant_id = ? AND kind = ? AND status = 'RUNNING' AND uploaded_by = ?`, continueId, ctx.tenantId, kind, ctx.actor);
     if (row) return { id: row.id, continued: true, prior: JSON.parse(row.summary_json || "{}") };
@@ -996,5 +996,199 @@ export async function importBookingSheet(
   if (upload.continued) s.outlets_created = [...new Set([...(upload.prior.outlets_created ?? []), ...s.outlets_created])];
   await saveUpload(ctx, upload, result, "UPDATE", opts.filename, [...new Set(rows.map((r) => outletByCode.get(r.outlet_code)!))], upload.prior);
   ctx.cache.delete("data_status");
+  return result;
+}
+
+// ---------------------------------------------------------------- retail invoice export
+
+export interface RetailSummary {
+  invoices: { total: number; new: number; changed: number; unchanged: number; withdrawn: number };
+  money: { invoiced: number; selling: number; oem_discount: number; dealer_discount: number; unclaimed_discount: number };
+  attached: { financed: number; dealer_arranged: number; insured: number; exchanged: number; delivered: number };
+  issues: Record<string, number>;
+  /** Claim columns the file leaves blank throughout, so nothing was read from their being empty. */
+  claims_not_stated: string[];
+  outlets_created: string[];
+}
+
+/**
+ * Reads the retail invoice export.
+ *
+ * The file is the dealership's retail for a period, not a position, so nothing is inferred from a
+ * row's absence except one thing: an invoice this system has seen before, in a period the new file
+ * also covers, that the new file no longer lists. The DMS fills no cancellation column ever, so an
+ * invoice disappearing is the only way a withdrawal is ever visible. The row is marked rather than
+ * deleted, because an invoice that was withdrawn is a thing that happened.
+ *
+ * Nothing here allocates, releases or changes a booking. The stock report is what moves cars; this
+ * file says what the dealership earned on them, and reading it must not be able to disturb the
+ * allocation its own numbers describe.
+ */
+export async function importRetailExport(
+  ctx: Ctx,
+  bytes: Uint8Array,
+  opts: { filename?: string; reportDate?: string | null; outletScope?: string[] | null; continueUpload?: string | null } = {},
+): Promise<DmsUploadResult> {
+  const tz = ctx.tenant.timezone;
+  const asOf = opts.reportDate ?? dateInFilename(opts.filename) ?? today(ctx);
+  const report = readRetailReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
+  await checkDealer(ctx, report.dealer_name);
+
+  const upload = await startUpload(ctx, "RETAIL", opts.continueUpload);
+  const at = iso(ctx.now);
+
+  const seenOutlets = new Map<string, string>();
+  for (const r of report.rows) if (!seenOutlets.has(r.outlet_code)) seenOutlets.set(r.outlet_code, r.outlet_name);
+  const outlets = await outletsFor(ctx, seenOutlets, opts.outletScope ?? null);
+
+  const s: RetailSummary = {
+    invoices: { total: report.rows.length, new: 0, changed: 0, unchanged: 0, withdrawn: 0 },
+    money: { invoiced: 0, selling: 0, oem_discount: 0, dealer_discount: 0, unclaimed_discount: 0 },
+    attached: { financed: 0, dealer_arranged: 0, insured: 0, exchanged: 0, delivered: 0 },
+    issues: {},
+    claims_not_stated: report.claims_not_stated,
+    outlets_created: outlets.created,
+  };
+  const errors: RowError[] = [...report.errors];
+
+  // What the system already holds for the invoices in this file, and the vehicles and bookings they
+  // name, so each row can be tied to the car and the order without a query of its own.
+  const nos = report.rows.map((r) => r.invoice_no);
+  const existing = new Map<string, Record<string, any>>();
+  for (const part of chunk(nos, 200)) {
+    for (const row of await all<Record<string, any>>(ctx.db, `SELECT * FROM retail_invoices WHERE tenant_id = ?1 AND invoice_no IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(part))) existing.set(String(row.invoice_no), row);
+  }
+  const vins = [...new Set(report.rows.map((r) => r.vin).filter(Boolean))];
+  const vehicleByVin = new Map<string, string>();
+  for (const part of chunk(vins, 200)) {
+    for (const v of await all<{ id: string; vin: string }>(ctx.db, `SELECT id, vin FROM vehicles WHERE tenant_id = ?1 AND vin IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(part))) vehicleByVin.set(v.vin, v.id);
+  }
+  // The number the retail export calls "Booking No." is the dealer-side booking number, which the
+  // booking sheet calls "Booking Number" and this system keeps as `dms_ref`. It is not the DMS order
+  // number the booking is keyed by, so a lookup on `booking_no` alone matches nothing. Both are
+  // tried, the dealer-side number first, because that is what this file actually carries.
+  const bookingNos = [...new Set(report.rows.map((r) => r.booking_no).filter(Boolean))];
+  const bookingByNo = new Map<string, string>();
+  for (const part of chunk(bookingNos, 200)) {
+    const found = await all<{ id: string; booking_no: string; dms_ref: string | null }>(
+      ctx.db,
+      `SELECT id, booking_no, dms_ref FROM bookings
+        WHERE tenant_id = ?1 AND (dms_ref IN (SELECT value FROM json_each(?2)) OR booking_no IN (SELECT value FROM json_each(?2)))`,
+      ctx.tenantId, JSON.stringify(part),
+    );
+    for (const b of found) if (b.booking_no) bookingByNo.set(b.booking_no, b.id);
+    for (const b of found) if (b.dms_ref) bookingByNo.set(b.dms_ref, b.id);
+  }
+
+  const COLS = [
+    "invoice_at", "invoice_date", "status", "outlet_id", "vin", "chassis_no", "vehicle_id", "booking_no", "booking_id", "allotment_id",
+    "oem_model_code", "model", "variant", "colour", "customer_name", "customer_type", "customer_gstin", "sc_name",
+    "invoice_amount", "selling_price", "gst_amount", "tcs_amount", "dealer_discount", "oem_scheme_discount", "loyalty_discount",
+    "exchange_discount", "corporate_discount", "bndp_credit_note", "loyalty_credit_note", "exchange_credit_note",
+    "financier", "finance_arranged_by", "finance_amount", "insurer", "insurance_amount", "exchange_indicator",
+    "delivery_note_no", "delivery_note_date", "irn_at",
+  ] as const;
+
+  const inserts: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  let earliest = asOf;
+  for (const r of report.rows) {
+    const outletId = outlets.byCode.get(r.outlet_code);
+    if (!outletId) { errors.push({ row: r.row, key: r.invoice_no, message: `Outlet ${r.outlet_code} is not one you may load` }); continue; }
+    for (const i of r.issues) s.issues[i] = (s.issues[i] ?? 0) + 1;
+    s.money.invoiced += r.invoice_amount ?? 0;
+    s.money.selling += r.selling_price ?? 0;
+    s.money.oem_discount += r.oem_scheme_discount ?? 0;
+    s.money.dealer_discount += r.dealer_discount ?? 0;
+    s.money.unclaimed_discount += r.unclaimed;
+    if (r.financier && norm(r.financier) !== "CASH") s.attached.financed++;
+    if (norm(r.finance_arranged_by ?? "") === "DEALER") s.attached.dealer_arranged++;
+    if ((r.insurance_amount ?? 0) > 0) s.attached.insured++;
+    if (norm(r.exchange_indicator ?? "") === "YES") s.attached.exchanged++;
+    if (r.delivery_note_no) s.attached.delivered++;
+    if (r.invoice_date && r.invoice_date < earliest) earliest = r.invoice_date;
+
+    const want: Record<string, unknown> = {
+      invoice_at: r.invoice_at, invoice_date: r.invoice_date, status: r.status, outlet_id: outletId,
+      vin: r.vin || null, chassis_no: r.chassis_no || null, vehicle_id: vehicleByVin.get(r.vin) ?? null,
+      booking_no: r.booking_no || null, booking_id: bookingByNo.get(r.booking_no) ?? null, allotment_id: r.allotment_id,
+      oem_model_code: r.oem_model_code || null, model: r.model || null, variant: r.variant || null, colour: r.colour || null,
+      customer_name: r.customer_name || null, customer_type: r.customer_type || null, customer_gstin: r.customer_gstin, sc_name: r.sc_name,
+      invoice_amount: r.invoice_amount, selling_price: r.selling_price, gst_amount: r.gst_amount, tcs_amount: r.tcs_amount,
+      dealer_discount: r.dealer_discount, oem_scheme_discount: r.oem_scheme_discount, loyalty_discount: r.loyalty_discount,
+      exchange_discount: r.exchange_discount, corporate_discount: r.corporate_discount,
+      bndp_credit_note: r.bndp_credit_note, loyalty_credit_note: r.loyalty_credit_note, exchange_credit_note: r.exchange_credit_note,
+      financier: r.financier, finance_arranged_by: r.finance_arranged_by, finance_amount: r.finance_amount,
+      insurer: r.insurer, insurance_amount: r.insurance_amount, exchange_indicator: r.exchange_indicator,
+      delivery_note_no: r.delivery_note_no, delivery_note_date: r.delivery_note_date, irn_at: r.irn_at,
+    };
+    const cur = existing.get(r.invoice_no);
+    if (!cur) {
+      inserts.push({ id: newId("rti"), invoice_no: r.invoice_no, ...want });
+      s.invoices.new++;
+      // An invoice that was marked withdrawn and is listed again is a change even when every other
+      // value matches: the withdrawal is what has to be undone, and the update is what undoes it.
+    } else if (cur.withdrawn_on || COLS.some((c) => String(cur[c] ?? "") !== String(want[c] ?? ""))) {
+      updates.push({ id: String(cur.id), ...want });
+      s.invoices.changed++;
+    } else {
+      s.invoices.unchanged++;
+    }
+  }
+
+  const writes: D1PreparedStatement[] = [];
+  const set = COLS.map((c) => `${c} = ${jx(c)}`).join(", ");
+  for (const part of chunk(inserts, 100)) {
+    writes.push(
+      stmt(
+        ctx.db,
+        `INSERT INTO retail_invoices (id, tenant_id, invoice_no, ${COLS.join(", ")}, report_date, last_upload_id, created_at, updated_at)
+         SELECT ${jx("id")}, ?2, ${jx("invoice_no")}, ${COLS.map((c) => jx(c)).join(", ")}, ?3, ?4, ?5, ?5 FROM json_each(?1) AS j WHERE true
+         ON CONFLICT (tenant_id, invoice_no) DO NOTHING`,
+        JSON.stringify(part), ctx.tenantId, asOf, upload.id, at,
+      ),
+    );
+  }
+  for (const part of chunk(updates, 100)) {
+    writes.push(
+      stmt(
+        ctx.db,
+        `UPDATE retail_invoices SET ${set}, report_date = ?3, withdrawn_on = NULL, last_upload_id = ?4, updated_at = ?5
+          FROM json_each(?1) AS j WHERE retail_invoices.tenant_id = ?2 AND retail_invoices.id = ${jx("id")}`,
+        JSON.stringify(part), ctx.tenantId, asOf, upload.id, at,
+      ),
+    );
+  }
+  // The only thing read from a row's absence. Confined to the period this file covers, and to
+  // outlets it names, so a file for one week never withdraws another week's invoices.
+  const scope = opts.outletScope ?? null;
+  const theseOutlets = [...outlets.byCode.values()];
+  const gone = await all<{ id: string; invoice_no: string; vin: string | null }>(
+    ctx.db,
+    `SELECT id, invoice_no, vin FROM retail_invoices
+      WHERE tenant_id = ?1 AND withdrawn_on IS NULL AND invoice_date >= ?2 AND invoice_date <= ?3
+        AND outlet_id IN (SELECT value FROM json_each(?4))
+        AND invoice_no NOT IN (SELECT value FROM json_each(?5))`,
+    ctx.tenantId, earliest, asOf, JSON.stringify(theseOutlets), JSON.stringify(nos),
+  );
+  if (gone.length) {
+    s.invoices.withdrawn = gone.length;
+    writes.push(
+      stmt(ctx.db, `UPDATE retail_invoices SET withdrawn_on = ?2, updated_at = ?3 WHERE tenant_id = ?1 AND id IN (SELECT value FROM json_each(?4))`, ctx.tenantId, asOf, at, JSON.stringify(gone.map((g) => g.id))),
+      ...(await alarmStmts(ctx, {
+        kind: "INVOICE_REVERSED",
+        title: `${gone.length} retail invoice${gone.length === 1 ? "" : "s"} withdrawn`,
+        body: `The retail export as on ${asOf} no longer lists ${gone.length} invoice${gone.length === 1 ? "" : "s"} it listed before: ${gone.slice(0, 5).map((g) => g.invoice_no).join(", ")}${gone.length > 5 ? " and others" : ""}. Nothing here changes a car or a booking; the stock report is what moves those.`,
+      })),
+    );
+  }
+  for (const part of chunk(writes, 20)) await ctx.db.batch(part);
+
+  const result: DmsUploadResult = {
+    upload_id: upload.id, kind: "RETAIL", report_date: asOf, more: false,
+    row_count: report.rows.length, created: s.invoices.new, updated: s.invoices.changed, unchanged: s.invoices.unchanged,
+    errors, allocations: 0, summary: addInto(s, upload.prior, ["invoices.new", "invoices.changed", "invoices.unchanged"]),
+  };
+  await saveUpload(ctx, upload, result, "UPDATE", opts.filename, [...seenOutlets.keys()], upload.prior);
   return result;
 }

@@ -6,8 +6,8 @@ import { alternatives } from "../domain/alternatives";
 import { FACETS, browseStock } from "../domain/browse";
 import { availabilityAnswer } from "../domain/dashboards";
 import { dataStatus } from "../domain/data-status";
-import { importBookingSheet, importStockReport } from "../domain/dms-import";
-import { STOCK_ISSUES } from "../dms/reports";
+import { importBookingSheet, importRetailExport, importStockReport } from "../domain/dms-import";
+import { RETAIL_ISSUES, STOCK_ISSUES } from "../dms/reports";
 import { resolveConfig } from "../domain/master";
 import {
   addVehicle,
@@ -284,13 +284,25 @@ export function stockRoutes(app: App) {
     return c.json(await importBookingSheet(c.get("ctx"), bytes, { filename, outletScope: outletScope(c), continueUpload: opt("continue") ?? null }));
   });
 
+  /**
+   * The DMS retail invoice export. What the dealership earned, which the other two files do not say.
+   * Options: report_date (YYYY-MM-DD; otherwise read from the file name, otherwise today).
+   */
+  app.post("/api/uploads/retail", async (c) => {
+    need(c, "upload.bookings");
+    const { bytes, filename, opt } = await readUpload(c);
+    const reportDate = opt("report_date") ? parseDate(opt("report_date")) : null;
+    if (opt("report_date") && !reportDate) throw bad("The report date is not valid");
+    return c.json(await importRetailExport(c.get("ctx"), bytes, { filename, reportDate, outletScope: outletScope(c), continueUpload: opt("continue") ?? null }));
+  });
+
   app.get("/api/uploads", async (c) => {
     const ctx = c.get("ctx");
     const user = c.get("user");
     if (!(["upload.stock", "upload.bookings", "recon.view"] as const).some((p) => can(user, ctx.settings, p))) throw forbidden();
     const rows = await all<any>(ctx.db, `SELECT u.*, us.name AS uploaded_by_name FROM uploads u LEFT JOIN users us ON us.id = u.uploaded_by WHERE u.tenant_id = ? ORDER BY u.at DESC LIMIT 60`, ctx.tenantId);
     return c.json({
-      issue_labels: STOCK_ISSUES,
+      issue_labels: { ...STOCK_ISSUES, ...RETAIL_ISSUES },
       uploads: rows.map((r) => {
         const summary = safeJson<Record<string, unknown>>(r.summary_json, {});
         return { ...r, allocations: summary._allocations ?? 0, summary, errors: safeJson<{ errors?: unknown[] }>(r.errors_json, {}).errors ?? [], errors_json: undefined, summary_json: undefined, outlets_json: undefined };

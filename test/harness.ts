@@ -345,10 +345,16 @@ export function overlap(w: World, pattern: RegExp, competitor: () => Promise<unk
 // ---------------------------------------------------------------- a Mahindra dealership fed by the two DMS files
 
 export const fixture = (name: string) => new Uint8Array(readFileSync(fileURLToPath(import.meta.resolve(`./fixtures/${name}`))));
-/** Anonymised copies of the dealership's real exports: the stock report as on 5 Oct 2026 and the September 2026 booking sheet. */
+/**
+ * Anonymised copies of the dealership's real exports: the stock report as on 5 Oct 2026, the September
+ * 2026 booking sheet, and the retail invoice export for August 2026 to date. Identifiers are synthetic
+ * but consistent across the three, so a car or a booking in two files is the same car or booking.
+ */
 export const STOCK_FILE = "stock report as on 05.10.2026.xlsx";
+export const RETAIL_FILE = "Retail_Aug26_till_Date.xlsx";
 export const stockReport = () => fixture("stock_report.sample.xlsx");
 export const bookingSheet = () => fixture("booking_sheet.sample.xlsx");
+export const retailExport = () => fixture("retail_export.sample.xlsx");
 
 /**
  * A dealership as it is on day one: no outlets, cars or bookings yet (the DMS files bring them), an
@@ -383,9 +389,9 @@ export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mob
 }
 
 /** Loads a file until it is fully applied (a large first load is applied in steps) and returns the last answer with everything that happened. */
-export async function loadFile(w: World, kind: "stock" | "bookings", bytes: Uint8Array, session: Session, query = "") {
+export async function loadFile(w: World, kind: "stock" | "bookings" | "retail", bytes: Uint8Array, session: Session, query = "") {
   // A file name that carries a date ("... as on 05.10.2026") dates the report; an explicit report_date in the query wins.
-  const name = encodeURIComponent(kind === "stock" ? (query.includes("report_date=") ? "stock report.xlsx" : STOCK_FILE) : "Booking-Sept26.xlsx");
+  const name = encodeURIComponent(kind === "stock" ? (query.includes("report_date=") ? "stock report.xlsx" : STOCK_FILE) : kind === "retail" ? RETAIL_FILE : "Booking-Sept26.xlsx");
   let res = await w.send(`/api/uploads/${kind}?filename=${name}${query}`, bytes, session);
   let rounds = 1;
   while (res.status === 200 && res.body.more) {
@@ -501,6 +507,61 @@ export function bookingFile(lines: BookingLine[], dealer = "SAMPLE MOTORS"): Uin
   );
 }
 
+export interface RetailLine {
+  /** Invoice Number. */
+  no: string;
+  car: CarKey;
+  /** Booking No.: the dealer-side booking number, which the booking sheet calls "Booking Number". */
+  booking?: string;
+  vin?: string;
+  loc?: string;
+  locName?: string;
+  date?: string; // YYYY-MM-DD
+  customer?: string;
+  amount?: number;
+  selling?: number;
+  dealerDiscount?: number;
+  oemDiscount?: number;
+  /** BNDP credit note: what the dealership claims the manufacturer's discount back with. */
+  oemClaim?: string;
+  loyaltyDiscount?: number;
+  loyaltyClaim?: string;
+  financier?: string;
+  financeBy?: "Dealer" | "Self" | "DSA";
+  insurance?: number;
+  exchange?: boolean;
+  deliveryNote?: string;
+  deliveryDate?: string;
+  raw?: Record<string, string>;
+}
+
+const RETAIL_HEADER = ["Invoice Number", "Invoice Date and Time", "Invoice Amount", "Invoice Status", "Dealer Parent Name", "Dealer Location Code", "Dealer Location Name", "SC Name", "Delivery Note Number", "Delivery Note Date", "OEM Model Code", "Chassis Number", "Vehicle Identification Number", "Model Group", "Model Description", "Model Variant", "Color", "Customer Type", "Customer Name", "Customer GSTIN No.", "Booking No.", "Allotment No", "Selling Price", "Dealer Discount", "OEM Scheme Discount", "Total Corporate Discount", "Corporate Discount Amount", "Loyalty Discount Amount", "Exchange Discount Amount", "TCS Amount", "GST Tax Rate", "GST Tax Amount", "Financier", "Finance Arrange By", "Finance Amount", "Insurance Company Name", "Insurance Amount", "Exchange Indicator", "IRN Generated Date", "BNDP Credit Note Number", "Loyalty Credit Note Number", "Exchange Credit Note Number"];
+
+/** A retail invoice export with these invoices, in the DMS's own headings. */
+export function retailFile(lines: RetailLine[], dealer = "SAMPLE MOTORS"): Uint8Array {
+  return csvBytes(
+    RETAIL_HEADER,
+    lines.map((l) => {
+      const c = CARS[l.car];
+      const selling = l.selling ?? 1000000;
+      const gst = Math.round(selling * 0.28);
+      return {
+        "Invoice Number": l.no, "Invoice Date and Time": `${l.date ?? "2026-10-02"} 11:30:00`, "Invoice Amount": l.amount ?? selling + gst, "Invoice Status": "Invoiced",
+        "Dealer Parent Name": dealer, "Dealer Location Code": l.loc ?? "SM01", "Dealer Location Name": l.locName ?? (l.loc === "SM02" ? "JAJPUR" : l.loc && l.loc !== "SM01" ? l.loc : "CUTTACK"), "SC Name": "CONSULTANT 001",
+        "Delivery Note Number": l.deliveryNote ?? "", "Delivery Note Date": l.deliveryNote ? l.deliveryDate ?? l.date ?? "2026-10-02" : "",
+        "OEM Model Code": c.modelCode.slice(-5), "Chassis Number": (l.vin ?? "").slice(-6), "Vehicle Identification Number": l.vin ?? "", "Model Group": c.stockModel, "Model Description": c.desc, "Model Variant": c.text, Color: c.colour,
+        "Customer Type": "INDIVIDUAL", "Customer Name": l.customer ?? "CUSTOMER 0001", "Customer GSTIN No.": "", "Booking No.": l.booking ?? "", "Allotment No": l.vin ? `ALT${l.vin.slice(-6)}` : "",
+        "Selling Price": selling, "Dealer Discount": l.dealerDiscount ?? 0, "OEM Scheme Discount": l.oemDiscount ?? 0, "Total Corporate Discount": 0, "Corporate Discount Amount": 0,
+        "Loyalty Discount Amount": l.loyaltyDiscount ?? 0, "Exchange Discount Amount": 0, "TCS Amount": 0, "GST Tax Rate": 28, "GST Tax Amount": gst,
+        Financier: l.financier ?? "CASH", "Finance Arrange By": l.financeBy ?? "Self", "Finance Amount": l.financier && l.financier !== "CASH" ? Math.round(selling * 0.8) : 0,
+        "Insurance Company Name": "SAMPLE GENERAL INSURANCE", "Insurance Amount": l.insurance ?? 0, "Exchange Indicator": l.exchange ? "YES" : "NO", "IRN Generated Date": "",
+        "BNDP Credit Note Number": l.oemClaim ?? "", "Loyalty Credit Note Number": l.loyaltyClaim ?? "", "Exchange Credit Note Number": "",
+        ...(l.raw ?? {}),
+      };
+    }),
+  );
+}
+
 /** Loads a small stock file as on the given date (default: the world's today). */
 export async function loadStock(w: World, session: Session, lines: StockLine[], opts: { asOn?: string; mode?: "COMPLETE" | "PARTIAL"; confirm?: boolean } = {}) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(w.now());
@@ -508,4 +569,9 @@ export async function loadStock(w: World, session: Session, lines: StockLine[], 
 }
 export async function loadBookings(w: World, session: Session, lines: BookingLine[]) {
   return loadFile(w, "bookings", bookingFile(lines), session);
+}
+/** Loads a small retail export as on the given date (default: the world's today). */
+export async function loadRetail(w: World, session: Session, lines: RetailLine[], opts: { asOn?: string } = {}) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(w.now());
+  return loadFile(w, "retail", retailFile(lines), session, `&report_date=${opts.asOn ?? today}`);
 }

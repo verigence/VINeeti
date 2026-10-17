@@ -358,3 +358,197 @@ export function dateInFilename(filename: string | undefined): string | null {
 export function reportInstant(date: string, timeZone: string): string {
   return new Date(new Date(localDayBounds(date, timeZone).start).getTime() + 12 * 3_600_000).toISOString();
 }
+
+// ---------------------------------------------------------------- the retail invoice export
+//
+// The third file. Keyed by invoice number, and the only one that says what the dealership earned:
+// what was discounted and by whom, which of it the manufacturer owes back, who financed and insured
+// the car, and when it was actually handed over.
+//
+// Its headings differ from the stock report's for the same things -- "Vehicle Identification Number"
+// where stock says "VIN", "Booking No." where the booking sheet says "Booking Number" -- which is
+// what makes it recognisable without a filename.
+
+export interface RetailRow {
+  row: number;
+  invoice_no: string;
+  invoice_at: string | null;
+  invoice_date: string | null;
+  status: string;
+  outlet_code: string;
+  outlet_name: string;
+  vin: string;
+  chassis_no: string;
+  booking_no: string;
+  allotment_id: string | null;
+  oem_model_code: string;
+  model: string;
+  variant: string;
+  colour: string;
+  customer_name: string;
+  customer_type: string;
+  customer_gstin: string | null;
+  sc_name: string | null;
+  invoice_amount: number | null;
+  selling_price: number | null;
+  gst_amount: number | null;
+  tcs_amount: number | null;
+  dealer_discount: number | null;
+  oem_scheme_discount: number | null;
+  loyalty_discount: number | null;
+  exchange_discount: number | null;
+  corporate_discount: number | null;
+  bndp_credit_note: string | null;
+  loyalty_credit_note: string | null;
+  exchange_credit_note: string | null;
+  financier: string | null;
+  finance_arranged_by: string | null;
+  finance_amount: number | null;
+  insurer: string | null;
+  insurance_amount: number | null;
+  exchange_indicator: string | null;
+  delivery_note_no: string | null;
+  delivery_note_date: string | null;
+  irn_at: string | null;
+  /** Discount on this invoice that has no credit note to claim it back. See the file-wide check below. */
+  unclaimed: number;
+  issues: string[];
+}
+
+export interface RetailReport {
+  sheet: string;
+  dealer_name: string;
+  rows: RetailRow[];
+  errors: RowError[];
+  ignored: number;
+  /**
+   * The claim columns this file leaves blank on every row. A discount in one of these cannot be
+   * called unclaimed: the export is silent on it, which is not the same as saying nothing was
+   * claimed. Reported so the silence is visible rather than read either way.
+   */
+  claims_not_stated: string[];
+}
+
+export const RETAIL_ISSUES: Record<string, string> = {
+  no_vin: "No chassis on the invoice",
+  no_booking: "Invoice names no booking",
+  discount_without_claim: "Discount given with no credit note to claim it back",
+  amount_missing: "Invoice Amount is blank",
+  invoice_after_report: "Invoice date is after the report date",
+};
+
+export const RETAIL_HEADINGS = ["Invoice Number", "Vehicle Identification Number", "Booking No.", "Invoice Amount", "Dealer Location Code"];
+
+/** A money cell. Blank, a dash or anything unreadable is nothing rather than zero: the two differ. */
+const cellMoney = (v: unknown): number | null => {
+  const s = text(v).replace(/[, ]/g, "");
+  if (!s || s === "-") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Reads the retail invoice export. `asOf` is the date the file describes, used only for the date checks. */
+export function readRetailReport(sheets: Sheet[], opts: { timeZone: string; asOf: string }): RetailReport {
+  const t = tableWith(sheets, RETAIL_HEADINGS);
+  if (!t) {
+    if (tableWith(sheets, ["VIN", "Stock Type"])) throw bad("This looks like the stock report, not the retail export. Upload it under Stock report.");
+    if (tableWith(sheets, ["DMS Booking Number", "Booking Stage"])) throw bad("This looks like the booking sheet, not the retail export. Upload it under Booking sheet.");
+    throw bad(`This is not the DMS retail export: no sheet has the headings ${RETAIL_HEADINGS.join(", ")}`);
+  }
+  const out: RetailReport = { sheet: t.sheet, dealer_name: "", rows: [], errors: [], ignored: 0, claims_not_stated: [] };
+  const seen = new Set<string>();
+  for (const r of t.records) {
+    const row = Number(r._row);
+    const invoiceNo = norm(r["invoice number"]);
+    if (!invoiceNo) {
+      // The export ends with an "Applied filters: ..." line, like the others.
+      if (!text(r["vehicle identification number"]) && !text(r["booking no."])) out.ignored++;
+      else out.errors.push({ row, key: "(no invoice number)", message: "Invoice Number is blank" });
+      continue;
+    }
+    const fail = (message: string) => out.errors.push({ row, key: invoiceNo, message });
+    if (seen.has(invoiceNo)) { fail("Invoice Number appears more than once in the export; only the first row was used"); continue; }
+    const outletCode = norm(r["dealer location code"]);
+    if (!outletCode) { fail("Dealer Location Code is blank"); continue; }
+    seen.add(invoiceNo);
+    if (!out.dealer_name) out.dealer_name = text(r["dealer parent name"]) || text(r["dealer name"]);
+
+    const invoiceAt = cellInstant(r["invoice date and time"], opts.timeZone);
+    const invoiceDate = cellDate(r["invoice date and time"]);
+    const oemScheme = cellMoney(r["oem scheme discount"]);
+    const issues: string[] = [];
+    if (!norm(r["vehicle identification number"])) issues.push("no_vin");
+    if (!norm(r["booking no."])) issues.push("no_booking");
+    if (cellMoney(r["invoice amount"]) === null) issues.push("amount_missing");
+    if (invoiceDate && invoiceDate > opts.asOf) issues.push("invoice_after_report");
+
+    out.rows.push({
+      row,
+      invoice_no: invoiceNo,
+      invoice_at: invoiceAt,
+      invoice_date: invoiceDate,
+      status: text(r["invoice status"]) || "Invoiced",
+      outlet_code: outletCode,
+      outlet_name: text(r["dealer location name"]) || outletCode,
+      vin: norm(r["vehicle identification number"]),
+      chassis_no: norm(r["chassis number"]),
+      booking_no: norm(r["booking no."]),
+      allotment_id: orNull(r["allotment no"]),
+      oem_model_code: norm(r["oem model code"]),
+      model: text(r["model group"]),
+      variant: text(r["model variant"]),
+      colour: text(r["color"]),
+      customer_name: text(r["customer name"]),
+      customer_type: text(r["customer type"]),
+      customer_gstin: orNull(r["customer gstin no."]),
+      sc_name: orNull(r["sc name"]),
+      invoice_amount: cellMoney(r["invoice amount"]),
+      selling_price: cellMoney(r["selling price"]),
+      gst_amount: cellMoney(r["gst tax amount"]),
+      tcs_amount: cellMoney(r["tcs amount"]),
+      dealer_discount: cellMoney(r["dealer discount"]),
+      // The export carries this twice, under two headings, with the same number in both. Only one is
+      // kept; adding them would double what the manufacturer is said to owe.
+      oem_scheme_discount: oemScheme,
+      loyalty_discount: cellMoney(r["loyalty discount amount"]),
+      exchange_discount: cellMoney(r["exchange discount amount"]),
+      corporate_discount: cellMoney(r["corporate discount amount"]),
+      bndp_credit_note: orNull(r["bndp credit note number"]),
+      loyalty_credit_note: orNull(r["loyalty credit note number"]),
+      exchange_credit_note: orNull(r["exchange credit note number"]),
+      financier: orNull(r["financier"]),
+      finance_arranged_by: orNull(r["finance arrange by"]),
+      finance_amount: cellMoney(r["finance amount"]),
+      insurer: orNull(r["insurance company name"]),
+      insurance_amount: cellMoney(r["insurance amount"]),
+      exchange_indicator: orNull(r["exchange indicator"]),
+      delivery_note_no: orNull(r["delivery note number"]),
+      delivery_note_date: cellDate(r["delivery note date"]),
+      irn_at: cellInstant(r["irn generated date"], opts.timeZone),
+      unclaimed: 0,
+      issues,
+    });
+  }
+
+  // A discount given on somebody else's behalf is money the dealership can ask back, and the credit
+  // note number is the asking. Whether one is missing can only be judged over the whole file: this
+  // export leaves some of the claim columns blank on every single row, and on those the file says
+  // nothing either way. Only a column the file does fill somewhere is read as a statement about the
+  // rows where it is empty.
+  const CLAIMS = [
+    { label: "BNDP credit note number", amount: (r: RetailRow) => r.oem_scheme_discount, note: (r: RetailRow) => r.bndp_credit_note },
+    { label: "Loyalty credit note number", amount: (r: RetailRow) => r.loyalty_discount, note: (r: RetailRow) => r.loyalty_credit_note },
+    { label: "Exchange credit note number", amount: (r: RetailRow) => r.exchange_discount, note: (r: RetailRow) => r.exchange_credit_note },
+  ];
+  for (const c of CLAIMS) {
+    const given = out.rows.filter((r) => (c.amount(r) ?? 0) > 0);
+    if (!given.length) continue;
+    if (!given.some((r) => c.note(r))) { out.claims_not_stated.push(c.label); continue; }
+    for (const r of given) {
+      if (c.note(r)) continue;
+      r.unclaimed += c.amount(r) ?? 0;
+      if (!r.issues.includes("discount_without_claim")) r.issues.push("discount_without_claim");
+    }
+  }
+  return out;
+}

@@ -64,6 +64,10 @@ const stock = await load("stock", "samples/stock report as on 05.10.2026 (sample
 console.log(`Stock report: ${stock.summary.cars} cars (${stock.summary.unallocated} unallocated, ${stock.summary.allocated} allocated), ${stock.summary.outlets_created.length} outlets created`);
 const book = await load("bookings", "samples/Booking-Sept26 (sample).xlsx", admin);
 console.log(`Booking sheet: ${book.summary.bookings} bookings (${book.summary.booked} booked, ${book.summary.invoiced + book.summary.delivered} invoiced, ${book.summary.cancelled} cancelled); ${book.allocations} cars allocated so far`);
+// The third file: what the dealership earned. It covers a period rather than a day, so it is dated as
+// on today and the invoices inside it keep their own dates.
+const retail = await load("retail", "samples/Retail_Aug26_till_Date (sample).xlsx", admin, `&report_date=${today}`);
+console.log(`Retail export: ${retail.summary.invoices.total} invoices, ${retail.summary.attached.delivered} delivered, ${retail.summary.attached.financed} financed`);
 
 const outlets = Object.fromEntries((await get("/api/outlets", admin)).map((o) => [o.code, o.id]));
 // One sales consultant from the booking sheet becomes the demonstration's sales executive, so "my bookings" has bookings in it.

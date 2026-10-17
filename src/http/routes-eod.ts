@@ -12,7 +12,7 @@ import { hex, timingSafeEqual } from "../lib/crypto";
 import { all, audit, first, run } from "../lib/db";
 import { HttpError, bad, iso, localDayBounds, localParts, parseDate, safeJson } from "../lib/util";
 import { dataStatus } from "../domain/data-status";
-import { importBookingSheet, importStockReport } from "../domain/dms-import";
+import { importBookingSheet, importRetailExport, importStockReport } from "../domain/dms-import";
 import { runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued } from "../whatsapp/outbox";
 import { buildCtx, clock, need, type App, type C } from "./app";
@@ -33,17 +33,20 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 export function eodFeedRoutes(app: App) {
   // ------------------------------------------------------------ the feed (called by the dealership's scheduled job; no sign-in)
-  app.post("/api/eod/:dealer/:kind{stock|bookings}", async (c) => {
+  app.post("/api/eod/:dealer/:kind{stock|bookings|retail}", async (c) => {
     const tenant = await feedTenant(c);
     if (Number(c.req.header("Content-Length") ?? "0") > MAX_BYTES + 64 * 1024) throw bad("The file is larger than 12 MB");
     const bytes = new Uint8Array(await c.req.arrayBuffer());
     if (bytes.length > MAX_BYTES) throw bad("The file is larger than 12 MB");
     const ctx = buildCtx(c.env, tenant, "EOD", clock.now());
     const q = c.req.query();
+    const kind = c.req.param("kind");
     const out =
-      c.req.param("kind") === "stock"
+      kind === "stock"
         ? await importStockReport(ctx, bytes, { filename: q.filename, reportDate: q.report_date ? parseDate(q.report_date) : null, mode: "COMPLETE", outletScope: null, confirmMissing: q.confirm_missing === "1", continueUpload: q.continue ?? null })
-        : await importBookingSheet(ctx, bytes, { filename: q.filename, outletScope: null, continueUpload: q.continue ?? null });
+        : kind === "retail"
+          ? await importRetailExport(ctx, bytes, { filename: q.filename, reportDate: q.report_date ? parseDate(q.report_date) : null, outletScope: null, continueUpload: q.continue ?? null })
+          : await importBookingSheet(ctx, bytes, { filename: q.filename, outletScope: null, continueUpload: q.continue ?? null });
     if (ctx.flags.dispatch) c.executionCtx.waitUntil(dispatchQueued(c.env, c.env.DB, ctx.now, { tenantId: tenant.id, limit: 25 }).catch(() => undefined));
     // The job gets the outcome, not the dealership's data: counts, and the rows the file itself had wrong.
     return c.json({ upload_id: out.upload_id, kind: out.kind, report_date: out.report_date, more: out.more, row_count: out.row_count, created: out.created, updated: out.updated, unchanged: out.unchanged, allocations: out.allocations, error_count: out.errors.length, errors: out.errors.slice(0, 50), summary: out.summary });
@@ -79,10 +82,13 @@ export function eodRoutes(app: App) {
       steps: [
         { key: "BOOKINGS", label: "Booking sheet read", done: Boolean(loadedToday("BOOKINGS")), load: loadedToday("BOOKINGS") },
         { key: "STOCK", label: "Stock report read", done: Boolean(loadedToday("STOCK")), load: loadedToday("STOCK") },
+        // The retail export says what the dealership earned. The day can be closed without it -- the
+        // other two move the cars -- so it is a step that can be skipped rather than one that blocks.
+        { key: "RETAIL", label: "Retail export read", optional: true, done: Boolean(loadedToday("RETAIL")), load: loadedToday("RETAIL") },
         { key: "RECONCILIATION", label: "Day-end check run", done: Boolean(lastRun && lastRun.business_date === today && (!loads[0] || lastRun.started_at >= loads[0].at)), run: lastRun ? { id: lastRun.id, business_date: lastRun.business_date, started_at: lastRun.started_at, by: lastRun.trigger === "SCHEDULED" ? "Scheduled" : lastRun.trigger === "EOD" ? "End-of-day feed" : "A user", open_items: lastRun.open_items, items: safeJson<any>(lastRun.summary_json, {}).items ?? null } : null },
       ],
       loads_today: loads.map((l) => ({ ...l, uploaded_by_name: l.uploaded_by === "EOD" ? "End-of-day feed" : l.uploaded_by_name })),
-      feed: { key_set_at: key?.eod_key_set_at ?? null, stock_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/stock`, bookings_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/bookings`, run_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/run` },
+      feed: { key_set_at: key?.eod_key_set_at ?? null, stock_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/stock`, bookings_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/bookings`, retail_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/retail`, run_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/run` },
     });
   });
 

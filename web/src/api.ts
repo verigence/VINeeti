@@ -184,7 +184,7 @@ export const api = {
 
   // ---- the two DMS files and the end of day
   /** One step of loading a DMS file. The caller repeats it with `continue` while the answer says `more`. */
-  uploadDms: (kind: "stock" | "bookings", file: File, opts: { report_date?: string; mode?: "COMPLETE" | "PARTIAL"; confirm_missing?: boolean; continue?: string }) => {
+  uploadDms: (kind: "stock" | "bookings" | "retail", file: File, opts: { report_date?: string; mode?: "COMPLETE" | "PARTIAL"; confirm_missing?: boolean; continue?: string }) => {
     const form = new FormData();
     form.set("file", file, file.name);
     if (opts.report_date) form.set("report_date", opts.report_date);

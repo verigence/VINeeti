@@ -1428,6 +1428,10 @@ input[type="radio"] {
 .split-even {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+/* Three cards of equal weight: the three DMS files. */
+.split-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .split {
   margin-bottom: 16px;
 }
@@ -2641,6 +2645,9 @@ input[type="radio"] {
   .split {
     grid-template-columns: minmax(0, 1fr);
   }
+  .split-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .form-grid-3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3137,7 +3144,8 @@ input[type="radio"] {
   .form-grid,
   .form-grid-3,
   .split,
-  .split-even {
+  .split-even,
+  .split-three {
     grid-template-columns: minmax(0, 1fr);
   }
   .field-label {

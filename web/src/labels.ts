@@ -294,7 +294,7 @@ export const severity = (s: string) => pick(SEVERITY, s);
 export const SEVERITY_TITLES: Record<string, string> = { HIGH: "Act today", MEDIUM: "Follow up", LOW: "For information" };
 export const reconItemStatus = (s: string): Label => (s === "RESOLVED" ? { text: "Closed", tone: "green" } : { text: "Open", tone: "amber" });
 
-export const uploadKind = (k: string) => (k === "STOCK" ? "Stock report" : k === "BOOKINGS" ? "Booking sheet" : k === "MASTER" ? "Vehicle master sheet" : humanize(k));
+export const uploadKind = (k: string) => (k === "STOCK" ? "Stock report" : k === "BOOKINGS" ? "Booking sheet" : k === "RETAIL" ? "Retail export" : k === "MASTER" ? "Vehicle master sheet" : humanize(k));
 /** Who loaded a file: a person, or the dealership's scheduled end-of-day job. */
 export const uploadedBy = (u: { uploaded_by: string; uploaded_by_name: string | null }) => (u.uploaded_by === "EOD" ? "End-of-day feed" : u.uploaded_by_name ?? "A former user");
 
