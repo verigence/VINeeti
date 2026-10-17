@@ -434,19 +434,19 @@ function MyOffers() {
   ];
   return (
     <Card
-      title="Offers for my waiting customers"
+      title="Alternatives for my waiting customers"
       note="The same model and variant is free in another colour. Nothing is allocated unless the booking is changed in the DMS."
       actions={
-        <Link to="/dashboards/offers" className="btn btn-secondary btn-sm">
-          <span>All offers</span>
+        <Link to="/dashboards/alternatives" className="btn btn-secondary btn-sm">
+          <span>All alternatives</span>
         </Link>
       }
       flush
     >
-      <Async load={load} empty={<Empty title="No offers to make" />}>
+      <Async load={load} empty={<Empty title="No alternative to offer anyone" />}>
         {(rows) => (
           <>
-            <DataTable columns={columns} rows={rows.slice(0, 5)} rowKey={(r) => r.booking_id} caption="Offers" />
+            <DataTable columns={columns} rows={rows.slice(0, 5)} rowKey={(r) => r.booking_id} caption="Alternatives available" />
             {rows.length > 5 && <p className="list-count">The first 5 of {fmtNumber(rows.length)} are shown.</p>}
           </>
         )}

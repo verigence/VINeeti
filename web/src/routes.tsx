@@ -77,7 +77,7 @@ const ROUTES: Route[] = [
   { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
   { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="orders" /> },
   { path: "/dashboards/delayed", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="delayed" /> },
-  { path: "/dashboards/offers", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="offers" /> },
+  { path: "/dashboards/alternatives", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="alternatives" /> },
 
   { path: "/analytics", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },
   { path: "/analytics/ageing", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },

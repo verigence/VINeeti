@@ -12,7 +12,7 @@ import { Link } from "../router";
 import { useSession } from "../session";
 import type { AllocationDashRow, DelayedRow, MatchRow, OrderQueueRow, OrderRow, OrderStatus, PaymentWindow } from "../types";
 
-type Tab = "allocation" | "orders" | "delayed" | "offers";
+type Tab = "allocation" | "orders" | "delayed" | "alternatives";
 
 export function DashboardsPage({ tab }: { tab: Tab }) {
   return (
@@ -25,13 +25,13 @@ export function DashboardsPage({ tab }: { tab: Tab }) {
           { to: "/dashboards/allocation", label: "Stock allocation" },
           { to: "/dashboards/orders", label: "Order queue" },
           { to: "/dashboards/delayed", label: "Delayed deliveries" },
-          { to: "/dashboards/offers", label: "Offers" },
+          { to: "/dashboards/alternatives", label: "Alternatives available" },
         ]}
       />
       {tab === "allocation" && <AllocationDashboard />}
       {tab === "orders" && <OrderQueueDashboard />}
       {tab === "delayed" && <DelayedDashboard />}
-      {tab === "offers" && <OffersDashboard />}
+      {tab === "alternatives" && <AlternativesDashboard />}
     </>
   );
 }
@@ -330,8 +330,8 @@ function DelayedDashboard() {
 }
 
 /** Waiting customers who could be offered the same model and variant in another colour that is free. */
-function OffersDashboard() {
-  const load = useLoad(() => api.matches(), "dash:offers");
+function AlternativesDashboard() {
+  const load = useLoad(() => api.matches(), "dash:alternatives");
   const columns: Column<MatchRow>[] = [
     { header: "Booking", primary: true, cell: (r) => <BookingCell id={r.booking_id} no={r.booking_no} customer={r.customer_name} /> },
     {
@@ -346,6 +346,12 @@ function OffersDashboard() {
           </span>
         </span>
       ),
+    },
+    {
+      // Counted to the dealership's today on the server, so it reads the same for everyone.
+      header: "Waiting",
+      num: true,
+      cell: (r) => (r.days_waiting === null ? <span className="muted">—</span> : <span className={r.days_waiting >= 60 ? "strong danger" : undefined}>{plural(r.days_waiting, "day")}</span>),
     },
     { header: "Outlet", cell: (r) => r.outlet },
     { header: "Sales consultant", cell: (r) => r.sales_exec ?? <span className="muted">—</span>, hideIfEmpty: (r) => !r.sales_exec },
@@ -367,13 +373,13 @@ function OffersDashboard() {
   ];
   return (
     <>
-      <Notice>An offer the sales team can make. Nothing is allocated unless the booking is changed in the DMS.</Notice>
-      <Card title="Offers" note="Waiting customers with no free car in their colour, where the same model and variant is free in another colour." flush>
-        <Async load={load} empty={<Empty title="No offers to make" hint="No waiting customer has the same model and variant free in another colour." />}>
+      <Notice>What the sales team can honestly offer instead. Nothing is allocated unless the booking is changed in the DMS.</Notice>
+      <Card title="Alternatives available" note="Waiting customers with no free car in their colour, where the same model and variant is free in another colour. Longest wait first." flush>
+        <Async load={load} empty={<Empty title="No alternative to offer anyone" hint="No waiting customer has the same model and variant free in another colour." />}>
           {(rows) => (
             <>
               <p className="list-count">{plural(rows.length, "customer")}</p>
-              <DataTable columns={columns} rows={rows} rowKey={(r) => r.booking_id} caption="Offers" />
+              <DataTable columns={columns} rows={rows} rowKey={(r) => r.booking_id} caption="Alternatives available" />
             </>
           )}
         </Async>

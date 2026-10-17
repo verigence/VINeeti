@@ -404,9 +404,13 @@ export async function nearMatches(ctx: Ctx, outletIds: string[] | null, onlyUser
      GROUP BY b.id, v.colour ORDER BY b.priority_ts LIMIT 1500`,
     ctx.tenantId, ...(outletIds ?? []), ...(onlyUserId ? [onlyUserId, onlyUserId] : []),
   );
+  // How long the customer has been waiting, counted to the dealership's today rather than to
+  // whatever date the reader's own machine thinks it is.
+  const today = localParts(ctx.now, ctx.tenant.timezone).date;
+  const waited = (d: string | null) => (d ? Math.max(0, Math.round((Date.parse(`${String(d).slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / -86_400_000)) : null);
   const byBooking = new Map<string, any>();
   for (const r of rows) {
-    if (!byBooking.has(r.booking_id)) byBooking.set(r.booking_id, { booking_id: r.booking_id, booking_no: r.booking_no, customer_name: r.customer_name, booking_date: r.booking_date, model: r.model, variant: r.variant, colour: r.colour, outlet: r.outlet, sales_exec: r.sales_exec, options: [] });
+    if (!byBooking.has(r.booking_id)) byBooking.set(r.booking_id, { booking_id: r.booking_id, booking_no: r.booking_no, customer_name: r.customer_name, booking_date: r.booking_date, days_waiting: waited(r.booking_date), model: r.model, variant: r.variant, colour: r.colour, outlet: r.outlet, sales_exec: r.sales_exec, options: [] });
     byBooking.get(r.booking_id).options.push({ colour: r.car_colour, in_yard: r.in_yard, in_transit: r.in_transit, at_own_outlet: r.at_own_outlet, oldest_invoice: r.oldest_invoice });
   }
   return [...byBooking.values()];

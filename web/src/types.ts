@@ -1150,6 +1150,8 @@ export interface MatchRow extends CatalogRow {
   booking_no: string;
   customer_name: string;
   booking_date: string;
+  /** Days from the booking to the dealership's today, counted on the server. */
+  days_waiting: number | null;
   outlet: string;
   sales_exec: string | null;
   options: { colour: string; in_yard: number; in_transit: number; at_own_outlet: number; oldest_invoice: string | null }[];
