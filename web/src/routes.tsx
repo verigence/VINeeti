@@ -64,7 +64,7 @@ const ROUTES: Route[] = [
   { path: "/bookings/:id", allowed: (can) => can("booking.view"), render: (p) => <BookingDetailPage key={p.id} id={p.id} /> },
 
   { path: "/approvals", allowed: canApprove, render: () => <ApprovalsPage /> },
-  { path: "/take-car-back", allowed: (can) => can("exception.request"), render: () => <TakeCarBackPage /> },
+  { path: "/deallocate", allowed: (can) => can("exception.request"), render: () => <TakeCarBackPage /> },
 
   { path: "/payments", allowed: canSeePayments, render: () => <PaymentsPage /> },
 
@@ -84,6 +84,8 @@ const ROUTES: Route[] = [
   { path: "/analytics/not-picked-up", allowed: (can) => can("booking.view_all"), render: () => <AnalyticsPage tab="not-picked-up" /> },
   { path: "/analytics/sales", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="sales" /> },
   { path: "/analytics/allocations", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="allocations" /> },
+  { path: "/analytics/changed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="changed" /> },
+  { path: "/analytics/control", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="control" /> },
   { path: "/analytics/stock-days", allowed: (can) => can("stock.view"), render: () => <AnalyticsPage tab="stock-days" /> },
   { path: "/eod", allowed: canEod, render: () => <EodPage /> },
   // The earlier "Data upload" address still works.

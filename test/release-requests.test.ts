@@ -155,7 +155,9 @@ describe("finding the car in the first place", () => {
     expect((await find("Holder")).map((r) => r.booking_no)).toEqual([b.booking_no]);
     expect((await find("creta abyss")).map((r) => r.vin)).toEqual(["VINREL00000000001"]);
     expect(await find("venue")).toEqual([]);
-    expect(await find("")).toEqual([]);
+    // No words is not an empty answer: the screen opens on every car a customer is holding, and the
+    // search narrows that list rather than conjuring it.
+    expect((await find("")).map((r) => r.vin)).toEqual(["VINREL00000000001"]);
   });
 
   it("says when a car already has a release waiting for approval, so nobody asks twice", async () => {

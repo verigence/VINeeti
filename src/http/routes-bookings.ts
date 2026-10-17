@@ -292,9 +292,7 @@ export function bookingRoutes(app: App) {
   app.get("/api/held-cars", async (c) => {
     need(c, "exception.request");
     const ctx = c.get("ctx");
-    const text = c.req.query("q") ?? "";
-    if (!text.trim()) return c.json([]);
-    return c.json(await heldCars(ctx, text, can(c.get("user"), ctx.settings, "booking.view_all") ? outletScope(c) : null));
+    return c.json(await heldCars(ctx, c.req.query("q") ?? "", can(c.get("user"), ctx.settings, "booking.view_all") ? outletScope(c) : null));
   });
 
   app.get("/api/release-reasons", async (c) => {

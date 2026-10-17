@@ -8,9 +8,9 @@ import { useLoad } from "../hooks";
 import { Link } from "../router";
 import { useSession } from "../session";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
-import type { AgeingRow, AllocationDayRow, NotPickedUpRow, SalesRow, StockDayRow } from "../types";
+import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow } from "../types";
 
-type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "stock-days";
+type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "stock-days";
 
 export function AnalyticsPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -18,7 +18,9 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
     { to: "/analytics/ageing", label: "Ageing stock" },
     ...(can("booking.view_all") ? [{ to: "/analytics/not-picked-up", label: "Not picked up" }] : []),
     { to: "/analytics/sales", label: "Most and least selling" },
+    { to: "/analytics/changed", label: "What changed" },
     { to: "/analytics/allocations", label: "Allocations by day" },
+    ...(can("booking.view_all") ? [{ to: "/analytics/control", label: "Who allocated" }] : []),
     { to: "/analytics/stock-days", label: "Stock by day" },
   ];
   return (
@@ -29,7 +31,9 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
       {tab === "ageing" && <Ageing />}
       {tab === "not-picked-up" && <NotPickedUp />}
       {tab === "sales" && <Sales />}
+      {tab === "changed" && <Changed />}
       {tab === "allocations" && <Allocations />}
+      {tab === "control" && <Control />}
       {tab === "stock-days" && <StockDays />}
     </>
   );
@@ -365,6 +369,146 @@ function StockDays() {
                   <DataTable columns={cols(true, withValue)} rows={day.outlets} rowKey={(r) => r.outlet_id ?? r.outlet ?? ""} caption="Stock by outlet" scroll />
                 </Card>
               )}
+              <Basis text={d.basis} />
+            </>
+          );
+        }}
+      </Async>
+    </>
+  );
+}
+
+/**
+ * Who allocated what, day by day, and what got round the system.
+ *
+ * The three sources are never added together: the queue's own decision, a person's decision carried
+ * out here on an approved request, and one simply read from the DMS. "Waiting to be entered" is the
+ * back office's work list — an allocation this system made that no later stock report has shown the
+ * DMS agreeing with, so it is either not yet keyed in or was keyed in and did not take.
+ */
+function Control() {
+  const period = usePeriod(daysAgo(13));
+  const load = useLoad(
+    () => (period.valid ? api.allocationControl(period.from, period.to) : Promise.reject(new Error("The period is not valid"))),
+    `analytics:control:${period.key}`,
+  );
+  const dayCols: Column<ControlDay>[] = [
+    { header: "Day", primary: true, cell: (r) => fmtDate(r.date) },
+    { header: "By the system", num: true, cell: (r) => fmtNumber(r.by_system) },
+    { header: "By approved request", num: true, cell: (r) => fmtNumber(r.by_approved_request) },
+    { header: "Read from the DMS", num: true, cell: (r) => fmtNumber(r.adopted_from_dms) },
+    { header: "Waiting to be entered", num: true, cell: (r) => (r.awaiting_entry_in_dms ? <Chip tone="amber">{fmtNumber(r.awaiting_entry_in_dms)}</Chip> : <span className="muted">—</span>) },
+    { header: "Violations", num: true, cell: (r) => (r.violations ? <Chip tone="red">{fmtNumber(r.violations)}</Chip> : <span className="muted">—</span>) },
+  ];
+  const vCols: Column<ControlViolation>[] = [
+    { header: "Day", primary: true, cell: (r) => fmtDate(r.date) },
+    {
+      header: "What happened",
+      cell: (r) =>
+        r.kind === "OVERTURNED"
+          ? r.taken_from_booking_no
+            ? `Allocated here to ${r.taken_from_booking_no}, given in the DMS to ${r.booking_no}`
+            : "Given a different car in the DMS from the one allocated here"
+          : r.kind === "UNKNOWN_BOOKING"
+            ? "Booking was never in this system and is already allotted"
+            : "Booking was waiting in the queue here and was allotted without being asked",
+    },
+    { header: "Booking", cell: (r) => <Link to={`/bookings/${r.booking_id}`} className="cell-link"><span className="strong nowrap">{r.booking_no}</span><span className="sub">{r.customer_name}</span></Link> },
+    { header: "Car", cell: (r) => <span className="mono">{r.vin}</span> },
+  ];
+  return (
+    <>
+      {period.picker}
+      <Async load={load}>
+        {(d) => (
+          <>
+            {!d.controls_from ? (
+              <Notice tone="warn" title="No day has been set yet. ">
+                Until a dealership says which day it puts allocation through this system, an allotment made in the DMS is taken on without comment. Set it on the rules screen.
+              </Notice>
+            ) : (
+              <Notice tone="info">Every car has been meant to be given out here since {fmtDate(d.controls_from)}.</Notice>
+            )}
+            <div className="tiles">
+              <Stat label="Allocated by the system" value={fmtNumber(d.totals.by_system)} hint={`${fmtDate(d.period.from)} to ${fmtDate(d.period.to)}`} />
+              <Stat label="By approved request" value={fmtNumber(d.totals.by_approved_request)} hint="A car moved on a request somebody approved" />
+              <Stat label="Waiting to be entered in the DMS" value={fmtNumber(d.totals.awaiting_entry_in_dms)} hint="Allocated here, not yet confirmed by a stock report" />
+              <Stat label="Allotted outside the system" value={fmtNumber(d.totals.violations)} hint={`${d.totals.overturned} overturned · ${d.totals.unknown_booking} unknown booking · ${d.totals.not_through_system} went round the queue`} />
+            </div>
+            <Card title="Day by day" flush>
+              <DataTable columns={dayCols} rows={d.days} rowKey={(r) => r.date} caption="Allocation by day" />
+            </Card>
+            <Card title={`Allotted outside the system (${d.violations.length})`} note="These stand in the DMS: it is the record, and the customer has been told. What is reported is that the decision was made somewhere else." flush>
+              {d.violations.length ? <DataTable columns={vCols} rows={d.violations} rowKey={(r) => `${r.date}:${r.booking_no}:${r.vin}`} caption="Violations" /> : <Empty title="Every allotment in this period came through the system." />}
+            </Card>
+            <Basis text={d.basis} />
+          </>
+        )}
+      </Async>
+    </>
+  );
+}
+
+/**
+ * What changed, day by day.
+ *
+ * The delta a person reads after the evening's files go in. Nothing is compared here: the import
+ * writes each movement down as it reads the files, so this is a read over a log the database will
+ * not let anyone alter afterwards.
+ *
+ * The movements needing the retail file are shown and marked rather than hidden. A report that
+ * silently leaves out what it cannot see teaches people to trust a number that is not whole.
+ */
+function Changed() {
+  const period = usePeriod(daysAgo(13));
+  const load = useLoad(
+    () => (period.valid ? api.dailyDelta(period.from, period.to) : Promise.reject(new Error("The period is not valid"))),
+    `analytics:changed:${period.key}`,
+  );
+  const rowCols: Column<DeltaRow>[] = [
+    { header: "Day", primary: true, cell: (r) => fmtDate(r.date) },
+    { header: "What", cell: (r) => (r.code === "B3" ? "Booking cancelled" : r.code === "S5" ? "Left stock with no invoice" : r.code === "S6" ? "Listed again after leaving" : "Retail invoice withdrawn") },
+    { header: "Booking", cell: (r) => r.booking_no ?? <span className="muted">—</span>, hideIfEmpty: (r) => !r.booking_no },
+    { header: "Customer", cell: (r) => r.customer_name ?? <span className="muted">—</span> },
+    { header: "Car", cell: (r) => (r.vin ? <span><span className="mono">{r.vin}</span><span className="sub">{r.detail}</span></span> : r.detail) },
+  ];
+  return (
+    <>
+      {period.picker}
+      <Async load={load}>
+        {(d) => {
+          const cols: Column<DeltaMovement>[] = [
+            {
+              header: "Movement",
+              primary: true,
+              cell: (m) => (
+                <span>
+                  <span className="strong">{m.label}</span>
+                  <span className="sub">{m.note}</span>
+                </span>
+              ),
+            },
+            { header: "In the period", num: true, cell: (m) => (m.pending ? <Chip tone="grey">Not loaded</Chip> : fmtNumber(m.total)) },
+            ...d.dates.map((day, i) => ({
+              header: dayLabel(day),
+              num: true,
+              cell: (m: DeltaMovement) => (m.pending ? <span className="muted">—</span> : m.by_day[i] ? fmtNumber(m.by_day[i]) : <span className="muted">—</span>),
+            })),
+          ];
+          return (
+            <>
+              <div className="tiles">
+                <Stat label="Cars given out by this system" value={fmtNumber(d.movements.find((m) => m.code === "A1")?.total ?? 0)} hint={`${fmtDate(d.period.from)} to ${fmtDate(d.period.to)}`} />
+                <Stat label="Allotments read from the DMS" value={fmtNumber(d.movements.find((m) => m.code === "A3")?.total ?? 0)} hint="Decided there, taken on here" />
+                <Stat label="Cars arrived" value={fmtNumber(d.movements.find((m) => m.code === "S1")?.total ?? 0)} hint="Chassis not in the report before" />
+                <Stat label="Left stock with no invoice" value={fmtNumber(d.movements.find((m) => m.code === "S5")?.total ?? 0)} hint="Gone, and nothing says why" />
+              </div>
+              <Card title="Every movement, day by day" note="Dated by the day the thing happened, not the day its file arrived." flush>
+                <DataTable columns={cols} rows={d.movements} rowKey={(m) => m.code} caption="Movements" />
+              </Card>
+              <Card title={`Worth asking about (${d.rows.length})`} note="The movements that are a question for somebody rather than a number to read." flush>
+                {d.rows.length ? <DataTable columns={rowCols} rows={d.rows} rowKey={(r) => `${r.date}:${r.code}:${r.vin ?? ""}:${r.booking_no ?? ""}`} caption="Worth asking about" /> : <Empty title="Nothing in this period needs asking about." />}
+              </Card>
               <Basis text={d.basis} />
             </>
           );

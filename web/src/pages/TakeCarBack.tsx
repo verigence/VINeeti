@@ -24,7 +24,7 @@ export function TakeCarBackPage() {
   const [search, setSearch] = useState("");
   const [asked, setAsked] = useState("");
   const [target, setTarget] = useState<HeldCar | null>(null);
-  const load = useLoad(() => (asked.trim() ? api.heldCars(asked) : Promise.resolve([] as HeldCar[])), `held:${asked}`);
+  const load = useLoad(() => api.heldCars(asked), `held:${asked}`);
 
   const columns: Column<HeldCar>[] = [
     {
@@ -71,12 +71,12 @@ export function TakeCarBackPage() {
   return (
     <>
       <PageHeader
-        title="Take a car back"
-        subtitle="Find the car by whatever you have in front of you, then say why it is being taken off the customer. An approver decides; nothing moves until they do."
+        title="Deallocate / Reallocate"
+        subtitle="Every car a customer is holding. Narrow the list by whatever you have in front of you, then say why it is coming off them. An approver decides; nothing moves until they do."
       />
       <div className="filterbar">
         <div className="filterbar-top">
-          <Filter label="Find a held car" grow>
+          <Filter label="Narrow the list" grow>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -94,22 +94,43 @@ export function TakeCarBackPage() {
             </form>
           </Filter>
           <Button onClick={() => setAsked(search.trim())}>Search</Button>
+          {asked && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSearch("");
+                setAsked("");
+              }}
+            >
+              Show all
+            </Button>
+          )}
         </div>
       </div>
 
-      {!asked.trim() ? (
-        <Card flush>
-          <Empty title="Search for the car you mean." hint="A chassis read off a printed form works too — punctuation and spacing are ignored." />
-        </Card>
-      ) : (
-        <Async load={load} isEmpty={(rows) => rows.length === 0} empty={<Empty title="No car standing in a customer's name matches that." />}>
-          {(rows) => (
-            <Card title={`Held cars (${rows.length})`} note="Only cars a customer currently holds appear here. A free car is allocated by the queue, not by hand." flush>
-              <DataTable columns={columns} rows={rows} rowKey={(r) => r.booking_id} caption="Held cars" />
+      <Async
+        load={load}
+        isEmpty={(rows) => rows.length === 0}
+        empty={<Empty title={asked ? "No car a customer is holding matches that." : "No customer is holding a car at the moment."} />}
+      >
+        {(rows) => (
+          <>
+            {/* The server caps the list. Saying so is the difference between "there are 200 cars
+                out" and "here are 200 of them", and somebody looking for one car needs to know
+                which they are reading. */}
+            {rows.length >= 200 && (
+              <Notice tone="info">Showing the first 200. Type a booking number, customer, model or chassis above to find a particular car.</Notice>
+            )}
+            <Card
+            title={asked ? `Matching (${rows.length})` : `Cars a customer is holding (${rows.length})`}
+            note="Only cars a customer currently holds. A free car is given out by the queue, not by hand, so it is not here. A chassis read off a printed form finds its car: punctuation and spacing are ignored."
+            flush
+          >
+            <DataTable columns={columns} rows={rows} rowKey={(r) => r.booking_id} caption="Cars a customer is holding" />
             </Card>
-          )}
-        </Async>
-      )}
+          </>
+        )}
+      </Async>
 
       {target && can("exception.request") && (
         <TakeBackDialog

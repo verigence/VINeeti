@@ -317,7 +317,10 @@ export interface HeldCar {
  * Chassis is not a column of its own — the DMS writes the VIN with the chassis as its tail — so a
  * chassis typed on its own matches the end of the VIN.
  */
-export async function heldCars(ctx: Ctx, text: string, outletIds: string[] | null, limit = 50): Promise<HeldCar[]> {
+export async function heldCars(ctx: Ctx, text: string, outletIds: string[] | null, limit = 200): Promise<HeldCar[]> {
+  // No words is not an empty answer: it is every car a customer is holding. The search narrows the
+  // list rather than conjuring it, because somebody arriving at this screen wants to see what is out
+  // there before they know which one they are being asked about.
   const words = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean).slice(0, 6);
   const hay = `lower(b.booking_no || ' ' || b.customer_name || ' ' || b.model || ' ' || b.variant || ' ' || b.colour || ' ' || v.vin)`;
   const scope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";

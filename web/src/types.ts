@@ -1337,3 +1337,72 @@ export interface MoneyFlow {
   churned: { cars: number; value: number; unpriced: number };
   source: DataStatus; basis: string;
 }
+
+// ---------------------------------------------------------------- who allocated what
+// Kept in step with allocationControl() in src/domain/role-views.ts.
+
+export interface ControlViolation {
+  date: string;
+  kind: "OVERTURNED" | "UNKNOWN_BOOKING" | "NOT_THROUGH_SYSTEM";
+  booking_id: string;
+  booking_no: string;
+  customer_name: string;
+  vin: string;
+  taken_from_booking_no: string | null;
+  instead_of_vehicle_id: string | null;
+}
+
+export interface ControlDay {
+  date: string;
+  by_system: number;
+  by_approved_request: number;
+  adopted_from_dms: number;
+  confirmed_in_dms: number;
+  awaiting_entry_in_dms: number;
+  overturned: number;
+  unknown_booking: number;
+  not_through_system: number;
+  violations: number;
+}
+
+export interface AllocationControlResponse {
+  period: { from: string; to: string };
+  /** The day this dealership put allocation through the system; null while it has not. */
+  controls_from: string | null;
+  days: ControlDay[];
+  totals: Omit<ControlDay, "date">;
+  violations: ControlViolation[];
+  source: DataStatus;
+  basis: string;
+}
+
+// ---------------------------------------------------------------- what changed
+// Kept in step with dailyDelta() in src/domain/role-views.ts.
+
+export interface DeltaMovement {
+  code: string;
+  label: string;
+  note: string;
+  /** Needs something the dealership does not load yet. */
+  pending?: true;
+  total: number;
+  by_day: number[];
+}
+
+export interface DeltaRow {
+  date: string;
+  code: string;
+  booking_no: string | null;
+  customer_name: string | null;
+  vin: string | null;
+  detail: string;
+}
+
+export interface DailyDeltaResponse {
+  period: { from: string; to: string };
+  dates: string[];
+  movements: DeltaMovement[];
+  rows: DeltaRow[];
+  source: DataStatus;
+  basis: string;
+}

@@ -624,6 +624,7 @@ export async function moneyFlow(ctx: Ctx, from: string, to: string, outletIds: s
 }
 
 export interface ControlViolation {
+  date: string;
   kind: "OVERTURNED" | "UNKNOWN_BOOKING" | "NOT_THROUGH_SYSTEM";
   booking_id: string;
   booking_no: string;
@@ -631,89 +632,255 @@ export interface ControlViolation {
   vin: string;
   /** For an overturned allocation: the booking the car was taken from, or the car it replaced. */
   taken_from_booking_no: string | null;
-  instead_of_vin: string | null;
-  at: string;
+  instead_of_vehicle_id: string | null;
+}
+
+export interface ControlDay {
+  date: string;
+  by_system: number;
+  by_approved_request: number;
+  adopted_from_dms: number;
+  /** Of what this system decided that day, how much the DMS has since caught up with. */
+  confirmed_in_dms: number;
+  awaiting_entry_in_dms: number;
+  overturned: number;
+  unknown_booking: number;
+  not_through_system: number;
+  violations: number;
 }
 
 /**
- * Who allocated what today, and what got round the system.
+ * Who allocated what, day by day, and what got round the system.
  *
- * The question this answers is the one asked after the evening's files are loaded: how many cars
- * did this system give out, how many of those has the DMS caught up with, and what was allotted
- * somewhere else. The DMS is the record, so the last of those is a report rather than a block —
- * but from the day the dealership puts allocation through this system, it is a violation and the
- * people who approve a car being taken back are told.
+ * The question this answers is the one asked after an evening's files are loaded: how many cars did
+ * this system give out, how many of those has the DMS caught up with, and what was allotted
+ * somewhere else. It is asked of a period rather than a day, because the answer is only worth
+ * anything next to the days around it — a single violation is an incident, the same one every
+ * Tuesday is a practice.
  *
- * `confirmed` is not a formality. An allocation this system made is confirmed when a later stock
- * report shows the DMS agreeing; one that stays unconfirmed is either not yet keyed in or was keyed
- * in and did not take, and both are the back office's to chase.
+ * Allotments are counted on the day they happened, not the day this system heard about them. One
+ * made in the DMS arrives in a file, often later and in a batch, and counting those on the day of
+ * the load would put a dealership's whole history on one spike.
+ *
+ * `awaiting_entry_in_dms` is the back office's work list: an allocation this system made that no
+ * later stock report has shown the DMS agreeing with. It is either not yet keyed in, or was keyed
+ * in and did not take.
  */
-export async function allocationControl(ctx: Ctx, outletIds: string[] | null, date?: string) {
-  const day = date ?? localParts(ctx.now, ctx.tenant.timezone).date;
-  const { start, end } = localDayBounds(day, ctx.tenant.timezone);
-  const scope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
-  const ids = outletIds ?? [];
+export async function allocationControl(ctx: Ctx, outletIds: string[] | null, from: string, to: string) {
+  const tz = ctx.tenant.timezone;
+  const T = ctx.tenantId;
+  const bScope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+  const o = outletIds ?? [];
+  const allocDay = `date(COALESCE(CASE WHEN al.source = 'DMS' THEN v.dms_allotment_date END, al.allocated_at))`;
 
-  const made = await all<{ source: string; allocated_by: string; confirmed: number; n: number }>(
+  const made = await all<{ d: string; source: string; confirmed: number; n: number }>(
     ctx.db,
-    `SELECT a.source, a.allocated_by, CASE WHEN a.dms_confirmed_at IS NULL THEN 0 ELSE 1 END AS confirmed, COUNT(*) AS n
-     FROM allocations a JOIN bookings b ON b.id = a.booking_id AND b.tenant_id = a.tenant_id
-     WHERE a.tenant_id = ? AND a.allocated_at >= ? AND a.allocated_at < ? ${scope}
-     GROUP BY a.source, a.allocated_by, confirmed`,
-    ctx.tenantId, start, end, ...ids,
+    `SELECT ${allocDay} AS d, al.source, CASE WHEN al.dms_confirmed_at IS NULL THEN 0 ELSE 1 END AS confirmed, COUNT(*) AS n
+       FROM allocations al JOIN bookings b ON b.id = al.booking_id AND b.tenant_id = al.tenant_id
+       JOIN vehicles v ON v.id = al.vehicle_id AND v.tenant_id = al.tenant_id
+      WHERE al.tenant_id = ? AND ${allocDay} >= date(?) AND ${allocDay} <= date(?) ${bScope}
+      GROUP BY d, al.source, confirmed`,
+    T, from, to, ...o,
   );
-  // "By this system" means the queue decided it. An approved request is this system too, but it is a
-  // person's decision carried out here, and the two are worth counting apart.
-  const sum = (p: (r: (typeof made)[number]) => boolean) => made.filter(p).reduce((n, r) => n + r.n, 0);
-  const bySystem = sum((r) => r.source === "SYSTEM");
-  const byRequest = sum((r) => r.source === "EXCEPTION");
-  const fromDms = sum((r) => r.source === "DMS");
 
-  const rows = await all<ControlViolation & { detail_json: string }>(
+  // Dated by the day the allotment was made where the DMS said so, and by the report it came in on
+  // otherwise, for the same reason the allocations are.
+  const vDay = `date(COALESCE(json_extract(l.detail_json, '$.allotment_date'), json_extract(l.detail_json, '$.report_date'), l.at))`;
+  const raw = await all<{ d: string; booking_id: string; detail_json: string }>(
     ctx.db,
-    `SELECT l.at, l.entity_id AS booking_id, l.detail_json
-     FROM audit_log l JOIN bookings b ON b.id = l.entity_id AND b.tenant_id = l.tenant_id
-     WHERE l.tenant_id = ? AND l.action = 'ALLOTTED_OUTSIDE_SYSTEM' AND l.at >= ? AND l.at < ? ${scope}
-     ORDER BY l.at`,
-    ctx.tenantId, start, end, ...ids,
+    `SELECT ${vDay} AS d, l.entity_id AS booking_id, l.detail_json
+       FROM audit_log l JOIN bookings b ON b.id = l.entity_id AND b.tenant_id = l.tenant_id
+      WHERE l.tenant_id = ? AND l.action = 'ALLOTTED_OUTSIDE_SYSTEM' AND ${vDay} >= date(?) AND ${vDay} <= date(?) ${bScope}
+      ORDER BY l.at`,
+    T, from, to, ...o,
   );
-  const violations: ControlViolation[] = rows.map((r) => {
+  const violations: ControlViolation[] = raw.map((r) => {
     const d = JSON.parse(r.detail_json) as Record<string, string>;
     return {
+      date: r.d,
       kind: (d.violation ?? "NOT_THROUGH_SYSTEM") as ControlViolation["kind"],
       booking_id: r.booking_id,
       booking_no: d.booking_no,
       customer_name: d.customer_name,
       vin: d.vin,
       taken_from_booking_no: d.taken_from_booking_no ?? null,
-      instead_of_vin: d.instead_of_vin ?? null,
-      at: r.at,
+      instead_of_vehicle_id: d.instead_of_vehicle_id ?? null,
     };
   });
 
+  const n = (d: string, p: (r: (typeof made)[number]) => boolean) => made.filter((r) => r.d === d && p(r)).reduce((t, r) => t + r.n, 0);
+  const v = (d: string, kind: string) => violations.filter((x) => x.date === d && x.kind === kind).length;
+  const days: ControlDay[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    days.push({
+      date: d,
+      // The queue's own decision, a person's decision carried out here, and one simply read from the
+      // DMS: three different things, never added together.
+      by_system: n(d, (r) => r.source === "SYSTEM"),
+      by_approved_request: n(d, (r) => r.source === "EXCEPTION"),
+      adopted_from_dms: n(d, (r) => r.source === "DMS"),
+      confirmed_in_dms: n(d, (r) => r.source !== "DMS" && r.confirmed === 1),
+      awaiting_entry_in_dms: n(d, (r) => r.source !== "DMS" && r.confirmed === 0),
+      overturned: v(d, "OVERTURNED"),
+      unknown_booking: v(d, "UNKNOWN_BOOKING"),
+      not_through_system: v(d, "NOT_THROUGH_SYSTEM"),
+      violations: violations.filter((x) => x.date === d).length,
+    });
+  }
+  const add = (k: keyof ControlDay) => days.reduce((t, x) => t + (x[k] as number), 0);
+
   return {
-    date: day,
+    period: { from, to },
     /** The day this dealership put allocation through the system; null while it has not. */
     controls_from: ctx.settings.allocation_control_from,
-    in_control: Boolean(ctx.settings.allocation_control_from && day >= ctx.settings.allocation_control_from),
-    allocated: {
-      by_system: bySystem,
-      by_approved_request: byRequest,
-      adopted_from_dms: fromDms,
-      total: bySystem + byRequest + fromDms,
+    days,
+    totals: {
+      by_system: add("by_system"),
+      by_approved_request: add("by_approved_request"),
+      adopted_from_dms: add("adopted_from_dms"),
+      confirmed_in_dms: add("confirmed_in_dms"),
+      awaiting_entry_in_dms: add("awaiting_entry_in_dms"),
+      overturned: add("overturned"),
+      unknown_booking: add("unknown_booking"),
+      not_through_system: add("not_through_system"),
+      violations: violations.length,
     },
-    /** Of what this system decided, how much the DMS has caught up with. */
-    confirmed_in_dms: sum((r) => r.source !== "DMS" && r.confirmed === 1),
-    awaiting_entry_in_dms: sum((r) => r.source !== "DMS" && r.confirmed === 0),
-    violations: {
-      total: violations.length,
-      overturned: violations.filter((v) => v.kind === "OVERTURNED").length,
-      unknown_booking: violations.filter((v) => v.kind === "UNKNOWN_BOOKING").length,
-      not_through_system: violations.filter((v) => v.kind === "NOT_THROUGH_SYSTEM").length,
-      rows: violations,
-    },
+    violations,
     source: await dataStatus(ctx),
     basis:
-      "Allocations are counted by the day they were made, under the outlet of the booking. 'By this system' is the queue's own decision; 'by approved request' is a car moved on a request somebody approved. A violation is an allotment that appears in the DMS without having come through here, counted only from the day the dealership put allocation through this system.",
+      "Allocations are counted on the day the allotment was made, under the outlet of the booking — one made in the DMS is dated by the DMS's own allotment date, not by the day its file was loaded. 'By this system' is the queue's own decision; 'by approved request' is a car moved on a request somebody approved. A violation is an allotment that appears in the DMS without having come through here, counted only from the day the dealership put allocation through this system.",
+  };
+}
+
+export interface DeltaMovement {
+  code: string;
+  label: string;
+  /** What this one means, and where it is read from, so a number is never bare. */
+  note: string;
+  /** Needs something the dealership does not load yet. */
+  pending?: true;
+  total: number;
+  by_day: number[];
+}
+
+export interface DeltaRow {
+  date: string;
+  code: string;
+  booking_no: string | null;
+  customer_name: string | null;
+  vin: string | null;
+  detail: string;
+}
+
+/**
+ * What changed, day by day — the delta a person actually reads after the evening's files go in.
+ *
+ * None of this is diffed here. The import writes the movements down as it reads each file, into
+ * vehicle_events and audit_log, both of which refuse updates and deletes at the database. So this is
+ * a read over a log that already exists rather than a second comparison that could disagree with it.
+ *
+ * Everything is dated by the day the thing happened, not the day its file arrived: a stock report
+ * carries its own allotment and invoice dates, and a batch loaded after a quiet week must not land
+ * as a single spike.
+ *
+ * Two of the movements need the retail file, which is not loaded yet. They are listed and marked
+ * rather than left out, because a report that silently omits what it cannot see teaches people to
+ * trust a number that is not whole.
+ */
+export async function dailyDelta(ctx: Ctx, outletIds: string[] | null, from: string, to: string) {
+  const tz = ctx.tenant.timezone;
+  const T = ctx.tenantId;
+  const [a, b] = [localDayBounds(from, tz).start, localDayBounds(to, tz).end];
+  const o = outletIds ?? [];
+  const bScope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+  const vScope = outletIds ? `AND v.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+  const dates: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) dates.push(d);
+
+  const tally = async (sql: string, ...p: unknown[]) => {
+    const rows = await all<{ d: string; n: number }>(ctx.db, sql, ...p);
+    return dates.map((d) => rows.find((r) => r.d === d)?.n ?? 0);
+  };
+  /** Vehicle events of one type, counted on the day they happened. */
+  const ev = (type: string) =>
+    tally(
+      `SELECT date(e.at) AS d, COUNT(*) AS n FROM vehicle_events e JOIN vehicles v ON v.id = e.vehicle_id AND v.tenant_id = e.tenant_id
+        WHERE e.tenant_id = ? AND e.type = ? AND e.at >= ? AND e.at < ? ${vScope} GROUP BY d`,
+      T, type, a, b, ...o,
+    );
+  const bookingOn = (col: string) =>
+    tally(`SELECT date(b.${col}) AS d, COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.${col} IS NOT NULL AND date(b.${col}) >= date(?) AND date(b.${col}) <= date(?) ${bScope} GROUP BY d`, T, from, to, ...o);
+
+  const allocDay = `date(COALESCE(CASE WHEN al.source = 'DMS' THEN v.dms_allotment_date END, al.allocated_at))`;
+  const allocBy = (where: string) =>
+    tally(
+      `SELECT ${allocDay} AS d, COUNT(*) AS n FROM allocations al
+         JOIN bookings b ON b.id = al.booking_id AND b.tenant_id = al.tenant_id
+         JOIN vehicles v ON v.id = al.vehicle_id AND v.tenant_id = al.tenant_id
+        WHERE al.tenant_id = ? AND ${allocDay} >= date(?) AND ${allocDay} <= date(?) ${where} ${bScope} GROUP BY d`,
+      T, from, to, ...o,
+    );
+  const auditOn = (action: string) =>
+    tally(`SELECT date(l.at) AS d, COUNT(*) AS n FROM audit_log l JOIN bookings b ON b.id = l.entity_id AND b.tenant_id = l.tenant_id
+            WHERE l.tenant_id = ? AND l.action = ? AND l.at >= ? AND l.at < ? ${bScope} GROUP BY d`, T, action, a, b, ...o);
+
+  const [taken, converted, cancelled, specChanged, bySystem, byRequest, fromDms, released, arrived, received, invoiced, delivered, removed, returned, reversed] = await Promise.all([
+    bookingOn("booking_date"),
+    bookingOn("invoiced_at"),
+    bookingOn("cancelled_at"),
+    auditOn("BOOKING_UPDATED_FROM_DMS"),
+    allocBy("AND al.source = 'SYSTEM'"),
+    allocBy("AND al.source = 'EXCEPTION'"),
+    allocBy("AND al.source = 'DMS'"),
+    tally(`SELECT date(al.released_at) AS d, COUNT(*) AS n FROM allocations al JOIN bookings b ON b.id = al.booking_id AND b.tenant_id = al.tenant_id
+            WHERE al.tenant_id = ? AND al.released_at IS NOT NULL AND al.released_at >= ? AND al.released_at < ? ${bScope} GROUP BY d`, T, a, b, ...o),
+    ev("CREATED"), ev("RECEIVED"), ev("INVOICED"), ev("DELIVERED"), ev("REMOVED"), ev("RETURNED"), ev("INVOICE_REVERSED"),
+  ]);
+
+  const sum = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
+  const m = (code: string, label: string, note: string, by_day: number[], pending?: true): DeltaMovement => ({ code, label, note, total: sum(by_day), by_day, ...(pending ? { pending } : {}) });
+
+  const movements: DeltaMovement[] = [
+    m("B1", "Bookings taken", "Dated by the day the customer booked, from the booking sheet.", taken),
+    m("B2", "Bookings invoiced", "The booking sheet or the stock report shows a retail invoice against it.", converted),
+    m("B3", "Bookings cancelled", "Cancelled in the DMS. Nothing else cancels a booking without someone here doing it.", cancelled),
+    m("B4", "Bookings whose details changed", "Model, colour, outlet or the customer's own details altered in the DMS.", specChanged),
+    m("A1", "Cars given out by this system", "The queue's own decision.", bySystem),
+    m("A2", "Cars moved on an approved request", "A person's decision, carried out here after somebody approved it.", byRequest),
+    m("A3", "Allotments read from the DMS", "Decided in the DMS and taken on here. From go-live these are violations as well.", fromDms),
+    m("A4", "Cars released", "A car stopped being held for a customer, for any reason.", released),
+    m("S1", "Cars arrived in stock", "A chassis in the stock report that was not in the one before it.", arrived),
+    m("S2", "Cars received against a GRN", "In transit in the last report, in the yard in this one.", received),
+    m("S3", "Cars invoiced", "The stock report shows a retail invoice against the chassis.", invoiced),
+    m("S4", "Cars delivered and gone", "An invoiced car that has left the stock report.", delivered),
+    m("S5", "Cars that left stock with no invoice", "Gone from the report and nothing says why. Each one is worth asking about.", removed),
+    m("S6", "Cars listed again after leaving", "Back in the report after being delivered or removed.", returned),
+    m("R1", "Retail invoices withdrawn", "The DMS no longer shows an invoice it showed before. The only cancellation signal the files give.", reversed),
+    m("R2", "Retail invoice detail", "Discounts, finance, insurance and scheme claims. Needs the retail export, which is not loaded yet.", dates.map(() => 0), true),
+    m("R3", "Deliveries against a delivery note", "The true invoice-to-delivery lag. Needs the retail export, which is not loaded yet.", dates.map(() => 0), true),
+  ];
+
+  // The handful worth naming rather than counting: each one is a question for somebody.
+  const rows = await all<DeltaRow>(
+    ctx.db,
+    `SELECT date(b.cancelled_at) AS date, 'B3' AS code, b.booking_no, b.customer_name, NULL AS vin, COALESCE(b.cancel_reason, 'Cancelled') AS detail
+       FROM bookings b WHERE b.tenant_id = ? AND b.cancelled_at IS NOT NULL AND date(b.cancelled_at) >= date(?) AND date(b.cancelled_at) <= date(?) ${bScope}
+     UNION ALL
+     SELECT date(e.at) AS date, CASE e.type WHEN 'REMOVED' THEN 'S5' WHEN 'RETURNED' THEN 'S6' ELSE 'R1' END AS code,
+            NULL AS booking_no, v.dms_customer_name AS customer_name, v.vin, v.model || ' ' || v.variant || ', ' || v.colour AS detail
+       FROM vehicle_events e JOIN vehicles v ON v.id = e.vehicle_id AND v.tenant_id = e.tenant_id
+      WHERE e.tenant_id = ? AND e.type IN ('REMOVED','RETURNED','INVOICE_REVERSED') AND e.at >= ? AND e.at < ? ${vScope}
+     ORDER BY date, code`,
+    T, from, to, ...o, T, a, b, ...o,
+  );
+
+  return {
+    period: { from, to },
+    dates,
+    movements,
+    rows,
+    source: await dataStatus(ctx),
+    basis:
+      "Every movement is dated by the day it happened, not the day its file was loaded: a stock report carries its own allotment and invoice dates, so a batch loaded after a quiet week does not land as one spike. Nothing here is compared a second time — the import writes each movement down as it reads the files, into logs the database will not let anyone change afterwards.",
   };
 }

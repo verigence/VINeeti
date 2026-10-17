@@ -157,21 +157,21 @@ describe("what happens to a violation", () => {
 });
 
 describe("the day's allocation control, in numbers", () => {
-  it("separates what this system decided from what the DMS did, and counts the violations by kind", async () => {
+  const control = async (w: World, d: Dealer, from: string, to: string) =>
+    (await w.api("GET", `/api/views/allocation-control?from=${from}&to=${to}`, undefined, d.users.head.session)).body;
+
+  it("separates what this system decided from what the DMS did, day by day", async () => {
     const w = makeWorld("2026-10-13 10:00");
     // Two cars, two bookings: the queue allocates both here on day one.
     const d = await openWith(w, [car("VINCTL00000000001"), car("VINCTL00000000002")], [order("OTF27A000001", "01-Oct-2026 10:00 AM"), order("OTF27A000002", "02-Oct-2026 10:00 AM")]);
-    const day1 = (await w.api("GET", "/api/views/allocation-control?date=2026-10-13", undefined, d.users.head.session)).body;
-    expect(day1.allocated).toMatchObject({ by_system: 2, by_approved_request: 0, adopted_from_dms: 0, total: 2 });
-    // Neither has been keyed into the DMS yet: both are the back office's to enter.
-    expect(day1.awaiting_entry_in_dms).toBe(2);
-    expect(day1.confirmed_in_dms).toBe(0);
-    expect(day1.in_control).toBe(false);
+    const before = await control(w, d, "2026-10-13", "2026-10-13");
+    expect(before.days[0]).toMatchObject({ date: "2026-10-13", by_system: 2, by_approved_request: 0, adopted_from_dms: 0, awaiting_entry_in_dms: 2, confirmed_in_dms: 0, violations: 0 });
+    expect(before.controls_from).toBeNull();
 
     await controlFrom(w, d);
     w.at("2026-10-14 10:00");
-    // Overnight: one of them is keyed in correctly, the other is given to somebody the system has
-    // never heard of, and a third car turns up already allotted to an unknown booking.
+    // Overnight: both are keyed into the DMS, and a third car turns up already allotted to a booking
+    // this system has never heard of.
     await loadStock(
       w,
       d.users.admin.session,
@@ -182,16 +182,85 @@ describe("the day's allocation control, in numbers", () => {
       ],
       { asOn: "2026-10-14" },
     );
-    const day2 = (await w.api("GET", "/api/views/allocation-control?date=2026-10-14", undefined, d.users.head.session)).body;
-    expect(day2.in_control).toBe(true);
-    expect(day2.controls_from).toBe("2026-10-14");
-    // The two the DMS confirmed were allocated on the 13th, so they are not counted again today.
-    expect(day2.allocated).toMatchObject({ by_system: 0, adopted_from_dms: 1 });
-    expect(day2.violations).toMatchObject({ total: 1, unknown_booking: 1, overturned: 0, not_through_system: 0 });
-    expect(day2.violations.rows[0]).toMatchObject({ kind: "UNKNOWN_BOOKING", booking_no: "OTF27A000077", vin: "VINCTL00000000003" });
 
-    // Yesterday's two allocations are now confirmed, so the back office has nothing left to key in.
-    const back = (await w.api("GET", "/api/views/allocation-control?date=2026-10-13", undefined, d.users.head.session)).body;
-    expect(back).toMatchObject({ confirmed_in_dms: 2, awaiting_entry_in_dms: 0 });
+    const both = await control(w, d, "2026-10-13", "2026-10-14");
+    expect(both.days.map((x: any) => x.date)).toEqual(["2026-10-13", "2026-10-14"]);
+    // Day one, looked at again: the two this system decided are now confirmed, so the back office
+    // has nothing left to key in for that day.
+    expect(both.days[0]).toMatchObject({ by_system: 2, confirmed_in_dms: 2, awaiting_entry_in_dms: 0, violations: 0 });
+    // Day two: nothing decided here, one allotment read from the DMS, and it is a violation.
+    expect(both.days[1]).toMatchObject({ by_system: 0, adopted_from_dms: 1, unknown_booking: 1, overturned: 0, not_through_system: 0, violations: 1 });
+    expect(both.totals).toMatchObject({ by_system: 2, adopted_from_dms: 1, violations: 1 });
+    expect(both.violations[0]).toMatchObject({ date: "2026-10-14", kind: "UNKNOWN_BOOKING", booking_no: "OTF27A000077", vin: "VINCTL00000000003" });
+    expect(both.controls_from).toBe("2026-10-14");
+  });
+
+  // An allotment made in the DMS arrives in a file, often days later and in a batch. Counting it on
+  // the day the file was loaded would put a dealership's whole history on one spike and say nothing
+  // about how it trades, so the DMS's own allotment date is the day it belongs to.
+  it("dates an allotment by the day it happened, not the day the file arrived", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await openWith(w);
+    await controlFrom(w, d, "2026-10-01");
+    w.at("2026-10-16 10:00");
+    await loadStock(w, d.users.admin.session, [car("VINOUT00000000001", { order: "OTF27A000055", type: "Alloted", allotDate: "2026-10-09", customer: "Walk In" })], { asOn: "2026-10-16" });
+    const r = await control(w, d, "2026-10-05", "2026-10-16");
+    const onNine = r.days.find((x: any) => x.date === "2026-10-09");
+    const onSixteen = r.days.find((x: any) => x.date === "2026-10-16");
+    expect(onNine).toMatchObject({ adopted_from_dms: 1, unknown_booking: 1 });
+    expect(onSixteen).toMatchObject({ adopted_from_dms: 0, violations: 0 });
+    expect(r.violations[0].date).toBe("2026-10-09");
+  });
+});
+
+describe("what changed, day by day", () => {
+  const delta = async (w: World, d: Dealer, from: string, to: string) => (await w.api("GET", `/api/views/daily-delta?from=${from}&to=${to}`, undefined, d.users.head.session)).body;
+  const of = (r: any, code: string) => r.movements.find((m: any) => m.code === code);
+
+  it("reads the movements the import already wrote down, dated by when they happened", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await openWith(w, [car("VINDLT00000000001")], [order("OTF27A000001", "10-Oct-2026 10:00 AM")]);
+    w.at("2026-10-14 10:00");
+    // A second car arrives, and one allotment is made in the DMS dated two days back.
+    await loadStock(
+      w,
+      d.users.admin.session,
+      [car("VINDLT00000000001", { order: "OTF27A000001", type: "Alloted", allotDate: "2026-10-14" }), car("VINDLT00000000002", { status: "In Transit" })],
+      { asOn: "2026-10-14" },
+    );
+    const r = await delta(w, d, "2026-10-09", "2026-10-14");
+    expect(r.dates).toHaveLength(6);
+    // The booking is dated by the day the customer booked, not the day the sheet was read.
+    expect(of(r, "B1").by_day[r.dates.indexOf("2026-10-10")]).toBe(1);
+    // The queue gave the car out on the 13th; the DMS confirmed it on the 14th, which is not a
+    // second allocation.
+    expect(of(r, "A1").by_day[r.dates.indexOf("2026-10-13")]).toBe(1);
+    expect(of(r, "A3").total).toBe(0);
+    // Both cars arriving, and the second one still in transit so no GRN.
+    expect(of(r, "S1").total).toBe(2);
+    expect(of(r, "S2").total).toBe(0);
+  });
+
+  it("says plainly which movements need a file the dealership does not load yet", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await openWith(w);
+    const r = await delta(w, d, "2026-10-13", "2026-10-13");
+    const pending = r.movements.filter((m: any) => m.pending);
+    // Marked and listed rather than dropped: a report that hides what it cannot see teaches people
+    // to trust a number that is not whole.
+    expect(pending.map((m: any) => m.code)).toEqual(["R2", "R3"]);
+    expect(pending[0].note).toContain("retail export");
+  });
+
+  it("names the movements that are a question for somebody rather than a number", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await openWith(w, [car("VINDLT00000000001"), car("VINDLT00000000002")]);
+    w.at("2026-10-14 10:00");
+    // One car simply stops being listed, with no invoice to explain it.
+    await loadStock(w, d.users.admin.session, [car("VINDLT00000000001")], { asOn: "2026-10-14", confirm: true });
+    const r = await delta(w, d, "2026-10-13", "2026-10-14");
+    expect(of(r, "S5").total).toBe(1);
+    const row = r.rows.find((x: any) => x.code === "S5");
+    expect(row).toMatchObject({ date: "2026-10-14", vin: "VINDLT00000000002" });
   });
 });
