@@ -1,10 +1,12 @@
 import { decryptSecret, encryptSecret } from "../lib/crypto";
+import { XLSX_MIME } from "../lib/xlsx";
 import { all, audit, first, run } from "../lib/db";
 import { can } from "../lib/permissions";
 import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, localParts, normMobile, notFound, parseDate, safeJson, toCsv } from "../lib/util";
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
+import { dmsWriteback, writebackXlsx } from "../domain/dms-writeback";
 import { allocationControl, dailyDelta, dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
@@ -65,6 +67,27 @@ export function opsRoutes(app: App) {
     if (to > today) throw bad("The period cannot end in the future");
     return { from, to };
   };
+  /**
+   * What the DMS has not been told yet: every car this system and the DMS disagree about, with the
+   * action that settles it. `format=xlsx` is the same list as a sheet for the person keying it in.
+   */
+  app.get("/api/reports/dms-writeback", async (c) => {
+    need(c, "dashboards.view");
+    const ctx = c.get("ctx");
+    const w = await dmsWriteback(ctx, outletScope(c));
+    if (c.req.query("format") === "xlsx") {
+      const day = localParts(ctx.now, ctx.tenant.timezone).date;
+      return new Response(writebackXlsx(w, ctx.tenant.name), {
+        headers: {
+          "Content-Type": XLSX_MIME,
+          "Content-Disposition": `attachment; filename="dms-updates-${day}.xlsx"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+    return c.json(w);
+  });
+
   /** Allocations and releases by day and outlet (default: the last 14 days). */
   app.get("/api/analytics/allocations", async (c) => {
     need(c, "dashboards.view");

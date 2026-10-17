@@ -8,9 +8,9 @@ import { useLoad } from "../hooks";
 import { Link } from "../router";
 import { useSession } from "../session";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
-import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow } from "../types";
+import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow, WritebackRow } from "../types";
 
-type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "stock-days";
+type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "writeback" | "stock-days";
 
 export function AnalyticsPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -21,6 +21,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
     { to: "/analytics/changed", label: "What changed" },
     { to: "/analytics/allocations", label: "Allocations by day" },
     ...(can("booking.view_all") ? [{ to: "/analytics/control", label: "Who allocated" }] : []),
+    { to: "/analytics/writeback", label: "To update in DMS" },
     { to: "/analytics/stock-days", label: "Stock by day" },
   ];
   return (
@@ -34,6 +35,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
       {tab === "changed" && <Changed />}
       {tab === "allocations" && <Allocations />}
       {tab === "control" && <Control />}
+      {tab === "writeback" && <Writeback />}
       {tab === "stock-days" && <StockDays />}
     </>
   );
@@ -246,6 +248,105 @@ function Sales() {
         )}
       </Async>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- what the DMS has not been told
+/**
+ * The work list for the back office: every car this system and the DMS disagree about.
+ *
+ * Not a day's diary. A line nobody acted on yesterday is still here today rather than having
+ * scrolled off a date range, and a line goes when a stock report shows the DMS agreeing -- so there
+ * is nothing for anyone to tick off, forget to tick off, or tick off on the wrong row.
+ */
+function Writeback() {
+  const load = useLoad(() => api.dmsWriteback(), "analytics:writeback");
+  const columns: Column<WritebackRow>[] = [
+    {
+      header: "Do this",
+      primary: true,
+      cell: (r) => (
+        <>
+          <span className="chips">{r.action === "ALLOT" ? <Chip tone="green">Allot</Chip> : <Chip tone="red">Remove allotment</Chip>}</span>
+          <span className="sub">{r.instruction}</span>
+        </>
+      ),
+    },
+    {
+      header: "Booking",
+      cell: (r) => (
+        <Link to={`/bookings/${r.booking_id}`} className="cell-link">
+          <span className="strong nowrap">{r.booking_no}</span>
+          <span className="sub">
+            {r.customer_name}
+            {r.dms_ref ? ` · ${r.dms_ref}` : ""}
+          </span>
+        </Link>
+      ),
+    },
+    {
+      header: "Car",
+      cell: (r) => (
+        <>
+          <span className="mono">{r.vin}</span>
+          <span className="sub">
+            {r.model} {r.variant} · {r.colour}
+          </span>
+        </>
+      ),
+    },
+    { header: "DMS shows", cell: (r) => r.dms_shows ?? <span className="muted">–</span> },
+    {
+      header: "Why",
+      cell: (r) => (
+        <>
+          {r.reason}
+          {r.paired_with ? <span className="sub">{r.paired_with}</span> : null}
+          {r.by ? <span className="sub">Approved by {r.by}</span> : null}
+        </>
+      ),
+    },
+    { header: "Decided", cell: (r) => <>{fmtDate(r.decided_at)}<span className="sub">{plural(r.days_waiting, "day")} ago</span></>, hideIfEmpty: () => false },
+  ];
+  return (
+    <Async load={load}>
+      {(d) => (
+        <>
+          <div className="tiles">
+            <Stat label="Allotments to remove" value={fmtNumber(d.totals.remove)} hint="Still allotted in the DMS to a booking this system has released" tone={d.totals.remove ? "danger" : undefined} />
+            <Stat label="Allotments to make" value={fmtNumber(d.totals.allot)} hint="Held here for a customer, not yet allotted in the DMS" />
+          </div>
+          {d.rows.length > 0 && (
+            <Notice tone="info">
+              Remove first, then allot. A car has to come off one booking before it goes on another, and the list is in that order. Lines disappear by themselves once a stock report shows the DMS
+              agreeing — there is nothing to tick off.
+            </Notice>
+          )}
+          {d.conflicts.length > 0 && (
+            <Notice tone="warn">
+              {plural(d.conflicts.length, "car")} left off this list. The DMS holds {d.conflicts.length === 1 ? "it" : "them"} for a different order, so keying {d.conflicts.length === 1 ? "it" : "them"}{" "}
+              in would overwrite a live allotment on another customer. Settle {d.conflicts.length === 1 ? "it" : "them"} first:{" "}
+              {d.conflicts.map((c) => `${c.vin} (held here for ${c.booking_no}, allotted in the DMS to ${c.dms_booking_no})`).join("; ")}.
+            </Notice>
+          )}
+          <Card
+            title="Changes to key into the DMS"
+            note="The DMS is the record; this is what it has not been told yet."
+            actions={
+              <a className="btn btn-secondary btn-sm" href={api.dmsWritebackUrl} download>
+                Download as Excel
+              </a>
+            }
+            flush
+          >
+            <Async load={load} isEmpty={(x) => x.rows.length === 0} empty={<Empty title="Nothing to key in" hint="The DMS agrees with this system about every car." />}>
+              {(x) => <DataTable columns={columns} rows={x.rows} rowKey={(r) => `${r.action}:${r.vin}:${r.booking_no}`} caption="Changes to key into the DMS" />}
+            </Async>
+          </Card>
+          <Basis text={d.basis} />
+        </>
+      )}
+    </Async>
   );
 }
 

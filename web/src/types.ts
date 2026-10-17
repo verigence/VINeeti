@@ -506,6 +506,35 @@ export interface HeldCar {
  * Why a car may be taken back, and what that choice has to bring with it. Served by the API rather
  * than written here, so the form cannot drift from the rule it is collecting for.
  */
+/** Kept in step with Writeback in src/domain/dms-writeback.ts. */
+export interface WritebackRow {
+  action: "ALLOT" | "REMOVE_ALLOTMENT";
+  instruction: string;
+  booking_id: string;
+  booking_no: string;
+  dms_ref: string | null;
+  customer_name: string;
+  outlet: string;
+  vin: string;
+  model: string;
+  variant: string;
+  colour: string;
+  vehicle_outlet: string;
+  dms_shows: string | null;
+  decided_at: string;
+  reason: string;
+  by: string;
+  paired_with: string | null;
+  days_waiting: number;
+}
+export interface Writeback {
+  rows: WritebackRow[];
+  totals: { allot: number; remove: number };
+  conflicts: { booking_no: string; customer_name: string; vin: string; dms_booking_no: string }[];
+  generated_at: string;
+  basis: string;
+}
+
 export interface ReleaseReason {
   code: string;
   label: string;
