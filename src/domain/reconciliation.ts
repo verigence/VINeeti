@@ -37,6 +37,7 @@ export const RECON_CATEGORIES: Record<string, string> = {
   STOCK_MOVEMENT: "Stock count does not follow from the day's movements",
   BYPASS: "Car billed to a different booking than the one it was allocated to",
   OUTSIDE_ALLOCATION: "Car billed in the DMS without a system allocation",
+  OUTSIDE_SYSTEM_ALLOTMENT: "Car allotted in the DMS without going through the system",
   ALLOCATION_INTEGRITY: "Allocation and booking or car status disagree",
   QUEUE_ORDER: "A later booking holds a car while an earlier one waits",
   UNMATCHED_STOCK: "Free car and waiting booking not matched",
@@ -126,9 +127,23 @@ export async function runReconciliation(ctx: Ctx, trigger: string): Promise<{ ru
   });
 
   // 2. Allocation bypass and billing outside the system, detected when the DMS data came in today.
-  for (const a of await all<{ action: string; entity_id: string; detail_json: string }>(ctx.db, `SELECT action, entity_id, detail_json FROM audit_log WHERE tenant_id = ? AND at >= ? AND at < ? AND action IN ('BYPASS_DETECTED','INVOICED_OUTSIDE_ALLOCATION')`, T, start, end)) {
+  for (const a of await all<{ action: string; entity_id: string; detail_json: string }>(ctx.db, `SELECT action, entity_id, detail_json FROM audit_log WHERE tenant_id = ? AND at >= ? AND at < ? AND action IN ('BYPASS_DETECTED','INVOICED_OUTSIDE_ALLOCATION','ALLOTTED_OUTSIDE_SYSTEM')`, T, start, end)) {
     const d = safeJson<Record<string, any>>(a.detail_json, {});
     if (a.action === "BYPASS_DETECTED") items.push({ category: "BYPASS", severity: "HIGH", entity_type: "vehicle", entity_id: a.entity_id, message: `Chassis ${d.vin} was reserved for booking ${d.allocated_booking_no} but the DMS shows it ${d.stock_type === "ALLOTED" ? "allotted" : "invoiced"} to ${d.dms_booking_no ?? d.invoiced_booking_no}.`, detail: d });
+    // Somebody allotted in the DMS directly. The DMS is the record, so the allotment stands and the
+    // system has taken it on; what is reported is that it was decided somewhere else, which is the
+    // only way anyone finds out.
+    else if (a.action === "ALLOTTED_OUTSIDE_SYSTEM")
+      items.push({
+        category: "OUTSIDE_SYSTEM_ALLOTMENT",
+        severity: "HIGH",
+        entity_type: "booking",
+        entity_id: a.entity_id,
+        message: d.instead_of_vehicle_id
+          ? `Booking ${d.booking_no} was given chassis ${d.vin} in the DMS, in place of the car the system had reserved for it. The allotment was not made here.`
+          : `Chassis ${d.vin} was allotted to booking ${d.booking_no} in the DMS without going through the system. It now stands as that booking's car.`,
+        detail: d,
+      });
     else items.push({ category: "OUTSIDE_ALLOCATION", severity: "MEDIUM", entity_type: "booking", entity_id: a.entity_id, message: `Chassis ${d.vin} was invoiced in the DMS to a booking the system had not allocated it to.`, detail: d });
   }
 

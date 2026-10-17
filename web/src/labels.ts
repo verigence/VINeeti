@@ -416,6 +416,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   PASSWORD_SET_WITH_CODE: "Password set with a WhatsApp code",
   BYPASS_DETECTED: "Car billed to a different booking",
   INVOICED_OUTSIDE_ALLOCATION: "Car billed without an allocation",
+  ALLOTTED_OUTSIDE_SYSTEM: "Car allotted in the DMS, not here",
   ORDER_PLACED: "Manufacturer order recorded",
   ORDER_UPDATED: "Manufacturer order updated",
   RECON_ITEM_RESOLVED: "Day-end check finding closed",
@@ -524,6 +525,10 @@ export function auditSentence(action: string, d: Record<string, unknown>, outlet
       return `Car ${s(d.vin)} was allocated to booking ${s(d.allocated_booking_no)} but billed to ${s(d.invoiced_booking_no) || "another booking"}.`;
     case "INVOICED_OUTSIDE_ALLOCATION":
       return `Billed in the DMS on car ${s(d.vin)}, which the system had not allocated to this booking.`;
+    case "ALLOTTED_OUTSIDE_SYSTEM":
+      return d.instead_of_vehicle_id
+        ? `Given car ${s(d.vin)} in the DMS, in place of the car the system had reserved. The allotment was not made here.`
+        : `Car ${s(d.vin)} was allotted to this booking in the DMS without going through the system.`;
     case "ORDER_PLACED":
       return `Order recorded with the manufacturer: ${s(d.quantity)} × ${s(d.model)} ${s(d.variant)}, ${s(d.colour)}.`;
     case "ORDER_UPDATED":

@@ -566,6 +566,23 @@ export async function importStockReport(
       newAllocs.push(allocRecord(r, v, b, wasWaiting));
       bookingStatus.push({ id: b.id, status: wanted, invoiced_at: invoicedAt });
       audits.push({ id: newId("aud"), entity_id: b.id, action: "ALLOCATED", detail: JSON.stringify({ vehicle_id: v.id, vin: r.vin, source: "DMS", stock_type: r.stock_type, rule: opening ? "OPENING_FROM_DMS" : "DMS_ALLOTMENT" }) });
+      // The DMS is the record, so a car can be allotted there directly and this is where we find out.
+      // The system had nothing for this booking and nothing against this car, so the allotment was
+      // made outside it: that is reported at day end rather than quietly taken as our own.
+      //
+      // Only a car reserved and not yet invoiced. The allocation decision is the one this system is
+      // meant to own; a car that arrives already billed was decided and sold before we saw it, which
+      // is ordinary for a booking that never passed through here and is OUTSIDE_ALLOCATION's business
+      // rather than this. Nor on the first stock report, where every allotment pre-dates the system
+      // and flagging all of them would bury the ones that matter from tomorrow on.
+      if (!opening && r.stock_type === "ALLOTED") {
+        audits.push({
+          id: newId("aud"),
+          entity_id: b.id,
+          action: "ALLOTTED_OUTSIDE_SYSTEM",
+          detail: JSON.stringify({ vin: r.vin, booking_no: b.booking_no, vehicle_id: v.id, stock_type: r.stock_type, allotment_id: r.allotment_id, allotment_date: r.allotment_date, report_date: asOf }),
+        });
+      }
       allocatedCars.push(v.id);
       allocByVehicle.set(v.id, { id: "new", booking_id: b.id, vehicle_id: v.id, source: "DMS", dms_confirmed_at: at, booking_no: b.booking_no, booking_status: wanted, booking_source: b.source });
       allocByBooking.set(b.id, allocByVehicle.get(v.id)!);
@@ -590,7 +607,24 @@ export async function importStockReport(
           ...(await alarmStmts(ctx, { kind: "BYPASS", outletId: v.outlet_id, title: "Car given to a different booking in the DMS", body: `${vehicleLabel(v)} (${r.vin}) was reserved for booking ${alloc.booking_no}, but the DMS shows it ${r.stock_type === "IBND" ? "invoiced" : "allotted"} to ${booking.booking_no}. Booking ${alloc.booking_no} is back in the queue with its place kept.`, entityType: "vehicle", entityId: v.id })),
         );
       }
-      if (held) stmts.push(...releaseStmts(uctx, held, "ALLOTTED_ANOTHER_CAR_IN_DMS"));
+      if (held) {
+        // The system had chosen a different car for this booking and the DMS was given another. The
+        // customer is no worse off, but somebody made the choice outside the system, so it is
+        // reported alongside the rest rather than absorbed.
+        stmts.push(...releaseStmts(uctx, held, "ALLOTTED_ANOTHER_CAR_IN_DMS"));
+        if (!opening && r.stock_type === "ALLOTED") {
+          stmts.push(
+            auditStmt(uctx, "ALLOTTED_OUTSIDE_SYSTEM", "booking", booking.id, {
+              vin: r.vin,
+              booking_no: booking.booking_no,
+              vehicle_id: v.id,
+              stock_type: r.stock_type,
+              instead_of_vehicle_id: held.vehicle_id,
+              report_date: asOf,
+            }),
+          );
+        }
+      }
       stmts.push(allocInsert(rec), bookingStatusStmt([{ id: booking.id, status: wanted, invoiced_at: invoicedAt }]), stmt(ctx.db, `UPDATE vehicles SET ever_allocated = 1 WHERE id = ? AND tenant_id = ?`, v.id, ctx.tenantId), auditStmt(uctx, "ALLOCATED", "booking", booking.id, { vehicle_id: v.id, vin: r.vin, source: "DMS", stock_type: r.stock_type, rule: "DMS_ALLOTMENT" }));
       await ctx.db.batch(stmts);
       if (alloc) { allocByBooking.delete(alloc.booking_id); s.orders.bypassed++; }
