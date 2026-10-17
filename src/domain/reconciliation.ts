@@ -133,15 +133,23 @@ export async function runReconciliation(ctx: Ctx, trigger: string): Promise<{ ru
     // Somebody allotted in the DMS directly. The DMS is the record, so the allotment stands and the
     // system has taken it on; what is reported is that it was decided somewhere else, which is the
     // only way anyone finds out.
+    // Three shapes, and they are three different conversations: a decision of ours overturned, a
+    // booking we never had, and a booking that was waiting here and was gone round.
     else if (a.action === "ALLOTTED_OUTSIDE_SYSTEM")
       items.push({
         category: "OUTSIDE_SYSTEM_ALLOTMENT",
         severity: "HIGH",
+        outlet_id: d.outlet_id,
         entity_type: "booking",
         entity_id: a.entity_id,
-        message: d.instead_of_vehicle_id
-          ? `Booking ${d.booking_no} was given chassis ${d.vin} in the DMS, in place of the car the system had reserved for it. The allotment was not made here.`
-          : `Chassis ${d.vin} was allotted to booking ${d.booking_no} in the DMS without going through the system. It now stands as that booking's car.`,
+        message:
+          d.violation === "OVERTURNED"
+            ? d.taken_from_booking_no
+              ? `Chassis ${d.vin} was allocated here to booking ${d.taken_from_booking_no} and the DMS has given it to booking ${d.booking_no} (${d.customer_name}). The allocation this system made was overturned outside it.`
+              : `Booking ${d.booking_no} (${d.customer_name}) was given chassis ${d.vin} in the DMS, in place of the car this system had allocated to it.`
+            : d.violation === "UNKNOWN_BOOKING"
+              ? `Booking ${d.booking_no} (${d.customer_name}) was never in this system and is already allotted chassis ${d.vin} in the DMS.`
+              : `Booking ${d.booking_no} (${d.customer_name}) was waiting in the queue here and was allotted chassis ${d.vin} in the DMS without going through this system.`,
         detail: d,
       });
     else items.push({ category: "OUTSIDE_ALLOCATION", severity: "MEDIUM", entity_type: "booking", entity_id: a.entity_id, message: `Chassis ${d.vin} was invoiced in the DMS to a booking the system had not allocated it to.`, detail: d });

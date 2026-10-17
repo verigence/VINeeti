@@ -622,3 +622,98 @@ export async function moneyFlow(ctx: Ctx, from: string, to: string, outletIds: s
       "Cars the file carries no price for are counted and reported apart, never folded into a total as zero. Demo cars are not stock to sell and are excluded.",
   };
 }
+
+export interface ControlViolation {
+  kind: "OVERTURNED" | "UNKNOWN_BOOKING" | "NOT_THROUGH_SYSTEM";
+  booking_id: string;
+  booking_no: string;
+  customer_name: string;
+  vin: string;
+  /** For an overturned allocation: the booking the car was taken from, or the car it replaced. */
+  taken_from_booking_no: string | null;
+  instead_of_vin: string | null;
+  at: string;
+}
+
+/**
+ * Who allocated what today, and what got round the system.
+ *
+ * The question this answers is the one asked after the evening's files are loaded: how many cars
+ * did this system give out, how many of those has the DMS caught up with, and what was allotted
+ * somewhere else. The DMS is the record, so the last of those is a report rather than a block —
+ * but from the day the dealership puts allocation through this system, it is a violation and the
+ * people who approve a car being taken back are told.
+ *
+ * `confirmed` is not a formality. An allocation this system made is confirmed when a later stock
+ * report shows the DMS agreeing; one that stays unconfirmed is either not yet keyed in or was keyed
+ * in and did not take, and both are the back office's to chase.
+ */
+export async function allocationControl(ctx: Ctx, outletIds: string[] | null, date?: string) {
+  const day = date ?? localParts(ctx.now, ctx.tenant.timezone).date;
+  const { start, end } = localDayBounds(day, ctx.tenant.timezone);
+  const scope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+  const ids = outletIds ?? [];
+
+  const made = await all<{ source: string; allocated_by: string; confirmed: number; n: number }>(
+    ctx.db,
+    `SELECT a.source, a.allocated_by, CASE WHEN a.dms_confirmed_at IS NULL THEN 0 ELSE 1 END AS confirmed, COUNT(*) AS n
+     FROM allocations a JOIN bookings b ON b.id = a.booking_id AND b.tenant_id = a.tenant_id
+     WHERE a.tenant_id = ? AND a.allocated_at >= ? AND a.allocated_at < ? ${scope}
+     GROUP BY a.source, a.allocated_by, confirmed`,
+    ctx.tenantId, start, end, ...ids,
+  );
+  // "By this system" means the queue decided it. An approved request is this system too, but it is a
+  // person's decision carried out here, and the two are worth counting apart.
+  const sum = (p: (r: (typeof made)[number]) => boolean) => made.filter(p).reduce((n, r) => n + r.n, 0);
+  const bySystem = sum((r) => r.source === "SYSTEM");
+  const byRequest = sum((r) => r.source === "EXCEPTION");
+  const fromDms = sum((r) => r.source === "DMS");
+
+  const rows = await all<ControlViolation & { detail_json: string }>(
+    ctx.db,
+    `SELECT l.at, l.entity_id AS booking_id, l.detail_json
+     FROM audit_log l JOIN bookings b ON b.id = l.entity_id AND b.tenant_id = l.tenant_id
+     WHERE l.tenant_id = ? AND l.action = 'ALLOTTED_OUTSIDE_SYSTEM' AND l.at >= ? AND l.at < ? ${scope}
+     ORDER BY l.at`,
+    ctx.tenantId, start, end, ...ids,
+  );
+  const violations: ControlViolation[] = rows.map((r) => {
+    const d = JSON.parse(r.detail_json) as Record<string, string>;
+    return {
+      kind: (d.violation ?? "NOT_THROUGH_SYSTEM") as ControlViolation["kind"],
+      booking_id: r.booking_id,
+      booking_no: d.booking_no,
+      customer_name: d.customer_name,
+      vin: d.vin,
+      taken_from_booking_no: d.taken_from_booking_no ?? null,
+      instead_of_vin: d.instead_of_vin ?? null,
+      at: r.at,
+    };
+  });
+
+  return {
+    date: day,
+    /** The day this dealership put allocation through the system; null while it has not. */
+    controls_from: ctx.settings.allocation_control_from,
+    in_control: Boolean(ctx.settings.allocation_control_from && day >= ctx.settings.allocation_control_from),
+    allocated: {
+      by_system: bySystem,
+      by_approved_request: byRequest,
+      adopted_from_dms: fromDms,
+      total: bySystem + byRequest + fromDms,
+    },
+    /** Of what this system decided, how much the DMS has caught up with. */
+    confirmed_in_dms: sum((r) => r.source !== "DMS" && r.confirmed === 1),
+    awaiting_entry_in_dms: sum((r) => r.source !== "DMS" && r.confirmed === 0),
+    violations: {
+      total: violations.length,
+      overturned: violations.filter((v) => v.kind === "OVERTURNED").length,
+      unknown_booking: violations.filter((v) => v.kind === "UNKNOWN_BOOKING").length,
+      not_through_system: violations.filter((v) => v.kind === "NOT_THROUGH_SYSTEM").length,
+      rows: violations,
+    },
+    source: await dataStatus(ctx),
+    basis:
+      "Allocations are counted by the day they were made, under the outlet of the booking. 'By this system' is the queue's own decision; 'by approved request' is a car moved on a request somebody approved. A violation is an allotment that appears in the DMS without having come through here, counted only from the day the dealership put allocation through this system.",
+  };
+}

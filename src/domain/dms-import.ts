@@ -19,7 +19,7 @@
 // and the same file is sent again to continue.
 
 import type { Ctx } from "../env";
-import { all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
+import { alertStmt, all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
 import { readExport } from "../lib/xlsx";
 import { bad, conflict, HttpError, iso, localParts, newId, norm } from "../lib/util";
 import { dateInFilename, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
@@ -253,6 +253,11 @@ export async function importStockReport(
   const newer = await first<{ report_date: string }>(ctx.db, `SELECT MAX(report_date) AS report_date FROM uploads WHERE tenant_id = ? AND kind = 'STOCK' AND status = 'DONE'`, ctx.tenantId);
   if (newer?.report_date && newer.report_date > asOf) throw bad(`A newer stock report (as on ${newer.report_date}) has already been loaded. This one is as on ${asOf}; loading it would take stock back in time.`, "OLDER_REPORT");
   const opening = !newer?.report_date;
+  // From the day this system controls allocation, an allotment that appears in the DMS without
+  // having come through it is a violation. Before that day -- and while no day is set -- the DMS's
+  // allotments are simply the history of a dealership that was not running on this yet.
+  const control = ctx.settings.allocation_control_from;
+  const controlled = Boolean(control && asOf >= control);
 
   const upload = await startUpload(ctx, "STOCK", opts.continueUpload);
   const uctx: Ctx = { ...ctx, actor: `UPLOAD:${upload.id}` };
@@ -466,6 +471,8 @@ export async function importStockReport(
   const bookingStatus: Record<string, unknown>[] = [];
   const confirms: string[] = [];
   const audits: Record<string, unknown>[] = [];
+  /** Allotments made outside this system, once it is the one in control. */
+  const violations: { kind: "OVERTURNED" | "UNKNOWN_BOOKING" | "NOT_THROUGH_SYSTEM"; booking_id: string; detail: Record<string, unknown> }[] = [];
   const reversedBookings: string[] = [];
   const outOfTurn: string[] = [];
   const allocatedCars: string[] = [];
@@ -568,19 +575,21 @@ export async function importStockReport(
       audits.push({ id: newId("aud"), entity_id: b.id, action: "ALLOCATED", detail: JSON.stringify({ vehicle_id: v.id, vin: r.vin, source: "DMS", stock_type: r.stock_type, rule: opening ? "OPENING_FROM_DMS" : "DMS_ALLOTMENT" }) });
       // The DMS is the record, so a car can be allotted there directly and this is where we find out.
       // The system had nothing for this booking and nothing against this car, so the allotment was
-      // made outside it: that is reported at day end rather than quietly taken as our own.
+      // made outside it: from the day this system controls allocation that is a violation, reported
+      // and put in front of the approvers rather than quietly taken on as our own.
       //
       // Only a car reserved and not yet invoiced. The allocation decision is the one this system is
       // meant to own; a car that arrives already billed was decided and sold before we saw it, which
       // is ordinary for a booking that never passed through here and is OUTSIDE_ALLOCATION's business
-      // rather than this. Nor on the first stock report, where every allotment pre-dates the system
-      // and flagging all of them would bury the ones that matter from tomorrow on.
-      if (!opening && r.stock_type === "ALLOTED") {
-        audits.push({
-          id: newId("aud"),
-          entity_id: b.id,
-          action: "ALLOTTED_OUTSIDE_SYSTEM",
-          detail: JSON.stringify({ vin: r.vin, booking_no: b.booking_no, vehicle_id: v.id, stock_type: r.stock_type, allotment_id: r.allotment_id, allotment_date: r.allotment_date, report_date: asOf }),
+      // rather than this.
+      if (controlled && r.stock_type === "ALLOTED") {
+        violations.push({
+          // Two shapes, and they are not the same conversation. A booking the system never had was
+          // taken and allotted entirely outside it. One the system had, waiting in the queue, was
+          // allotted without being asked — the queue was there and was gone round.
+          kind: b.source === "DMS_STOCK" ? "UNKNOWN_BOOKING" : "NOT_THROUGH_SYSTEM",
+          booking_id: b.id,
+          detail: { vin: r.vin, booking_no: b.booking_no, customer_name: b.customer_name, vehicle_id: v.id, outlet_id: v.outlet_id, allotment_id: r.allotment_id, allotment_date: r.allotment_date, report_date: asOf },
         });
       }
       allocatedCars.push(v.id);
@@ -609,24 +618,20 @@ export async function importStockReport(
       }
       if (held) {
         // The system had chosen a different car for this booking and the DMS was given another. The
-        // customer is no worse off, but somebody made the choice outside the system, so it is
-        // reported alongside the rest rather than absorbed.
+        // customer is no worse off, but a decision this system made was overturned somewhere else.
         stmts.push(...releaseStmts(uctx, held, "ALLOTTED_ANOTHER_CAR_IN_DMS"));
-        if (!opening && r.stock_type === "ALLOTED") {
-          stmts.push(
-            auditStmt(uctx, "ALLOTTED_OUTSIDE_SYSTEM", "booking", booking.id, {
-              vin: r.vin,
-              booking_no: booking.booking_no,
-              vehicle_id: v.id,
-              stock_type: r.stock_type,
-              instead_of_vehicle_id: held.vehicle_id,
-              report_date: asOf,
-            }),
-          );
-        }
       }
       stmts.push(allocInsert(rec), bookingStatusStmt([{ id: booking.id, status: wanted, invoiced_at: invoicedAt }]), stmt(ctx.db, `UPDATE vehicles SET ever_allocated = 1 WHERE id = ? AND tenant_id = ?`, v.id, ctx.tenantId), auditStmt(uctx, "ALLOCATED", "booking", booking.id, { vehicle_id: v.id, vin: r.vin, source: "DMS", stock_type: r.stock_type, rule: "DMS_ALLOTMENT" }));
       await ctx.db.batch(stmts);
+      // Recorded only once the change has actually applied: a batch that failed means the allotment
+      // never happened, and there is nothing to answer for.
+      if (controlled && r.stock_type === "ALLOTED") {
+        const common = { vin: r.vin, booking_no: booking.booking_no, customer_name: booking.customer_name, vehicle_id: v.id, outlet_id: v.outlet_id, report_date: asOf };
+        // A decision this system made, overturned somewhere else — either the car it was holding for
+        // this customer was swapped, or the car it was holding for someone else was taken for them.
+        if (held) violations.push({ kind: "OVERTURNED", booking_id: booking.id, detail: { ...common, instead_of_vehicle_id: held.vehicle_id } });
+        if (alloc) violations.push({ kind: "OVERTURNED", booking_id: booking.id, detail: { ...common, taken_from_booking_no: alloc.booking_no } });
+      }
       if (alloc) { allocByBooking.delete(alloc.booking_id); s.orders.bypassed++; }
       if (held) allocByVehicle.delete(held.vehicle_id);
       const mine: AllocRow = { id: String(rec.id), booking_id: booking.id, vehicle_id: v.id, source: "DMS", dms_confirmed_at: at, booking_no: booking.booking_no, booking_status: wanted, booking_source: booking.source };
@@ -656,6 +661,33 @@ export async function importStockReport(
   if (confirms.length) sync.push(stmt(ctx.db, `UPDATE allocations SET dms_confirmed_at = ?2 WHERE tenant_id = ?1 AND status = 'ACTIVE' AND dms_confirmed_at IS NULL AND id IN (SELECT value FROM json_each(?3))`, ctx.tenantId, at, JSON.stringify(confirms)));
   if (allocatedCars.length) sync.push(stmt(ctx.db, `UPDATE vehicles SET ever_allocated = 1 WHERE tenant_id = ?1 AND id IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(allocatedCars)));
   for (const part of chunk(audits, 300)) sync.push(stmt(ctx.db, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) SELECT ${jx("id")}, ?2, ?3, ${jx("action")}, 'booking', ${jx("entity_id")}, ${jx("detail")}, ?4 FROM json_each(?1) AS j`, JSON.stringify(part), ctx.tenantId, uctx.actor, at));
+  if (violations.length) {
+    // Allotments made outside this system on a day it was the one in control. Each is recorded
+    // against its booking, and the people who approve a car being taken back are told — they are the
+    // ones who would have had to agree to it had it come through here.
+    for (const part of chunk(violations.map((x) => ({ id: newId("aud"), entity_id: x.booking_id, detail: JSON.stringify({ ...x.detail, violation: x.kind }) })), 300)) {
+      sync.push(stmt(ctx.db, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) SELECT ${jx("id")}, ?2, ?3, 'ALLOTTED_OUTSIDE_SYSTEM', 'booking', ${jx("entity_id")}, ${jx("detail")}, ?4 FROM json_each(?1) AS j`, JSON.stringify(part), ctx.tenantId, uctx.actor, at));
+    }
+    const by = (k: string) => violations.filter((x) => x.kind === k).length;
+    const parts = [
+      by("OVERTURNED") && `${by("OVERTURNED")} where a car this system had allocated was given elsewhere`,
+      by("UNKNOWN_BOOKING") && `${by("UNKNOWN_BOOKING")} for a booking this system had never seen`,
+      by("NOT_THROUGH_SYSTEM") && `${by("NOT_THROUGH_SYSTEM")} for a booking that was waiting in the queue here`,
+    ].filter(Boolean);
+    sync.push(
+      ...ctx.settings.release_approver_roles.map((role) =>
+        alertStmt(ctx, {
+          targetRole: role,
+          kind: "OUTSIDE_SYSTEM_ALLOTMENT",
+          title: `${violations.length} car${violations.length === 1 ? "" : "s"} allotted outside the system`,
+          body: `The stock report as on ${asOf} shows ${violations.length} allotment${violations.length === 1 ? "" : "s"} that did not come through this system: ${parts.join("; ")}. They stand in the DMS; the day-end check lists each one.`,
+          entityType: "recon",
+          entityId: upload.id,
+          isAlarm: true,
+        }),
+      ),
+    );
+  }
   if (reversedBookings.length) {
     // The retail invoice was cancelled in the DMS: the booking holds its car again and the payment window restarts.
     sync.push(

@@ -59,6 +59,9 @@ export interface TenantSettings {
   allocate_in_transit: boolean;
   booking_approver_roles: Role[];
   exception_approver_roles: Role[];
+  release_approver_roles: Role[];
+  /** The business date from which this system is the authority for allocation; null while it is not. */
+  allocation_control_from: string | null;
   day_end_time: string;
   in_transit_eta_text: string;
   approval_sla_hours: number;
@@ -677,6 +680,9 @@ export interface RolesResponse {
   permission_labels: Record<string, string>;
   booking_approver_roles: Role[];
   exception_approver_roles: Role[];
+  release_approver_roles: Role[];
+  /** The business date from which this system is the authority for allocation; null while it is not. */
+  allocation_control_from: string | null;
   alarm_roles: Role[];
 }
 

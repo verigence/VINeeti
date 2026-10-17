@@ -325,6 +325,19 @@ function RulesForm({ data, reload }: { data: SettingsResponse; reload: () => Pro
           </fieldset>
         </Card>
 
+        {/* Not a preference. This is the date the dealership stops allotting cars in the DMS by hand,
+            and from which doing so is answerable to somebody. */}
+        <Card
+          title="The system decides who gets a car"
+          note="From the date you give, every car is meant to be given out here. An allotment that turns up in the DMS without having come through is reported at day end and put in front of the approvers for taking a car back. Before that date — and while it is empty — the DMS's allotments are taken on as the history of a dealership that was not running on this yet."
+        >
+          <div className="form-grid form-grid-3">
+            <Field label="System controls allocation from" hint="Leave empty until the dealership is ready. Set it to the day you go live, not to today, or the first days' allotments are reported as if somebody had gone round the system.">
+              <input type="date" value={s.allocation_control_from ?? ""} onChange={(e) => set("allocation_control_from", e.target.value || null)} />
+            </Field>
+          </div>
+        </Card>
+
         <Card title="Hours and messages">
           <div className="form-grid form-grid-3">
             <Field label="Business hours start" hint="Customer reminders and escalations are only sent between these times.">

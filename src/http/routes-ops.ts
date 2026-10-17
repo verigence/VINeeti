@@ -5,7 +5,7 @@ import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, local
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
-import { dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
+import { allocationControl, dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
@@ -152,6 +152,16 @@ export function opsRoutes(app: App) {
     const to = c.req.query("to") ? parseDate(c.req.query("to")) : today;
     if (!from || !to || from > to) throw bad("The period is not valid");
     return c.json(await dailyMovement(ctx, from, to, outletScope(c)));
+  });
+
+  /** Who allocated what, and what got round the system. Defaults to today. */
+  app.get("/api/views/allocation-control", async (c) => {
+    need(c, "dashboards.view");
+    const ctx = c.get("ctx");
+    const q = c.req.query("date");
+    const date = q ? parseDate(q) : undefined;
+    if (q && !date) throw bad("The date is not valid");
+    return c.json(await allocationControl(ctx, outletScope(c), date ?? undefined));
   });
 
   /** A sales executive's own picture. */

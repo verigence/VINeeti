@@ -55,6 +55,13 @@ export interface TenantSettings {
   exception_approver_roles: Role[];
   /** Who may approve taking a car back from the customer holding it. Narrower than the above by default. */
   release_approver_roles: Role[];
+  /**
+   * The business date from which this system is the authority for allocation. From that day on,
+   * every car given to a customer is meant to be given here, and an allotment that appears in the
+   * DMS without having come through is a violation, reported and put in front of the approvers.
+   * Before it -- and while it is unset -- the DMS's allotments are simply history to be taken on.
+   */
+  allocation_control_from: string | null;
   /** Local time (HH:MM) at which the day-end reconciliation runs. */
   day_end_time: string;
   /** Text used in the in-transit message when the car has no expected arrival date. */
@@ -95,6 +102,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD"],
   exception_approver_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
   release_approver_roles: ["VP", "BUSINESS_HEAD"],
+  allocation_control_from: null,
   day_end_time: "21:00",
   in_transit_eta_text: "10-15 days",
   approval_sla_hours: 24,
@@ -139,7 +147,7 @@ const LABELS: Record<string, string> = {
   reminder_days: "Reminder day", escalation_days: "Escalation day", reallocate_days: "Re-allocation day", approval_sla_hours: "Approval time limit (hours)",
   min_booking_amount: "Minimum booking amount", business_hours_from: "Business hours start", business_hours_to: "Business hours end",
   required_documents: "Booking checklist", data_stale_days: "DMS files expected every (days)", payment_verify_hours: "Time for Finance to verify a payment (hours)", alarm_roles: "Alarm recipients", outlet_scope: "Outlet reach", queue_order: "Queue order", car_order: "Car order", booking_approver_roles: "Booking approvers",
-  exception_approver_roles: "Exception approvers", release_approver_roles: "Approvers for taking a car back", day_end_time: "Day-end time",
+  exception_approver_roles: "Exception approvers", release_approver_roles: "Approvers for taking a car back", allocation_control_from: "System controls allocation from", day_end_time: "Day-end time",
 };
 
 /** Validates a settings patch. `outletIds`, when given, are the dealership's outlets, used to check the nearby-outlet lists. */
@@ -220,6 +228,12 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
     const v = patch[k] as unknown[];
     if (!Array.isArray(v) || v.length === 0 || v.some((r) => !ROLES.includes(r as Role))) throw new Error(`${LABELS[k]} must name at least one role`);
     next[k] = v as Role[];
+  }
+  if (patch.allocation_control_from !== undefined) {
+    const v = patch.allocation_control_from;
+    if (v === null || v === "") next.allocation_control_from = null;
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Error("System controls allocation from must be a date such as 2026-11-01");
+    else next.allocation_control_from = String(v);
   }
   if (patch.day_end_time !== undefined) {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(patch.day_end_time))) throw new Error("Day-end time must be a time such as 21:00");
