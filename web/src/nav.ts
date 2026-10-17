@@ -21,7 +21,7 @@ export interface Destination {
   admin?: true;
 }
 
-export const canApprove = (can: Can) => can("booking.approve") || can("exception.decide");
+export const canApprove = (can: Can) => can("booking.approve") || can("exception.decide") || can("release.decide");
 export const canLoadFiles = (can: Can) => can("upload.stock") || can("upload.bookings");
 export const canSeePayments = (can: Can) => can("booking.payment") || can("booking.view_all");
 
@@ -35,6 +35,9 @@ export const DESTINATIONS: Destination[] = [
   { to: "/stock", label: "Stock", icon: "car", allowed: (can) => can("stock.view") },
   { to: "/bookings", label: "Bookings", icon: "bookings", allowed: (can) => can("booking.view") },
   { to: "/approvals", label: "Approvals", icon: "approvals", allowed: canApprove, badge: "approvals" },
+  // Allocation by hand is closed, so this is the one place a held car changes hands. It sits beside
+  // Approvals because that is where it ends up.
+  { to: "/take-car-back", label: "Take a car back", icon: "approvals", allowed: (can) => can("exception.request") },
   { to: "/payments", label: "Payments", icon: "payments", allowed: canSeePayments },
   { to: "/owner", label: "Owner's view", icon: "owner", allowed: (can) => can("owner.view") },
   { to: "/dashboards", label: "Day's work", icon: "dashboards", allowed: (can) => can("dashboards.view") },

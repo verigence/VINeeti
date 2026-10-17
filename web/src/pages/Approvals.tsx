@@ -16,7 +16,7 @@ export function ApprovalsPage() {
     <>
       <PageHeader title="Approvals" subtitle="Bookings and special requests waiting for a decision. You cannot decide something you created or raised yourself." />
       {can("booking.approve") && <BookingApprovals />}
-      {(can("exception.decide") || can("exception.request")) && <ExceptionApprovals />}
+      {(can("exception.decide") || can("release.decide") || can("exception.request")) && <ExceptionApprovals />}
     </>
   );
 }

@@ -31,7 +31,7 @@ export function Shell() {
     else setAlerts((a) => ({ rows: a.rows, loading: false, error: errorMessage(rows.reason) }));
     if (overview.status === "fulfilled" && overview.value) {
       const o = overview.value;
-      setPending((can("booking.approve") ? o.bookings.awaiting_approval : 0) + (can("exception.decide") ? o.approvals.exceptions_pending : 0));
+      setPending((can("booking.approve") ? o.bookings.awaiting_approval : 0) + (can("exception.decide") || can("release.decide") ? o.approvals.exceptions_pending : 0));
     }
   }, [approver, can]);
 

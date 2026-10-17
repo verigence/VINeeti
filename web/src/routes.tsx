@@ -20,6 +20,7 @@ import { MasterPage } from "./pages/Master";
 import { OwnerPage } from "./pages/Owner";
 import { PaymentsPage } from "./pages/Payments";
 import { ReconDetailPage, ReconPage } from "./pages/Recon";
+import { TakeCarBackPage } from "./pages/TakeCarBack";
 import { StockPage } from "./pages/Stock";
 import { VehicleDetailPage } from "./pages/VehicleDetail";
 import { WhatsAppPage } from "./pages/WhatsApp";
@@ -63,6 +64,7 @@ const ROUTES: Route[] = [
   { path: "/bookings/:id", allowed: (can) => can("booking.view"), render: (p) => <BookingDetailPage key={p.id} id={p.id} /> },
 
   { path: "/approvals", allowed: canApprove, render: () => <ApprovalsPage /> },
+  { path: "/take-car-back", allowed: (can) => can("exception.request"), render: () => <TakeCarBackPage /> },
 
   { path: "/payments", allowed: canSeePayments, render: () => <PaymentsPage /> },
 

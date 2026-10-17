@@ -7,7 +7,7 @@ import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { Button, Field, Loading, Notice, RadioGroup, Select, StatusChip } from "../components/ui";
 import { addDays, fmtDate, fmtDateTime, today, zonedToIso } from "../format";
 import { useAction, useLoad } from "../hooks";
-import { EXCEPTION_HELP, exceptionDetail, exceptionStatus, exceptionType, plainText, vehicleStatus } from "../labels";
+import { EXCEPTION_HELP, exceptionDetail, exceptionStatus, exceptionType, plainText } from "../labels";
 import { Link } from "../router";
 import { useSession } from "../session";
 import type { Booking, ExceptionInput, ExceptionRow, ExceptionType } from "../types";
@@ -61,7 +61,9 @@ export function ExceptionItem({ e, showBooking, onChanged }: { e: ExceptionRow; 
           {e.decision_remarks}
         </p>
       )}
-      {e.status === "PENDING" && can("exception.decide") && (
+      {/* Taking a car back answers to its own, narrower list of approvers, so the buttons follow the
+          type rather than one blanket permission. */}
+      {e.status === "PENDING" && can(e.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide") && (
         <div className="request-actions">
           <Button size="sm" variant="primary" onClick={() => setDecision("approve")}>
             Approve
@@ -121,7 +123,6 @@ type RaiseBooking = Pick<Booking, "id" | "booking_no" | "status" | "model" | "va
 export function RaiseRequestDialog({ booking, hasAllocation, onClose, onDone }: { booking: RaiseBooking; hasAllocation: boolean; onClose: () => void; onDone: () => void }) {
   const action = useAction();
   const types: ExceptionType[] = ["PRIORITY_CHANGE", "SKIP_ALLOCATION", "DEFER_DELIVERY", "OUTLET_CHANGE"];
-  if (["APPROVED", "ALLOCATED"].includes(booking.status)) types.push("MANUAL_ALLOCATION");
   if (hasAllocation) types.push("WINDOW_EXTENSION");
   types.push("OTHER");
 
@@ -133,7 +134,6 @@ export function RaiseRequestDialog({ booking, hasAllocation, onClose, onDone }: 
   const [priorityTime, setPriorityTime] = useState("09:00");
   const [until, setUntil] = useState("");
   const [outletId, setOutletId] = useState("");
-  const [vehicleId, setVehicleId] = useState("");
   const [days, setDays] = useState("2");
   const [problem, setProblem] = useState<string | null>(null);
   const tomorrow = addDays(today(), 1);
@@ -159,9 +159,6 @@ export function RaiseRequestDialog({ booking, hasAllocation, onClose, onDone }: 
     } else if (type === "OUTLET_CHANGE") {
       if (!outletId) return setProblem("Choose the outlet to move the booking to.");
       input.payload = { outlet_id: outletId };
-    } else if (type === "MANUAL_ALLOCATION") {
-      if (!vehicleId) return setProblem("Choose the car to allocate.");
-      input.vehicle_id = vehicleId;
     } else if (type === "WINDOW_EXTENSION") {
       const n = Number(days);
       if (!Number.isInteger(n) || n < 1 || n > 30) return setProblem("The extension must be a whole number of days between 1 and 30.");
@@ -241,7 +238,6 @@ export function RaiseRequestDialog({ booking, hasAllocation, onClose, onDone }: 
           </Field>
         )}
         {type === "OUTLET_CHANGE" && <OutletPicker currentOutletId={booking.outlet_id} value={outletId} onChange={setOutletId} />}
-        {type === "MANUAL_ALLOCATION" && <FreeCarPicker booking={booking} value={vehicleId} onChange={setVehicleId} />}
         {type === "WINDOW_EXTENSION" && (
           <Field label="Extra days to pay" hint="Between 1 and 30. The reminder, escalation and re-allocation dates all move by this many days.">
             <input type="number" min={1} max={30} step={1} value={days} onChange={(e) => setDays(e.target.value)} inputMode="numeric" />
@@ -287,29 +283,5 @@ function OutletPicker({ currentOutletId, value, onChange }: { currentOutletId: s
     <Field label="Move the booking to">
       <Select value={value} onChange={onChange} options={options} placeholder="Choose an outlet" />
     </Field>
-  );
-}
-
-function FreeCarPicker({ booking, value, onChange }: { booking: RaiseBooking; value: string; onChange: (v: string) => void }) {
-  const load = useLoad(() => api.vehicles({ model: booking.model, variant: booking.variant, colour: booking.colour, commitment: "FREE" }), `free:${booking.model}|${booking.variant}|${booking.colour}`);
-  if (load.loading) return <Loading label="Loading free cars" />;
-  if (load.data === undefined) return <Notice tone="error">{load.error ?? "Could not load the free cars."}</Notice>;
-  if (!load.data.length) return <Notice tone="warn">No free car of this model, variant and colour is in the yard or in transit, so there is nothing to allocate manually.</Notice>;
-  return (
-    <fieldset className="radio-group">
-      <legend className="field-label">Car to allocate</legend>
-      {load.data.map((v) => (
-        <label key={v.id} className="check">
-          <input type="radio" name="free-car" checked={value === v.id} onChange={() => onChange(v.id)} />
-          <span>
-            <span className="mono">{v.vin}</span>
-            <span className="hint">
-              {vehicleStatus(v.status).text} at {v.outlet}
-              {v.status === "IN_TRANSIT" ? (v.expected_arrival_date ? `, expected ${fmtDate(v.expected_arrival_date)}` : ", no arrival date yet") : ""}
-            </span>
-          </span>
-        </label>
-      ))}
-    </fieldset>
   );
 }
