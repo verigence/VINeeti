@@ -71,6 +71,7 @@ const ROUTES: Route[] = [
   { path: "/owner", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="overview" /> },
   { path: "/owner/out-of-turn", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="out-of-turn" /> },
   { path: "/owner/measures", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="measures" /> },
+  { path: "/owner/money", allowed: (can) => can("owner.view") && can("stock.value"), render: () => <OwnerPage tab="money" /> },
 
   { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <BoardPage /> },
   { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
@@ -87,6 +88,7 @@ const ROUTES: Route[] = [
   { path: "/analytics/changed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="changed" /> },
   { path: "/analytics/control", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="control" /> },
   { path: "/analytics/writeback", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="writeback" /> },
+  { path: "/analytics/business", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="business" /> },
   { path: "/analytics/stock-days", allowed: (can) => can("stock.view"), render: () => <AnalyticsPage tab="stock-days" /> },
   { path: "/eod", allowed: canEod, render: () => <EodPage /> },
   // The earlier "Data upload" address still works.
@@ -106,6 +108,7 @@ const ROUTES: Route[] = [
   { path: "/admin/roles", allowed: canAdmin, render: () => <AdminPage tab="roles" /> },
   { path: "/admin/outlets", allowed: (can) => can("admin.users"), render: () => <AdminPage tab="outlets" /> },
   { path: "/admin/rules", allowed: (can) => can("admin.settings"), render: () => <AdminPage tab="rules" /> },
+  { path: "/admin/health", allowed: (can) => can("admin.settings"), render: () => <AdminPage tab="health" /> },
 
   { path: "/audit", allowed: (can) => can("audit.view"), render: () => <AuditPage /> },
 ];

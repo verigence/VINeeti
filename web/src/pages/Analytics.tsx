@@ -7,10 +7,11 @@ import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural, today } from "../for
 import { useLoad } from "../hooks";
 import { Link } from "../router";
 import { useSession } from "../session";
+import { BusinessTab } from "./Insights";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
 import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow, WritebackRow } from "../types";
 
-type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "writeback" | "stock-days";
+type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "writeback" | "business" | "stock-days";
 
 export function AnalyticsPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -22,6 +23,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
     { to: "/analytics/allocations", label: "Allocations by day" },
     ...(can("booking.view_all") ? [{ to: "/analytics/control", label: "Who allocated" }] : []),
     { to: "/analytics/writeback", label: "To update in DMS" },
+    ...(can("booking.view_all") ? [{ to: "/analytics/business", label: "Business health (new)" }] : []),
     { to: "/analytics/stock-days", label: "Stock by day" },
   ];
   return (
@@ -36,6 +38,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
       {tab === "allocations" && <Allocations />}
       {tab === "control" && <Control />}
       {tab === "writeback" && <Writeback />}
+      {tab === "business" && <BusinessTab />}
       {tab === "stock-days" && <StockDays />}
     </>
   );

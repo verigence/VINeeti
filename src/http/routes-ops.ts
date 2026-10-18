@@ -7,6 +7,7 @@ import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
 import { dmsWriteback, writebackXlsx } from "../domain/dms-writeback";
+import { businessHealth, ownerMoney, systemHealth } from "../domain/insights";
 import { allocationControl, dailyDelta, dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
@@ -67,6 +68,27 @@ export function opsRoutes(app: App) {
     if (to > today) throw bad("The period cannot end in the future");
     return { from, to };
   };
+  // ---------------------------------------------------------------- the three insight views
+  /** What the cars earned: revenue, margin against what each chassis cost, discounts and attachments. */
+  app.get("/api/insights/money", async (c) => {
+    need(c, "owner.view");
+    need(c, "stock.value");
+    return c.json(await ownerMoney(c.get("ctx"), outletScope(c), periodOf(c, 30)));
+  });
+
+  /** The funnel, the queue and who is selling what. */
+  app.get("/api/insights/business", async (c) => {
+    need(c, "dashboards.view");
+    need(c, "booking.view_all");
+    return c.json(await businessHealth(c.get("ctx"), outletScope(c), periodOf(c, 30)));
+  });
+
+  /** Whether the files arrive, the approvals get answered and allocation goes through the system. */
+  app.get("/api/insights/system", async (c) => {
+    need(c, "admin.settings");
+    return c.json(await systemHealth(c.get("ctx"), periodOf(c, 30)));
+  });
+
   /**
    * What the DMS has not been told yet: every car this system and the DMS disagree about, with the
    * action that settles it. `format=xlsx` is the same list as a sheet for the person keying it in.

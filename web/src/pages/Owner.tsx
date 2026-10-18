@@ -12,12 +12,14 @@ import { plainText } from "../labels";
 import { canSeePayments } from "../nav";
 import { Link } from "../router";
 import { useSession } from "../session";
+import { MoneyTab } from "./Insights";
 import { Chart, PALETTE } from "../components/Chart";
 import type { AtRiskRow, Measure, OutOfTurnRow, OwnerView } from "../types";
 
-type Tab = "overview" | "out-of-turn" | "measures";
+type Tab = "overview" | "out-of-turn" | "measures" | "money";
 
 export function OwnerPage({ tab }: { tab: Tab }) {
+  const { can } = useSession();
   return (
     <>
       <PageHeader title="Owner's view" subtitle="Who is waiting, which cars nobody has taken, and anything given out of turn." />
@@ -27,11 +29,15 @@ export function OwnerPage({ tab }: { tab: Tab }) {
           { to: "/owner", label: "Overview" },
           { to: "/owner/out-of-turn", label: "Out-of-turn allocations" },
           { to: "/owner/measures", label: "Measures" },
+          // What the cars earned. Needs the right to see what stock is worth, because it is built on
+          // what each chassis cost.
+          ...(can("stock.value") ? [{ to: "/owner/money", label: "Money and margin (new)" }] : []),
         ]}
       />
       {tab === "overview" && <Overview />}
       {tab === "out-of-turn" && <OutOfTurn />}
       {tab === "measures" && <Measures />}
+      {tab === "money" && <MoneyTab />}
     </>
   );
 }

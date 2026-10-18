@@ -506,6 +506,61 @@ export interface HeldCar {
  * Why a car may be taken back, and what that choice has to bring with it. Served by the API rather
  * than written here, so the form cannot drift from the rule it is collecting for.
  */
+/** Kept in step with src/domain/insights.ts. */
+export interface MoneyDay { date: string; invoices: number; revenue: number; margin: number; margin_cars: number }
+export interface ModelMoney {
+  model: string; invoices: number; revenue: number; avg_selling: number;
+  avg_cost: number | null; avg_margin: number | null; margin_pct: number | null; margin_cars: number;
+  dealer_discount: number; oem_discount: number;
+}
+export interface Unclaimed { invoice_no: string; invoice_date: string | null; customer_name: string; vin: string; model: string; amount: number }
+export interface OwnerMoney {
+  period: { from: string; to: string };
+  previous: { revenue: number; invoices: number; margin: number };
+  totals: {
+    invoices: number; revenue: number; selling: number; avg_selling: number | null;
+    margin: number; margin_cars: number; margin_pct: number | null; cost_known_pct: number | null;
+    dealer_discount: number; oem_discount: number; unclaimed: number; unclaimed_cars: number;
+  };
+  attached: {
+    financed: number; dealer_arranged: number; insured: number; exchanged: number;
+    finance_pct: number | null; dealer_finance_pct: number | null; insurance_pct: number | null; exchange_pct: number | null; insurance_amount: number;
+  };
+  delivery: { invoiced: number; delivered: number; median_days: number | null; over_a_week: number };
+  days: MoneyDay[];
+  models: ModelMoney[];
+  unclaimed_list: Unclaimed[];
+  claims_not_stated: boolean;
+  basis: string;
+}
+export interface FunnelDay { date: string; booked: number; allocated: number; invoiced: number; delivered: number; cancelled: number; queue: number }
+export interface ConsultantRow {
+  name: string; code: string | null; bookings: number; invoiced: number; cancelled: number; cancel_pct: number | null;
+  revenue: number; avg_dealer_discount: number | null; financed_pct: number | null; insured_pct: number | null;
+}
+export interface BusinessHealth {
+  period: { from: string; to: string };
+  totals: {
+    booked: number; cancelled: number; cancel_pct: number | null; invoiced: number; delivered: number;
+    queue_start: number; queue_end: number; median_days_to_allocate: number | null; median_days_to_invoice: number | null;
+  };
+  days: FunnelDay[];
+  cancel_reasons: { reason: string; n: number }[];
+  consultants: ConsultantRow[];
+  basis: string;
+}
+export interface LoadDay { date: string; stock: number; bookings: number; retail: number; errors: number }
+export interface SystemHealth {
+  period: { from: string; to: string };
+  files: { expected_days: number; days_with_stock: number; days_with_bookings: number; days_with_retail: number; error_rows: number; days: LoadDay[] };
+  control: { from: string | null; decided_here: number; made_in_dms: number; through_system_pct: number | null; refused: number; violations: number };
+  approvals: { open: number; oldest_days: number | null; decided: number; median_hours: number | null };
+  people: { users: number; active_30: number; idle: number; by_role: { role: string; n: number; active_30: number }[] };
+  messages: { sent: number; failed: number; queued: number } | null;
+  quality: { issue: string; cars: number }[];
+  basis: string;
+}
+
 /** Kept in step with Writeback in src/domain/dms-writeback.ts. */
 export interface WritebackRow {
   action: "ALLOT" | "REMOVE_ALLOTMENT";

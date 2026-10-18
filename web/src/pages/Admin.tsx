@@ -7,10 +7,11 @@ import { fmtMobile, fmtNumber, plural } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { plainText } from "../labels";
 import { useSession } from "../session";
+import { SystemTab } from "./Insights";
 import type { EmployeeImportResult, Outlet, Role, RoleInfo, RolesResponse, UserInput, UserRow } from "../types";
 import { RulesTab } from "./AdminRules";
 
-type Tab = "outlets" | "users" | "roles" | "rules";
+type Tab = "outlets" | "users" | "roles" | "rules" | "health";
 
 export function AdminPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -19,6 +20,7 @@ export function AdminPage({ tab }: { tab: Tab }) {
     { to: "/admin/roles", label: "Roles and controls" },
     ...(can("admin.users") ? [{ to: "/admin/outlets", label: "Outlets" }] : []),
     ...(can("admin.settings") ? [{ to: "/admin/rules", label: "Rules and settings" }] : []),
+    ...(can("admin.settings") ? [{ to: "/admin/health", label: "System health (new)" }] : []),
   ];
   return (
     <>
@@ -28,6 +30,7 @@ export function AdminPage({ tab }: { tab: Tab }) {
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
       {tab === "rules" && <RulesTab />}
+      {tab === "health" && <SystemTab />}
     </>
   );
 }
