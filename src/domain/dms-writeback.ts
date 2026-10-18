@@ -18,7 +18,7 @@
 
 import type { Ctx } from "../env";
 import { all } from "../lib/db";
-import { buildXlsx } from "../lib/xlsx";
+import { buildWorkbook } from "../lib/xlsx";
 import { formatDate } from "./allocation";
 import { releaseWords } from "./release-reasons";
 
@@ -51,10 +51,14 @@ export interface WritebackRow {
   dms_ref: string | null;
   customer_name: string;
   outlet: string;
+  /** The DMS's own Dealer Location Code, which is what its upload wants rather than the name. */
+  outlet_code: string;
   vin: string;
   model: string;
   variant: string;
   colour: string;
+  /** The DMS's Model Description for the car, exactly as its stock report writes it. */
+  description: string;
   /** Where the car physically is, which is not always the booking's outlet. */
   vehicle_outlet: string;
   /** What the DMS currently shows this car against, when that is the disagreement. */
@@ -89,11 +93,13 @@ interface Raw {
   dms_ref: string | null;
   customer_name: string;
   outlet: string;
+  outlet_code: string;
   vehicle_outlet: string;
   vin: string;
   model: string;
   variant: string;
   colour: string;
+  description: string | null;
   decided_at: string;
   release_reason: string | null;
   source: string;
@@ -128,8 +134,8 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
   const pending = await all<Raw>(
     ctx.db,
     `SELECT a.id AS allocation_id, a.booking_id, b.booking_no, b.dms_ref, b.customer_name,
-            o.name AS outlet, vo.name AS vehicle_outlet,
-            v.vin, v.model, v.variant, v.colour, v.dms_booking_no, v.dms_stock_type,
+            o.name AS outlet, o.code AS outlet_code, vo.name AS vehicle_outlet,
+            v.vin, v.model, v.variant, v.colour, v.description, v.dms_booking_no, v.dms_stock_type,
             a.allocated_at AS decided_at, NULL AS release_reason, a.source, a.type, a.out_of_turn,
             NULL AS released_to_booking_id, NULL AS released_to_booking_no,
             u.name AS approver, a.exception_id
@@ -140,10 +146,13 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
        JOIN outlets vo ON vo.id = v.outlet_id
        LEFT JOIN exceptions e ON e.id = a.exception_id
        LEFT JOIN users u ON u.id = e.decided_by
-      WHERE a.tenant_id = ?1 AND a.status = 'ACTIVE' AND a.source <> 'DMS'
+      WHERE a.tenant_id = ?1 AND a.status = 'ACTIVE'
         -- The DMS does not show this car against this booking. Blank covers a car the DMS has as
-        -- free stock; a different number covers one it has against somebody else, which is a
-        -- disagreement the back office has to look at rather than key in blind.
+        -- free stock; a different number covers one the DMS has moved to somebody else, which under
+        -- this system's authority over allocation is the DMS being out of step, not a decision.
+        --
+        -- Where the allotment originally came from does not matter. An allocation this system holds
+        -- is the allocation, so one the DMS made and has since moved still has to be put back.
         AND (v.dms_booking_no IS NULL OR v.dms_booking_no <> b.booking_no)${scoped(outletIds, "b.outlet_id")}
       ORDER BY a.allocated_at`,
     ...params,
@@ -152,8 +161,8 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
   const toRemove = await all<Raw>(
     ctx.db,
     `SELECT a.id AS allocation_id, a.booking_id, b.booking_no, b.dms_ref, b.customer_name,
-            o.name AS outlet, vo.name AS vehicle_outlet,
-            v.vin, v.model, v.variant, v.colour, v.dms_booking_no, v.dms_stock_type,
+            o.name AS outlet, o.code AS outlet_code, vo.name AS vehicle_outlet,
+            v.vin, v.model, v.variant, v.colour, v.description, v.dms_booking_no, v.dms_stock_type,
             a.released_at AS decided_at, a.release_reason, a.source, a.type, a.out_of_turn,
             a.released_to_booking_id, tb.booking_no AS released_to_booking_no,
             u.name AS approver, a.exception_id
@@ -183,10 +192,12 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
       dms_ref: r.dms_ref,
       customer_name: r.customer_name,
       outlet: r.outlet,
+      outlet_code: r.outlet_code,
       vin: r.vin,
       model: r.model,
       variant: r.variant,
       colour: r.colour,
+      description: r.description ?? `${r.model} ${r.variant}`,
       vehicle_outlet: r.vehicle_outlet,
       dms_shows: `Allotted to ${r.booking_no}`,
       decided_at: r.decided_at,
@@ -202,11 +213,14 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
   const beingFreed = new Map<string, Set<string>>();
   for (const r of rows) (beingFreed.get(r.vin) ?? beingFreed.set(r.vin, new Set()).get(r.vin)!).add(r.booking_no);
 
-  // Anything else the DMS holds for another order is not a missing entry. Telling the back office to
-  // allot it anyway would have them overwrite a live allotment on somebody else's customer, off a
-  // sheet that gave them no reason to doubt it. It is counted and named, and left off the work list.
+  // A car the DMS shows allotted to another order is not a conflict: allocation is this system's
+  // decision and the DMS is simply out of step, so putting it back is the whole point of this sheet.
+  //
+  // One case cannot be put back. A car the DMS has already invoiced to another order has been sold:
+  // there is a customer with paperwork and most likely the car. Loading a line that reverses that
+  // would undo a completed sale off a spreadsheet, so those are named for the approvers instead.
   const conflicts = pending
-    .filter((r) => r.dms_booking_no && r.dms_booking_no !== r.booking_no && !beingFreed.get(r.vin)?.has(r.dms_booking_no))
+    .filter((r) => r.dms_stock_type === "IBND" && r.dms_booking_no && r.dms_booking_no !== r.booking_no)
     .map((r) => ({ booking_no: r.booking_no, customer_name: r.customer_name, vin: r.vin, dms_booking_no: r.dms_booking_no as string }));
   const conflicted = new Set(conflicts.map((c) => `${c.vin}:${c.booking_no}`));
 
@@ -220,14 +234,21 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
       dms_ref: r.dms_ref,
       customer_name: r.customer_name,
       outlet: r.outlet,
+      outlet_code: r.outlet_code,
       vin: r.vin,
       model: r.model,
       variant: r.variant,
       colour: r.colour,
+      description: r.description ?? `${r.model} ${r.variant}`,
       vehicle_outlet: r.vehicle_outlet,
-      // Where the car is coming off another booking on this same sheet, say so: the operator needs
-      // to know the allotment is not free until they have done the line above.
-      dms_shows: r.dms_booking_no ? `Allotted to ${r.dms_booking_no}, removed above` : r.dms_stock_type === "IBND" ? "Invoiced" : "Free stock",
+      // What the DMS has against this car right now, which is what the upload has to overwrite.
+      // Where it is coming off another booking on this same sheet, say so: the operator needs to
+      // know the allotment is not free until the line above has gone in.
+      dms_shows: r.dms_booking_no
+        ? `Allotted to ${r.dms_booking_no}${beingFreed.get(r.vin)?.has(r.dms_booking_no) ? ", removed above" : ""}`
+        : r.dms_stock_type === "IBND"
+          ? "Invoiced"
+          : "Free stock",
       decided_at: r.decided_at,
       reason: r.source === "EXCEPTION" ? "By approved request" : r.out_of_turn ? "Allocated by the queue (out of turn)" : "Allocated by the queue",
       by: r.approver ?? "",
@@ -248,53 +269,82 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
     basis:
       "Every car this system and the DMS do not agree about, compared against the latest stock report loaded. " +
       "Allotments the DMS made itself are not listed; nor are releases the DMS already knows about, such as a car that left stock or was allotted elsewhere there. " +
-      "A car the DMS holds for another order is left off as well, and counted separately: that is a conflict to settle, not an entry to key in. " +
+      "A car the DMS has already invoiced to another order is left off and counted separately: that sale has happened and is not reversed from a spreadsheet. " +
       "A line disappears from this list when a stock report shows the DMS agreeing, so nothing has to be ticked off by hand.",
   };
 }
 
-const HEADINGS = [
-  "Action", "What to do", "DMS booking number", "Booking number", "Customer", "Outlet",
-  "Chassis (VIN)", "Model", "Variant", "Colour", "Car is at", "DMS currently shows",
-  "Decided on", "Why", "Approved by", "Then", "Days waiting",
+/**
+ * The upload file.
+ *
+ * Two tabs, one kind of row each, in the DMS's own column names -- "Order ID", "Chassis Number",
+ * "Dealer Location Code" are what its stock report calls these things, so a row maps onto a DMS
+ * screen without anybody translating. A single tab with an action column reads well to a person and
+ * is useless to an importer, which is what this file is for.
+ *
+ * A third tab carries the reason, the approver and the request behind every line, because an upload
+ * that changes who gets a car should not arrive at the DMS with no account of why.
+ */
+const ALLOT_HEADINGS = ["Dealer Location Code", "Order ID", "Chassis Number", "VIN", "Allotment Date", "Customer Name", "Model Description"];
+const REMOVE_HEADINGS = ["Dealer Location Code", "Order ID", "Chassis Number", "VIN", "Release Date", "Customer Name", "Model Description"];
+const AUDIT_HEADINGS = [
+  "Action", "Order ID", "Booking Number", "Customer Name", "Chassis Number", "Model", "Variant", "Colour",
+  "Outlet", "Car is at", "DMS currently shows", "Decided on", "Why", "Approved by", "Then", "Days waiting",
 ];
 
-/** The same list as a spreadsheet, for the person keying it into the DMS. */
+const day = (at: string) => at.slice(0, 10);
+
+/** The same decisions as a workbook the DMS can take, with the account of them beside it. */
 export function writebackXlsx(w: Writeback, dealer: string): Uint8Array {
-  const when = (at: string) => formatDate(at.slice(0, 10));
-  const rows: (string | number)[][] = [
-    [`${dealer} — changes to key into the DMS`],
-    [`As on ${formatDate(w.generated_at.slice(0, 10))} · ${w.totals.remove} allotment(s) to remove, ${w.totals.allot} to make`],
-    [w.basis],
-    [],
-    ...(w.conflicts.length
-      ? [
-          [`Not on this list: ${w.conflicts.length} car(s) the DMS holds for another order. Keying these in would overwrite a live allotment, so they are for someone to settle, not to key.`],
-          ...w.conflicts.map((c) => [`  ${c.vin} — held here for ${c.booking_no} (${c.customer_name}), allotted in the DMS to ${c.dms_booking_no}`]),
-          [],
-        ]
-      : []),
-    HEADINGS,
-    ...w.rows.map((r) => [
-      r.action === "ALLOT" ? "Allot" : "Remove allotment",
-      r.instruction,
-      r.booking_no,
-      r.dms_ref ?? "",
-      r.customer_name,
-      r.outlet,
-      r.vin,
-      r.model,
-      r.variant,
-      r.colour,
-      r.vehicle_outlet,
-      r.dms_shows ?? "",
-      when(r.decided_at),
-      r.reason,
-      r.by,
-      r.paired_with ?? "",
-      r.days_waiting,
-    ]),
-  ];
-  if (!w.rows.length) rows.push(["Nothing to key in: the DMS agrees with this system about every car."]);
-  return buildXlsx("To update in DMS", rows, [18, 46, 20, 18, 26, 18, 22, 16, 28, 20, 18, 24, 14, 30, 20, 28, 12]);
+  const allot = w.rows.filter((r) => r.action === "ALLOT");
+  const remove = w.rows.filter((r) => r.action === "REMOVE_ALLOTMENT");
+  const widths = [22, 20, 22, 22, 16, 28, 44];
+  return buildWorkbook([
+    {
+      name: "Allot",
+      rows: [ALLOT_HEADINGS, ...allot.map((r) => [r.outlet_code, r.booking_no, r.vin, r.vin, day(r.decided_at), r.customer_name, r.description])],
+      widths,
+    },
+    {
+      name: "Remove allotment",
+      rows: [REMOVE_HEADINGS, ...remove.map((r) => [r.outlet_code, r.booking_no, r.vin, r.vin, day(r.decided_at), r.customer_name, r.description])],
+      widths,
+    },
+    {
+      name: "Why",
+      rows: [
+        [`${dealer} — allocation decisions to load into the DMS`],
+        [`As on ${formatDate(day(w.generated_at))} · ${remove.length} allotment(s) to remove, ${allot.length} to make`],
+        [w.basis],
+        [],
+        AUDIT_HEADINGS,
+        ...w.rows.map((r) => [
+          r.action === "ALLOT" ? "Allot" : "Remove allotment",
+          r.booking_no,
+          r.dms_ref ?? "",
+          r.customer_name,
+          r.vin,
+          r.model,
+          r.variant,
+          r.colour,
+          r.outlet,
+          r.vehicle_outlet,
+          r.dms_shows ?? "",
+          formatDate(day(r.decided_at)),
+          r.reason,
+          r.by,
+          r.paired_with ?? "",
+          r.days_waiting,
+        ]),
+        ...(w.conflicts.length
+          ? [
+              [],
+              [`Not in the upload: ${w.conflicts.length} car(s) the DMS has already invoiced or delivered to another order. Those sales stand; they are raised to the VP instead.`],
+              ...w.conflicts.map((c) => [`  ${c.vin} — allocated here to ${c.booking_no} (${c.customer_name}), ${c.dms_booking_no} in the DMS`]),
+            ]
+          : []),
+      ],
+      widths: [18, 20, 18, 26, 22, 16, 28, 20, 18, 18, 26, 14, 30, 20, 28, 12],
+    },
+  ]);
 }

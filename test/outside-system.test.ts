@@ -80,7 +80,7 @@ describe("from the day it does", () => {
     expect(kinds(w)).toEqual(["NOT_THROUGH_SYSTEM"]);
   });
 
-  it("flags an allocation this system made that the DMS gave to somebody else", async () => {
+  it("refuses an allotment made in the DMS over a car this system is holding, and keeps the customer", async () => {
     const w = makeWorld("2026-10-13 10:00");
     // Two real bookings, both known here. The queue gives the car to the earlier one.
     const d = await openWith(w, [car("VINOUT00000000001")], [order("OTF27A000001", "01-Oct-2026 10:00 AM"), order("OTF27A000009", "05-Oct-2026 10:00 AM")]);
@@ -88,9 +88,26 @@ describe("from the day it does", () => {
     await controlFrom(w, d);
     w.at("2026-10-14 10:00");
     await loadStock(w, d.users.admin.session, [car("VINOUT00000000001", { order: "OTF27A000009", type: "Alloted", allotDate: "2026-10-14" })], { asOn: "2026-10-14" });
-    const v = violations(w).find((x) => x.violation === "OVERTURNED");
+
+    // Allocation is this system's decision to make -- the DMS holds the data but cannot do the rules
+    // or the approvals. So an allotment typed in over a held car does not win by being there first:
+    // the customer who was given the car by the queue still has it.
+    expect(w.db.q(`SELECT b.booking_no FROM allocations a JOIN bookings b ON b.id = a.booking_id WHERE a.status = 'ACTIVE'`)).toEqual([{ booking_no: "OTF27A000001" }]);
+    const v = violations(w).find((x) => x.violation === "REFUSED");
     expect(v).toBeTruthy();
-    expect(v).toMatchObject({ vin: "VINOUT00000000001", booking_no: "OTF27A000009", taken_from_booking_no: "OTF27A000001" });
+    expect(v).toMatchObject({ vin: "VINOUT00000000001", booking_no: "OTF27A000009", held_for_booking_no: "OTF27A000001" });
+  });
+
+  it("gives way when the DMS has already invoiced the car to the other customer", async () => {
+    const w = makeWorld("2026-10-13 10:00");
+    const d = await openWith(w, [car("VINOUT00000000001")], [order("OTF27A000001", "01-Oct-2026 10:00 AM"), order("OTF27A000009", "05-Oct-2026 10:00 AM")]);
+    await controlFrom(w, d);
+    w.at("2026-10-14 10:00");
+    // Invoiced, not merely allotted: there is a customer with paperwork and, very likely, the car.
+    // Undoing that is not a data correction, so the sale stands and the approvers are told instead.
+    await loadStock(w, d.users.admin.session, [car("VINOUT00000000001", { order: "OTF27A000009", type: "IBND", invoiceId: "INV27A000001", allotDate: "2026-10-14" })], { asOn: "2026-10-14" });
+    expect(w.db.q(`SELECT b.booking_no FROM allocations a JOIN bookings b ON b.id = a.booking_id WHERE a.status = 'ACTIVE'`)).toEqual([{ booking_no: "OTF27A000009" }]);
+    expect(violations(w).find((x) => x.violation === "OVERTURNED")).toMatchObject({ vin: "VINOUT00000000001", booking_no: "OTF27A000009", taken_from_booking_no: "OTF27A000001" });
   });
 
   it("flags a booking given a different car from the one this system allocated it", async () => {

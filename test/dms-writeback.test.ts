@@ -124,25 +124,24 @@ describe("the changes the DMS has not been told about", () => {
     expect(list[0].paired_with).toBe("Then allot it to OTF27A000002");
   });
 
-  it("never tells anybody to overwrite an allotment the DMS holds for someone else", async () => {
+  it("never asks for a completed sale to be reversed", async () => {
     const w = makeWorld("2026-10-14 10:00");
     const d = await makeMahindraDealer(w);
-    await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-14" });
-    await loadBookings(w, d.users.crm.session, [wants("OTF27A000001", "WAITING ONE")]);
-    expect((await rows(w, d))[0]).toMatchObject({ action: "ALLOT", booking_no: "OTF27A000001", dms_shows: "Free stock" });
+    await loadBookings(w, d.users.crm.session, [wants("OTF27A000001", "WAITING ONE"), wants("OTF27A000002", "WALKED IN", "02-Oct-2026 10:00 AM")]);
+    await loadStock(w, d.users.stock.session, [{ ...WHITE_THAR, order: "OTF27A000001", customer: "WAITING ONE", allotDate: "2026-10-14" }], { asOn: "2026-10-14" });
+    await w.api("PUT", "/api/settings", { allocation_control_from: "2026-10-14" }, d.users.admin.session);
 
-    // Overnight somebody allots the same chassis to another order directly in the DMS.
+    // The car comes back invoiced to the other order. A merely-allotted car would be put back, but
+    // this one has been sold: there is a customer with paperwork and most likely the car itself.
+    // Undoing that is not a data correction and must never arrive as a line on an upload sheet.
     w.at("2026-10-15 09:00");
-    await loadStock(w, d.users.stock.session, [{ ...WHITE_THAR, order: "OTF27Z999999", customer: "SOMEONE ELSE", allotDate: "2026-10-15" }], { asOn: "2026-10-15" });
-    // The sheet must not carry a line telling the back office to key this chassis onto our booking
-    // while the DMS holds it for a different order: off a list like this, nobody would think to
-    // check, and somebody else's customer would lose their car to a data-entry instruction.
-    const after = await sheet(w, d);
-    expect((after.body.rows as any[]).filter((r) => r.action === "ALLOT" && r.vin === "MA1THAR0000000001")).toEqual([]);
-    // It is named instead, so the conflict is visible rather than merely absent.
-    expect(after.body.conflicts).toEqual([
-      { booking_no: "OTF27A000001", customer_name: "WAITING ONE", vin: "MA1THAR0000000001", dms_booking_no: "OTF27Z999999" },
-    ]);
+    await loadStock(w, d.users.stock.session, [{ ...WHITE_THAR, order: "OTF27A000002", customer: "WALKED IN", type: "IBND", invoiceId: "INV27A000001", allotDate: "2026-10-15" }], { asOn: "2026-10-15" });
+
+    for (const r of await rows(w, d)) expect(r.vin).not.toBe("MA1THAR0000000001");
+    // It is not silently dropped either: the approvers are told, because a car this system was
+    // holding for one customer was sold to another.
+    const raised = w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'ALLOTTED_OUTSIDE_SYSTEM'`)[0].n;
+    expect(raised).toBeGreaterThan(0);
   });
 
   it("gives the same list as a spreadsheet", async () => {

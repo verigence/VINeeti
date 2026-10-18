@@ -318,20 +318,21 @@ function Writeback() {
           </div>
           {d.rows.length > 0 && (
             <Notice tone="info">
-              Remove first, then allot. A car has to come off one booking before it goes on another, and the list is in that order. Lines disappear by themselves once a stock report shows the DMS
-              agreeing — there is nothing to tick off.
+              The download is an upload file: one tab of allotments to make, one of allotments to remove, in the DMS's own column names, and a third giving the reason and approver behind every line.
+              Remove before you allot — a car has to come off one booking before it goes on another — and the tabs are in that order. Lines disappear by themselves once a stock report shows the DMS
+              agreeing, so there is nothing to tick off.
             </Notice>
           )}
           {d.conflicts.length > 0 && (
             <Notice tone="warn">
-              {plural(d.conflicts.length, "car")} left off this list. The DMS holds {d.conflicts.length === 1 ? "it" : "them"} for a different order, so keying {d.conflicts.length === 1 ? "it" : "them"}{" "}
-              in would overwrite a live allotment on another customer. Settle {d.conflicts.length === 1 ? "it" : "them"} first:{" "}
-              {d.conflicts.map((c) => `${c.vin} (held here for ${c.booking_no}, allotted in the DMS to ${c.dms_booking_no})`).join("; ")}.
+              {plural(d.conflicts.length, "car")} left off this list. The DMS has already invoiced {d.conflicts.length === 1 ? "it" : "them"} to another order, and a completed sale is not reversed from
+              an upload sheet. {d.conflicts.length === 1 ? "It is" : "They are"} with the approvers instead:{" "}
+              {d.conflicts.map((c) => `${c.vin} (allocated here to ${c.booking_no}, invoiced in the DMS to ${c.dms_booking_no})`).join("; ")}.
             </Notice>
           )}
           <Card
-            title="Changes to key into the DMS"
-            note="The DMS is the record; this is what it has not been told yet."
+            title="Allocation decisions to load into the DMS"
+            note="Allocation is decided here; this is what the DMS has not been told yet."
             actions={
               <a className="btn btn-secondary btn-sm" href={api.dmsWritebackUrl} download>
                 Download as Excel
