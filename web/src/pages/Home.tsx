@@ -1,10 +1,11 @@
 // Home: what this person needs first, decided by what they are allowed to do. Every number is read
 // from the server; nothing here is worked out or assumed on the device.
 
+import { useState } from "react";
 import { api } from "../api";
 import { DataSource } from "../components/DataSource";
 import { InstallHint } from "../components/InstallHint";
-import { Async, Button, Card, Chip, DataTable, Disclosure, Empty, ErrorBox, Loading, PageHeader, Stat, StatusChip, type Column } from "../components/ui";
+import { Async, Button, Card, Chip, DataTable, Disclosure, Empty, ErrorBox, Loading, PageHeader, Segments, Stat, StatusChip, type Column } from "../components/ui";
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural, today } from "../format";
 import { useAction, useHashScroll, useLoad } from "../hooks";
 import { bookingStatus, personName, plainText } from "../labels";
@@ -12,7 +13,7 @@ import { canLoadFiles } from "../nav";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow } from "../types";
-import { MyDesk } from "./MyDesk";
+import { MyDesk, WhatWeHave } from "./MyDesk";
 import { MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 export function HomePage() {
@@ -36,6 +37,26 @@ export function HomePage() {
   const stockLink = (q: string) => (can("stock.view") ? `/stock/cars?${q}` : undefined);
   const bookingLink = (q: string) => (can("booking.view") ? `/bookings?${q}` : undefined);
 
+  /*
+    Home is a bar of sections now, not one long scroll. What is waiting for this person stays above
+    the bar, because that is the reason to open the screen at all; everything else is a section you
+    choose. The numbers open first and are all on one card: a screen that starts with a chart makes
+    you scroll past it to find the figure you came for.
+
+    Which sections exist is decided by what this person may do, not by what has finished loading, so
+    the bar does not change shape underneath them while the page fills.
+  */
+  const ownerBoard = can("owner.view") && !verifies && !runsTheBusiness;
+  const queueBoard = !ownOnly && !can("owner.view") && can("dashboards.view");
+  const hasCharts = runsTheBusiness || ownerBoard || verifies || followsMessages || queueBoard;
+  const panels: { value: Panel; label: string }[] = [
+    ...(ownOnly ? [{ value: "desk" as const, label: "My desk" }, { value: "stock" as const, label: "What we have" }] : []),
+    { value: "numbers" as const, label: "The numbers" },
+    ...(hasCharts ? [{ value: "charts" as const, label: "Charts" }] : []),
+    ...(verifies ? [{ value: "payments" as const, label: "Payments to check" }] : []),
+  ];
+  const [panel, setPanel] = useState<Panel>(ownOnly ? "desk" : "numbers");
+
   return (
     <>
       <PageHeader title={`Good ${partOfDay()}, ${personName(me.user.name).split(" ")[0]}`} subtitle={`${fmtDate(today())} · ${me.tenant.name}`} />
@@ -44,46 +65,19 @@ export function HomePage() {
       {me.receives_alarms && <AlarmsCard />}
       <NeedsYou overview={o} payments={payments.data ?? null} owner={owner.data ?? null} status={status.data ?? null} failed={failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0} />
 
-      {/* The Dealer Principal answers for this month and for each outlet's part in it; the Business
-          Head / CEO answers for the trend and for what the yard is costing. Same permission, two
-          different jobs, so two different cards.
-
-          The month is as far as Home goes. The day's analysis -- what is piling up, what the yard is
-          costing, who has waited longest, every model by how fast it sells -- is a tab of Reports,
-          because a landing page you have to scroll through is not a landing page, and Reports is
-          where analysis lives and already has the bar to hang it on. */}
+      {/* The month, for the two people who answer for it. It stays above the bar because it is the
+          one figure they open Home to see; the charts behind it are a section. */}
       {runsTheBusiness && month.data && <PaceCard m={month.data} />}
-      {runsTheBusiness && month.data && (
-        <div className="board">
-          {isCeo ? <TrendBoard m={month.data} /> : <OutletLeague m={month.data} owner={owner.data ?? null} />}
-        </div>
-      )}
 
-      {can("owner.view") && !verifies && !runsTheBusiness && <OwnerBoard owner={owner.data ?? null} />}
-      {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
-      {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
-      {o && !ownOnly && !can("owner.view") && can("dashboards.view") && <QueueBoard o={o} />}
+      {panels.length > 1 && <Segments label="Home sections" options={panels} value={panel} onChange={setPanel} />}
 
-      {verifies && (
-        <Async load={payments} isEmpty={() => false}>
-          {(rows) => (rows ? <PaymentsToVerify rows={rows} /> : null)}
-        </Async>
-      )}
-
-      {/*
-        The day's analysis, which used to be a second menu entry called "Today's board". It is the
-        same three boards chosen the same way -- by the job, not by a tab -- but on the end of Home
-        rather than a click away. Two screens where one would do is a cost paid every morning, and
-        the landing already carried half a board and a link to the rest, which was the app admitting
-        the split was arbitrary.
-      */}
       {/*
         Every number on one card, grouped by what it is about, and only here. The same figure used to
         appear three times on this screen -- as a headline across the top, as a sentence in what needs
         you, and as a tile down here -- which reads as three different facts until you notice it is
         one. The sentences above are for acting on; this is for looking up.
       */}
-      {overview.loading ? (
+      {panel === "numbers" && (overview.loading ? (
         <Loading />
       ) : !o ? (
         overview.error ? <ErrorBox message={overview.error} onRetry={() => void overview.reload()} /> : null
@@ -161,19 +155,49 @@ export function HomePage() {
           )}
         </div>
         </Card>
+      ))}
+      {panel === "numbers" && canLoadFiles(can) && status.data && <DmsFilesCard status={status.data} />}
+
+      {/* Every chart this person has, in one grid, so they tile two to a row instead of each one
+          taking a screen of its own. The day's deeper analysis lives in Reports. */}
+      {panel === "charts" && (
+        <div className="board">
+          {runsTheBusiness && month.data && (isCeo ? <TrendBoard m={month.data} /> : <OutletLeague m={month.data} owner={owner.data ?? null} />)}
+          {ownerBoard && <OwnerBoard owner={owner.data ?? null} />}
+          {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
+          {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
+          {queueBoard && o && <QueueBoard o={o} />}
+        </div>
+      )}
+
+      {panel === "payments" && verifies && (
+        <Async load={payments} isEmpty={() => false}>
+          {(rows) => (rows ? <PaymentsToVerify rows={rows} /> : null)}
+        </Async>
       )}
 
       {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
           check is a door to its own screen here, not a form squeezed in above a list. */}
-      {ownOnly && <MyDesk />}
-      {ownOnly && <MyBookings />}
-      {ownOnly && can("dashboards.view") && <MyOffers />}
+      {panel === "desk" && ownOnly && (
+        <>
+          <MyDesk stock={false} />
+          <MyBookings />
+        </>
+      )}
+      {panel === "stock" && ownOnly && (
+        <>
+          <WhatWeHave />
+          {can("dashboards.view") && <MyOffers />}
+        </>
+      )}
 
-      {canLoadFiles(can) && status.data && <DmsFilesCard status={status.data} />}
       <AlertsCard />
     </>
   );
 }
+
+/** The sections of Home. Which of them a person has depends on what they may do. */
+type Panel = "desk" | "stock" | "numbers" | "charts" | "payments";
 
 /** Morning, afternoon or evening at the dealership, for the greeting. */
 function partOfDay(): string {

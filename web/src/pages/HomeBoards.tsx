@@ -140,21 +140,23 @@ export function OwnerBoard({ owner }: { owner: OwnerView | null }) {
     ],
   };
 
+  // No grid of its own: Home puts every chart a person has into one grid, so they tile together
+  // instead of each board opening a new row of its own.
   return (
-    <div className="board">
+    <>
       <ChartCard title="What is selling" basis={sales.data?.basis} empty={!models.length}>
-        <Chart option={byModel} height={Math.max(180, models.length * 34 + 30)} />
+        <Chart option={byModel} height={Math.max(180, Math.min(models.length * 30 + 30, 240))} />
       </ChartCard>
       <ChartCard title="Share of what sold" basis={sales.data ? `${fmtNumber(sales.data.total_sold)} delivered in this period.` : undefined} empty={!models.length}>
-        <Chart option={mix} height={320} />
+        <Chart option={mix} height={240} />
       </ChartCard>
       <ChartCard title="Stock, day by day" basis={stock.data?.basis} empty={days.length < 2}>
-        <Chart option={movement} height={260} />
+        <Chart option={movement} height={240} />
       </ChartCard>
       <ChartCard title="Cars nobody has booked, by how long they have been here" basis={owner?.unsold_by_age.basis} empty={!buckets.length}>
-        <Chart option={ageing} height={260} />
+        <Chart option={ageing} height={240} />
       </ChartCard>
-    </div>
+    </>
   );
 }
 
@@ -207,14 +209,14 @@ export function QueueBoard({ o }: { o: Overview }) {
   };
 
   return (
-    <div className="board">
+    <>
       <ChartCard title="Where the bookings stand" basis="Open bookings in the outlets you cover, counted now." empty={steps.every((s) => !s.value)}>
         <Chart option={pipeline} height={190} />
       </ChartCard>
       <ChartCard title="What is in the yard and on the way" basis="Cars from the latest stock report." empty={!stock.length}>
-        <Chart option={yard} height={320} />
+        <Chart option={yard} height={240} />
       </ChartCard>
-    </div>
+    </>
   );
 }
 
@@ -241,11 +243,9 @@ export function MoneyBoard({ awaiting, toVerify, verifiedNotInvoiced }: { awaiti
     ],
   };
   return (
-    <div className="board">
-      <ChartCard title="Where the money stands" basis="Bookings holding a car, counted now." empty={!parts.length}>
-        <Chart option={option} height={300} />
-      </ChartCard>
-    </div>
+    <ChartCard title="Where the money stands" basis="Bookings holding a car, counted now." empty={!parts.length}>
+      <Chart option={option} height={240} />
+    </ChartCard>
   );
 }
 
@@ -269,11 +269,9 @@ export function MessagesBoard({ counts }: { counts: { status: string; n: number 
     ],
   };
   return (
-    <div className="board">
-      <ChartCard title="Messages to customers" basis="Every WhatsApp message this dealership has sent, by what happened to it." empty={!parts.length}>
-        <Chart option={option} height={300} />
-      </ChartCard>
-    </div>
+    <ChartCard title="Messages to customers" basis="Every WhatsApp message this dealership has sent, by what happened to it." empty={!parts.length}>
+      <Chart option={option} height={240} />
+    </ChartCard>
   );
 }
 

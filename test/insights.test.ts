@@ -1,11 +1,11 @@
 // The three views added for the people who ask different questions: what the cars earned, whether the
 // business is keeping up, and whether the system is being used.
 //
-// The figure worth guarding hardest is gross margin, because it is the only one here built from two
-// files at once -- what the manufacturer charged for a chassis and what the customer paid for it --
-// and because it is the one that would be quietly wrong rather than obviously missing. A car whose
-// cost this system has never seen must not be averaged in at zero, and the share that is known has
-// to be stated rather than implied.
+// Two things are guarded hardest here. The first is that nothing in these views reads what a chassis
+// cost: the price side stops at what the customer paid and what came off it. The second is who the
+// money reaches. What the cars sold for is the owner's figure and the CEO's; a lead who may see the
+// whole team's bookings gets the units and the cancellations with the money left out of the answer,
+// not merely hidden on the screen.
 import { describe, expect, it } from "vitest";
 import { loadBookings, loadRetail, loadStock, makeMahindraDealer, makeWorld, type Dealer, type World } from "./harness";
 
@@ -141,6 +141,42 @@ describe("whether the business is keeping up", () => {
     // whole reason the column sits next to the revenue.
     expect(one).toMatchObject({ bookings: 1, invoiced: 1, avg_dealer_discount: 50_000 });
     expect(two).toMatchObject({ bookings: 1, invoiced: 1, avg_dealer_discount: 0 });
+  });
+
+  it("keeps what the cars sold for to the roles that may see what stock is worth", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadBookings(w, d.users.crm.session, [
+      { no: "OTF27A000001", car: "THAR_WHITE", created: "01-Oct-2026 10:00 AM", customer: "ONE", sc: "CONSULTANT 001" },
+      { no: "OTF27A000002", car: "THAR_WHITE", created: "02-Oct-2026 10:00 AM", customer: "TWO", sc: "CONSULTANT 002" },
+    ]);
+    await loadRetail(w, d.users.crm.session, [
+      { no: "INV27A000001", car: "THAR_WHITE", vin: "MA1THAR0000000001", date: "2026-10-10", selling: 1_000_000, dealerDiscount: 50_000, raw: { "SC Name": "CONSULTANT 001" } },
+      { no: "INV27A000002", car: "THAR_WHITE", vin: "MA1THAR0000000002", date: "2026-10-11", selling: 2_000_000, raw: { "SC Name": "CONSULTANT 002" } },
+    ], { asOn: "2026-10-14" });
+
+    // The Sales Lead may see the whole team's bookings, so the table is open to them: how many each
+    // consultant took, how many fell through, how many cars went out. What those cars sold for, and
+    // what was given away to sell them, is the owner's and the CEO's. It is withheld in the answer,
+    // not merely left off the screen, so the figures never reach the device at all.
+    // The CEO sees the table with the money on it, the larger invoice at the top.
+    const ceo = (await business(w, d, "2026-10-01", "2026-10-14")).body;
+    expect(ceo.consultants.map((r: any) => r.name)).toEqual(["CONSULTANT 002", "CONSULTANT 001"]);
+    const earned = ceo.consultants.map((r: any) => r.revenue);
+    expect(earned.every((n: number) => n > 0)).toBe(true);
+
+    const lead = (await w.api("GET", "/api/insights/business?from=2026-10-01&to=2026-10-14", undefined, d.users.lead.session)).body;
+    expect(lead.consultants.length).toBe(2);
+    for (const r of lead.consultants) {
+      expect(r.revenue).toBeNull();
+      expect(r.avg_dealer_discount).toBeNull();
+      expect(r.invoiced).toBe(1);
+    }
+    // Not a figure withheld on the screen: nothing the answer carries can be read back into it.
+    for (const n of earned) expect(JSON.stringify(lead)).not.toContain(String(n));
+    // Sorted by revenue would have put the bigger invoice first; with no money to sort on, the order
+    // is cars sold and then bookings, which is an order the reader can check for themselves.
+    expect(lead.consultants.map((r: any) => r.name)).toEqual(["CONSULTANT 001", "CONSULTANT 002"]);
   });
 
   it("counts what was put to an approver and what went round them, day by day", async () => {

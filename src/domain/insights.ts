@@ -275,8 +275,9 @@ export interface ConsultantRow {
   invoiced: number;
   cancelled: number;
   cancel_pct: number | null;
-  revenue: number;
-  /** Average discount out of the dealership's own margin, per car sold. */
+  /** Null for a reader who may not see what cars sell for. */
+  revenue: number | null;
+  /** Average discount out of the dealership's own margin, per car sold. Null for the same reader. */
   avg_dealer_discount: number | null;
   financed_pct: number | null;
   insured_pct: number | null;
@@ -349,7 +350,7 @@ export interface BusinessHealth {
  * whoever sells the most; the column that matters beside them is the average discount out of the
  * dealership's own margin, because volume bought with the dealer's money is not performance.
  */
-export async function businessHealth(ctx: Ctx, outletIds: string[] | null, period: { from: string; to: string }): Promise<BusinessHealth> {
+export async function businessHealth(ctx: Ctx, outletIds: string[] | null, period: { from: string; to: string }, withMoney: boolean): Promise<BusinessHealth> {
   const tz = ctx.tenant.timezone;
   const T = ctx.tenantId;
   const scope = outletIds ?? [];
@@ -480,10 +481,16 @@ export async function businessHealth(ctx: Ctx, outletIds: string[] | null, perio
     row.insured_pct = pct(s.insured, s.n);
     void key;
   }
+  // What each car sold for, and what was given away to sell it, is the owner's business and the
+  // CEO's. A lead who may see the whole team's bookings still gets the units, the cancellations and
+  // the attachment rates -- the part of this table that is about how the team works -- with the two
+  // money columns left out of the answer, not merely hidden on the screen. The order of the table
+  // follows what the reader can actually see, so it is never sorted by a column that is not there.
   const consultants = [...people.values()]
     .map((p) => ({ ...p, cancel_pct: pct(p.cancelled, p.bookings + p.cancelled) }))
     .filter((p) => p.bookings || p.invoiced || p.cancelled)
-    .sort((x, y) => y.revenue - x.revenue || y.invoiced - x.invoiced || y.bookings - x.bookings);
+    .sort((x, y) => (withMoney ? y.revenue! - x.revenue! : 0) || y.invoiced - x.invoiced || y.bookings - x.bookings)
+    .map((p) => (withMoney ? p : { ...p, revenue: null, avg_dealer_discount: null }));
 
   // ---- what was put to an approver, and what went round them anyway
   const requests = await all<{ id: string; type: string; status: string; reason: string; payload_json: string; requested_at: string; decided_at: string | null; booking_no: string; customer_name: string; requester: string | null; decider: string | null }>(
@@ -580,7 +587,8 @@ export async function businessHealth(ctx: Ctx, outletIds: string[] | null, perio
       "Each step is counted on the day it happened, not the day a file arrived, so a report loaded late does not pile onto the wrong day. " +
       "The queue is every booking taken by the end of that day that had no car, no cancellation and no invoice yet, counted from the whole order book rather than the period. " +
       "Days to allocate and to invoice are medians over the bookings that reached that step inside the period. " +
-      "A consultant's sales, revenue and discount come from the retail export, which names them on the invoice; bookings and cancellations come from the booking sheet. Withdrawn invoices are left out. " +
+      `A consultant's sales${withMoney ? ", revenue and discount" : ""} come from the retail export, which names them on the invoice; bookings and cancellations come from the booking sheet. Withdrawn invoices are left out. ` +
+      (withMoney ? "" : "What the cars sold for, and the discount given on them, are left out of this table: they are shown to the owner, the CEO and the roles that may see what stock is worth. ") +
       "Requests are counted on the day they were raised and decisions on the day they were made. An allotment made in the DMS is counted on the day the DMS says it was allotted, not the day the file arrived.",
   };
 }

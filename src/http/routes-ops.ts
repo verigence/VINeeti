@@ -80,7 +80,10 @@ export function opsRoutes(app: App) {
   app.get("/api/insights/business", async (c) => {
     need(c, "dashboards.view");
     need(c, "booking.view_all");
-    return c.json(await businessHealth(c.get("ctx"), outletScope(c), periodOf(c, 30)));
+    const ctx = c.get("ctx");
+    // The units, the queue and the approvals are the team's work and are shown to whoever runs it.
+    // What the cars sold for is not: that needs the right to see what stock is worth.
+    return c.json(await businessHealth(ctx, outletScope(c), periodOf(c, 30), can(c.get("user"), ctx.settings, "stock.value")));
   });
 
   /** Whether the files arrive, the approvals get answered and allocation goes through the system. */

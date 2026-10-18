@@ -258,8 +258,13 @@ const requestCols = (waiting: boolean): Column<RequestRow>[] => [
 ];
 
 export function BusinessTab() {
+  const { can } = useSession();
   const period = usePeriod(daysAgo(29));
   const load = useLoad(() => (period.valid ? api.insightsBusiness(period.from, period.to) : Promise.reject(new Error("The period is not valid"))), `insights:business:${period.key}`);
+  // What the cars sold for belongs to the owner and the CEO. A lead who may see the whole team's
+  // bookings sees their units and cancellations here, not their money; the server leaves the two
+  // money columns null for them, so this is what to show, not what to hide.
+  const withMoney = can("stock.value");
 
   const cols: Column<ConsultantRow>[] = [
     { header: "Consultant", primary: true, cell: (r) => <span className="strong">{r.name}</span> },
@@ -270,12 +275,16 @@ export function BusinessTab() {
       cell: (r) => (r.cancelled ? <span className={(r.cancel_pct ?? 0) > 10 ? "strong danger" : ""}>{fmtNumber(r.cancelled)}<span className="sub">{pc(r.cancel_pct)}</span></span> : <span className="muted">0</span>),
     },
     { header: "Cars sold", num: true, cell: (r) => fmtNumber(r.invoiced) },
-    { header: "Revenue", num: true, cell: (r) => fmtMoney(r.revenue) },
-    {
-      header: "Discount per car",
-      num: true,
-      cell: (r) => (r.avg_dealer_discount === null ? <span className="muted">—</span> : <span className={r.avg_dealer_discount > 10000 ? "strong danger" : ""}>{fmtMoney(r.avg_dealer_discount)}</span>),
-    },
+    ...(withMoney
+      ? ([
+          { header: "Revenue", num: true, cell: (r: ConsultantRow) => (r.revenue === null ? <span className="muted">—</span> : fmtMoney(r.revenue)) },
+          {
+            header: "Discount per car",
+            num: true,
+            cell: (r: ConsultantRow) => (r.avg_dealer_discount === null ? <span className="muted">—</span> : <span className={r.avg_dealer_discount > 10000 ? "strong danger" : ""}>{fmtMoney(r.avg_dealer_discount)}</span>),
+          },
+        ] as Column<ConsultantRow>[])
+      : []),
     { header: "Financed", num: true, cell: (r) => pc(r.financed_pct) },
     { header: "Insured", num: true, cell: (r) => pc(r.insured_pct) },
   ];
@@ -429,7 +438,11 @@ export function BusinessTab() {
 
             <Card
               title="Sales consultants"
-              note="Sorted by revenue. The column to read beside it is the discount per car: volume bought with the dealership's own margin is not the same as selling well."
+              note={
+                withMoney
+                  ? "Sorted by revenue. The column to read beside it is the discount per car: volume bought with the dealership's own margin is not the same as selling well."
+                  : "Sorted by cars sold. What the cars sold for, and the discount given on them, are shown to the owner and the CEO."
+              }
               flush
             >
               <Async load={load} isEmpty={(x) => x.consultants.length === 0} empty={<Empty title="No consultant named on any booking or invoice in this period" />}>
@@ -438,7 +451,7 @@ export function BusinessTab() {
                     <DataTable columns={cols} rows={x.consultants.slice(0, 30)} rowKey={(r) => r.name} caption="Sales consultants" />
                     {x.consultants.length > 30 && (
                       <p className="measure-basis">
-                        The first 30 of {fmtNumber(x.consultants.length)} by revenue. A dealership this size has a long tail of consultants with one or two bookings, and a table that lists all of them
+                        The first 30 of {fmtNumber(x.consultants.length)} by {withMoney ? "revenue" : "cars sold"}. A dealership this size has a long tail of consultants with one or two bookings, and a table that lists all of them
                         is a table nobody reads to the end.
                       </p>
                     )}

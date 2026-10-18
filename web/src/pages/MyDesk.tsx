@@ -16,7 +16,12 @@ import { Link } from "../router";
 import { useSession } from "../session";
 import type { HoldingRow, ModelRow } from "../types";
 
-export function MyDesk() {
+/**
+ * `stock` is false when the model-by-model table has a section of its own: it is nineteen rows of
+ * answers to "do we have any Thars?", which is worth a tab and not worth scrolling past to reach a
+ * consultant's own bookings.
+ */
+export function MyDesk({ stock = true }: { stock?: boolean }) {
   const { me } = useSession();
   const mine = useLoad(() => api.myWork(), "desk:mine");
   const c = mine.data?.counts ?? null;
@@ -50,7 +55,7 @@ export function MyDesk() {
       )}
 
       <MyHeldCars userName={me.user.name} />
-      <WhatWeHave />
+      {stock && <WhatWeHave />}
     </>
   );
 }
@@ -90,7 +95,7 @@ function MyHeldCars({ userName }: { userName: string }) {
 }
 
 /** What the dealership has, model by model — the question a consultant is asked all day. */
-function WhatWeHave() {
+export function WhatWeHave() {
   const load = useLoad(() => api.models(), "desk:models");
   return (
     <Card title="What we have, model by model" note={load.data ? `${fmtNumber(load.data.totals.free)} free to offer, ${fmtNumber(load.data.totals.held)} held for customers, as on ${load.data.as_of}.` : undefined} flush>

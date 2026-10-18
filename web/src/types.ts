@@ -535,7 +535,8 @@ export interface OwnerMoney {
 export interface FunnelDay { date: string; booked: number; allocated: number; invoiced: number; delivered: number; cancelled: number; queue: number }
 export interface ConsultantRow {
   name: string; code: string | null; bookings: number; invoiced: number; cancelled: number; cancel_pct: number | null;
-  revenue: number; avg_dealer_discount: number | null; financed_pct: number | null; insured_pct: number | null;
+  /** Both null for a reader who may not see what stock is worth. */
+  revenue: number | null; avg_dealer_discount: number | null; financed_pct: number | null; insured_pct: number | null;
 }
 export interface GovernanceDay { date: string; requested: number; approved: number; rejected: number; outside: number }
 export interface RequestRow {
