@@ -72,13 +72,14 @@ const ROUTES: Route[] = [
   { path: "/owner/money", allowed: (can) => can("owner.view") && can("stock.value"), render: () => <OwnerPage tab="money" /> },
 
   // Kept so a bookmark or an old link still works; the board itself now lives on Home.
-  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <HomePage /> },
+  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="board" /> },
   // The day's work is now four tabs of Reports. These paths still answer so a bookmark keeps working.
   { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
   { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
   { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="orders" /> },
   { path: "/dashboards/delayed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="delayed" /> },
   { path: "/dashboards/alternatives", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="alternatives" /> },
+  { path: "/analytics/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="board" /> },
   { path: "/analytics/stock-allocation", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
   { path: "/analytics/orders", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="orders" /> },
   { path: "/analytics/delayed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="delayed" /> },

@@ -1,5 +1,5 @@
-// The day's analysis, at the foot of Home. One component and three different screens, because three
-// different people open Home and they are not looking for the same thing.
+// The day's picture: one tab of Reports and three different screens, because three different people
+// open it and they are not looking for the same thing.
 //
 // A sales lead wants the money owed on cars already held and who to ring about it. A Dealer Principal
 // wants what is blocked and whether the place is turning over. A Business Head wants the shape of the
@@ -9,8 +9,8 @@
 // So the board is chosen by the job, not by a tab the person has to find. Nobody has to learn which of
 // three boards is theirs, and nothing on one board is repeated on another.
 //
-// It had a menu entry of its own until Home grew a board section and a link saying "open the rest",
-// at which point the split was arbitrary and cost a click every morning.
+// It had a menu entry of its own, then a spell at the foot of Home, which made Home a page you
+// scrolled rather than one you glanced at. Reports is where analysis belongs.
 
 import { useSession } from "../session";
 import { CeoBoard } from "./Ceo";

@@ -41,6 +41,31 @@ export function EodPage() {
   return (
     <>
       <PageHeader title="Upload DMS files" subtitle={`Read the booking sheet, the stock report and the retail export, then run the reconciliation. The day ends at ${status.data?.day_end_time ?? me.settings.day_end_time}.`} />
+      {/*
+        Before the next file goes in: what this system has decided that the DMS has not been told
+        about, and whether anybody has so much as taken the sheet away since the last file.
+        Deliberately not a block. Nothing here can make a person key a row into the DMS, and a
+        warning that stops the day's work gets worked around rather than heeded. What it can do is
+        say so plainly, with the list one click away.
+      */}
+      {status.data?.sync && status.data.sync.pending > 0 && (
+        <Notice tone={status.data.sync.downloaded_since_upload ? "info" : "warn"}>
+          {status.data.sync.downloaded_since_upload ? (
+            <>
+              {plural(status.data.sync.pending, "allocation decision")} still not showing in the DMS. The update sheet was taken on {fmtDateTime(status.data.sync.downloaded_at ?? "")}
+              {status.data.sync.downloaded_by ? ` by ${status.data.sync.downloaded_by}` : ""}, so somebody has it. Until a stock report comes back showing the DMS agreeing, they stay on the list.{" "}
+              <Link to="/analytics/writeback">Open the list</Link>
+            </>
+          ) : (
+            <>
+              {plural(status.data.sync.pending, "allocation decision")} — {fmtNumber(status.data.sync.allot)} to allot, {fmtNumber(status.data.sync.remove)} to remove — have not been put into the DMS,
+              and nobody has downloaded the update sheet since the last file was loaded. Loading today's files will not erase them, but every day they are not keyed in is a day the two systems disagree
+              about who has which car. <Link to="/analytics/writeback">Take the sheet first</Link>
+            </>
+          )}
+        </Notice>
+      )}
+
       {/* The status carries the same file dates; re-read after every load so the line never lags behind. */}
       <DataSource key={status.data ? `${status.data.files.stock?.upload_id}:${status.data.files.bookings?.upload_id}` : "none"} status={status.data?.files} />
       {can("recon.view") && (
@@ -313,6 +338,14 @@ function LoadResult({ kind, counts, allocations, summary, errors, issueLabels }:
           <Stat label="Links bypassed" value={n(s.orders?.bypassed)} tone={s.orders?.bypassed ? "danger" : undefined} />
           <Stat label="Orders known only from stock" value={n(s.orders?.known_only_from_stock)} />
           <Stat label="Cars the system allocated" value={fmtNumber(allocations)} />
+          {s.not_keyed_in && s.not_keyed_in.cars > 0 && (
+            <Stat
+              label="Still not keyed into the DMS"
+              value={fmtNumber(s.not_keyed_in.cars)}
+              hint={`Allocated before the last report and still not in this one — oldest ${plural(s.not_keyed_in.oldest_days ?? 0, "day")}`}
+              tone="danger"
+            />
+          )}
         </div>
       ) : (
         <div className="tiles tiles-compact">

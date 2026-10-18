@@ -21,7 +21,7 @@
 import type { Ctx } from "../env";
 import { alertStmt, all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
 import { readExport } from "../lib/xlsx";
-import { bad, conflict, HttpError, iso, localParts, newId, norm } from "../lib/util";
+import { bad, conflict, HttpError, iso, localDayBounds, localParts, newId, norm } from "../lib/util";
 import { dateInFilename, readRetailReport, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
 import { alarmStmts } from "./alarms";
 import { recordStockPositions } from "./analytics";
@@ -59,6 +59,12 @@ export interface StockSummary {
   left_stock: { delivered: number; removed: number; on_hold: number };
   /** Cars the report ties to a booking (Order ID), and what became of each link. */
   orders: { total: number; in_booking_data: number; known_only_from_stock: number; recorded: number; confirmed: number; bypassed: number; to_cancelled_booking: number; released_in_dms: number; out_of_turn: number };
+  /**
+   * Allocations this system made that the DMS still does not show, and that were already made
+   * before the last report came in. Each has now survived a whole cycle of the DMS without anybody
+   * keying it in, so this is not "not yet" -- it is "it did not happen".
+   */
+  not_keyed_in: { cars: number; oldest_days: number | null };
   outlets_created: string[];
   variants_added: number;
   not_recognised: number;
@@ -330,6 +336,7 @@ export async function importStockReport(
     new_cars: 0, received: 0, invoiced: 0, returned: 0,
     left_stock: { delivered: 0, removed: 0, on_hold: 0 },
     orders: { total: orderIds.length, in_booking_data: 0, known_only_from_stock: 0, recorded: 0, confirmed: 0, bypassed: 0, to_cancelled_booking: 0, released_in_dms: 0, out_of_turn: 0 },
+    not_keyed_in: { cars: 0, oldest_days: null },
     outlets_created: outletsCreated, variants_added: reg.added, not_recognised: report.rows.filter((r) => !r.parsed).length,
     issues: {}, master_conflicts: reg.conflicts,
   };
@@ -818,6 +825,51 @@ export async function importStockReport(
     await refreshBookingColours(ctx);
     result.allocations = (await allocateAll(ctx, ALLOCATE_AFTER_LOAD)).length;
     await recordStockPositions(ctx, "STOCK_REPORT");
+
+    // What was supposed to have been keyed into the DMS and has not been.
+    //
+    // A decision made since the last report has simply not had its turn yet, and saying so would be
+    // noise every single day. One made *before* the last report and still absent from this one has
+    // had a whole cycle of the DMS to appear in and has not: somebody was given the list and it did
+    // not get done. That is the difference between "not yet" and "it did not happen", and only the
+    // second is worth anybody's attention.
+    //
+    // Measured against the previous report rather than against a download, because a download says
+    // the list left the building and nothing more.
+    const previous = await first<{ report_date: string }>(
+      ctx.db,
+      `SELECT report_date FROM uploads WHERE tenant_id = ? AND kind = 'STOCK' AND status = 'DONE' AND id <> ? AND report_date IS NOT NULL ORDER BY report_date DESC LIMIT 1`,
+      ctx.tenantId, upload.id,
+    );
+    if (previous?.report_date) {
+      // The allocation has to pre-date the previous report's own day, not merely its noon: one made
+      // on the morning of that day went in alongside the report and has had no cycle to appear in.
+      const cut = localDayBounds(previous.report_date, tz).start;
+      const stale = await all<{ allocated_at: string }>(
+        ctx.db,
+        `SELECT a.allocated_at FROM allocations a
+           JOIN bookings b ON b.id = a.booking_id
+           JOIN vehicles v ON v.id = a.vehicle_id
+          WHERE a.tenant_id = ?1 AND a.status = 'ACTIVE' AND a.source <> 'DMS' AND a.allocated_at < ?2
+            AND (v.dms_booking_no IS NULL OR v.dms_booking_no <> b.booking_no)`,
+        ctx.tenantId, cut,
+      );
+      if (stale.length) {
+        const oldest = stale.reduce((d, x) => (x.allocated_at < d ? x.allocated_at : d), stale[0].allocated_at);
+        const days = Math.max(0, Math.round((Date.parse(reportInstant(asOf, tz)) - Date.parse(oldest)) / 86_400_000));
+        s.not_keyed_in = { cars: stale.length, oldest_days: days };
+        await ctx.db.batch([
+          auditStmt(uctx, "DMS_UPDATES_NOT_KEYED_IN", "tenant", ctx.tenantId, { cars: stale.length, oldest_days: days, since: previous.report_date, report_date: asOf }),
+          ...(await alarmStmts(ctx, {
+            kind: "OUTSIDE_SYSTEM_ALLOTMENT",
+            title: `${stale.length} allocation${stale.length === 1 ? "" : "s"} still not in the DMS`,
+            body: `${stale.length} car${stale.length === 1 ? "" : "s"} allocated here before the stock report of ${previous.report_date} still do not show against those bookings in the report as on ${asOf}; the oldest has waited ${days} day${days === 1 ? "" : "s"}. They were on the DMS update sheet and have not been keyed in. Until they are, the DMS can give those cars to somebody else.`,
+            entityType: "recon",
+            entityId: upload.id,
+          })),
+        ]);
+      }
+    }
   }
   addInto(s, upload.prior, ["new_cars", "received", "invoiced", "returned", "left_stock.delivered", "left_stock.removed", "left_stock.on_hold", "orders.recorded", "orders.confirmed", "orders.bypassed", "orders.released_in_dms", "orders.out_of_turn", "variants_added"]);
   if (upload.continued) s.outlets_created = [...new Set([...(upload.prior.outlets_created ?? []), ...s.outlets_created])];

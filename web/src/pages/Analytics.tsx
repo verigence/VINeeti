@@ -9,10 +9,13 @@ import { Link } from "../router";
 import { useSession } from "../session";
 import { BusinessTab } from "./Insights";
 import { AllocationDashboard, AlternativesDashboard, DelayedDashboard, OrderQueueDashboard } from "./Dashboards";
+import { BoardPage } from "./Board";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
 import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow, WritebackRow } from "../types";
 
 type Tab =
+  // The day's picture, which used to be the bottom half of Home.
+  | "board"
   // The day's work: what needs doing now.
   | "stock-allocation"
   | "orders"
@@ -35,6 +38,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
   // the files say when you stand back from them. They were two menu entries and the same people
   // opened both, one after the other, every morning.
   const tabs = [
+    ...(can("booking.view_all") ? [{ to: "/analytics/board", label: "Today's board" }] : []),
     { to: "/analytics/stock-allocation", label: "Stock allocation" },
     { to: "/analytics/orders", label: "Order queue" },
     { to: "/analytics/delayed", label: "Delayed deliveries" },
@@ -54,6 +58,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
       <PageHeader title="Reports" subtitle="What needs doing today, and what the files add up to. Every figure says the rule it was worked out by, so the same files always give the same answer." />
       <DataSource />
       <Tabs current={`/analytics/${tab}`} tabs={tabs} />
+      {tab === "board" && <BoardPage />}
       {tab === "stock-allocation" && <AllocationDashboard />}
       {tab === "orders" && <OrderQueueDashboard />}
       {tab === "delayed" && <DelayedDashboard />}

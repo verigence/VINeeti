@@ -6,7 +6,7 @@ import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, local
 import { ALARM_KINDS } from "../domain/alarms";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
-import { dmsWriteback, writebackXlsx } from "../domain/dms-writeback";
+import { dmsWriteback, syncState, writebackXlsx } from "../domain/dms-writeback";
 import { businessHealth, ownerMoney, systemHealth } from "../domain/insights";
 import { allocationControl, dailyDelta, dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
 import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
@@ -99,6 +99,10 @@ export function opsRoutes(app: App) {
     const w = await dmsWriteback(ctx, outletScope(c));
     if (c.req.query("format") === "xlsx") {
       const day = localParts(ctx.now, ctx.tenant.timezone).date;
+      // Recorded because it is the one piece of evidence this system can have that the decisions
+      // left the building. It is not evidence that anybody keyed them in; the list itself and the
+      // stock import's stale count answer that.
+      await audit(ctx, "DMS_UPDATES_DOWNLOADED", "tenant", ctx.tenantId, { allot: w.totals.allot, remove: w.totals.remove, as_on: day });
       return new Response(writebackXlsx(w, ctx.tenant.name), {
         headers: {
           "Content-Type": XLSX_MIME,

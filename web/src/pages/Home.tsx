@@ -13,7 +13,6 @@ import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow } from "../types";
 import { MyDesk } from "./MyDesk";
-import { BoardPage } from "./Board";
 import { MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 export function HomePage() {
@@ -49,10 +48,10 @@ export function HomePage() {
           Head / CEO answers for the trend and for what the yard is costing. Same permission, two
           different jobs, so two different cards.
 
-          Both of them also have a board of their own — what is blocked and what moved, for one; what is
-          piling up and what sells, for the other — and that is where the day's analysis lives. So Home
-          stays the landing: the month, and what needs them. Repeating the board's charts here would be
-          the same numbers twice in two shapes, which is how a screen stops being read. */}
+          The month is as far as Home goes. The day's analysis -- what is piling up, what the yard is
+          costing, who has waited longest, every model by how fast it sells -- is a tab of Reports,
+          because a landing page you have to scroll through is not a landing page, and Reports is
+          where analysis lives and already has the bar to hang it on. */}
       {runsTheBusiness && month.data && <PaceCard m={month.data} />}
       {runsTheBusiness && month.data && (
         <div className="board">
@@ -163,8 +162,6 @@ export function HomePage() {
         </div>
         </Card>
       )}
-
-      {can("dashboards.view") && can("booking.view_all") && <BoardPage />}
 
       {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
           check is a door to its own screen here, not a form squeezed in above a list. */}

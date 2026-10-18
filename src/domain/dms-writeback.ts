@@ -140,6 +140,53 @@ interface Raw {
 }
 
 const scoped = (outletIds: string[] | null, column: string) => (outletIds ? ` AND ${column} IN (SELECT value FROM json_each(?2))` : "");
+
+export interface SyncState {
+  /** How many decisions the DMS has not been told about. */
+  pending: number;
+  allot: number;
+  remove: number;
+  /** When the update sheet was last taken away, and by whom. */
+  downloaded_at: string | null;
+  downloaded_by: string | null;
+  /** The last time any DMS file was loaded here. */
+  last_upload_at: string | null;
+  /** Whether the sheet has been taken since that file was loaded. */
+  downloaded_since_upload: boolean;
+}
+
+/**
+ * Whether anybody has taken the update sheet away since the last file came in.
+ *
+ * This is as far as a control can honestly go. Nothing here can make somebody key a row into the
+ * DMS, and nothing here should pretend a download is proof that they did: it is evidence that the
+ * list left the building, no more. What catches the rest is the list itself, which keeps a decision
+ * on it until a stock report shows the DMS agreeing, and the stale count the stock import raises
+ * when a decision has survived a whole DMS cycle without being taken up.
+ */
+export async function syncState(ctx: Ctx, outletIds: string[] | null = null): Promise<SyncState> {
+  const w = await dmsWriteback(ctx, outletIds);
+  const down = await first<{ at: string; name: string | null }>(
+    ctx.db,
+    `SELECT a.at, u.name FROM audit_log a LEFT JOIN users u ON u.id = a.actor
+      WHERE a.tenant_id = ? AND a.action = 'DMS_UPDATES_DOWNLOADED' ORDER BY a.at DESC LIMIT 1`,
+    ctx.tenantId,
+  );
+  const up = await first<{ at: string }>(
+    ctx.db,
+    `SELECT at FROM uploads WHERE tenant_id = ? AND kind IN ('STOCK','BOOKINGS') AND status = 'DONE' ORDER BY at DESC LIMIT 1`,
+    ctx.tenantId,
+  );
+  return {
+    pending: w.totals.allot + w.totals.remove,
+    allot: w.totals.allot,
+    remove: w.totals.remove,
+    downloaded_at: down?.at ?? null,
+    downloaded_by: down?.name ?? null,
+    last_upload_at: up?.at ?? null,
+    downloaded_since_upload: Boolean(down?.at && (!up?.at || down.at > up.at)),
+  };
+}
 const daysSince = (at: string, now: Date) => Math.max(0, Math.floor((now.getTime() - Date.parse(at)) / 86_400_000));
 
 /**

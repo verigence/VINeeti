@@ -164,6 +164,56 @@ describe("the changes the DMS has not been told about", () => {
     expect(r.confirmed + r.to_allot + r.to_remove + r.sold_elsewhere + r.released_settled + r.fulfilled).toBe(r.total);
   });
 
+  it("knows whether anybody has taken the sheet away since the last file came in", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-14" });
+    await loadBookings(w, d.users.crm.session, [wants("OTF27A000001", "WAITING ONE")]);
+
+    const status = () => w.api("GET", "/api/eod/status", undefined, d.users.head.session);
+    let sync = (await status()).body.sync;
+    expect(sync).toMatchObject({ pending: 1, allot: 1, remove: 0, downloaded_since_upload: false });
+
+    // Downloading is the only evidence this system can have that the list left the building. It is
+    // not evidence that anybody keyed it in, and nothing here pretends otherwise.
+    w.at("2026-10-14 15:00");
+    expect((await w.api("GET", "/api/reports/dms-writeback?format=xlsx", undefined, d.users.head.session)).status).toBe(200);
+    sync = (await status()).body.sync;
+    expect(sync).toMatchObject({ pending: 1, downloaded_since_upload: true, downloaded_by: "Bikram Head" });
+
+    // A new file comes in, so the sheet is stale again and nobody has taken the new one.
+    w.at("2026-10-15 09:00");
+    await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-15" });
+    expect((await status()).body.sync).toMatchObject({ downloaded_since_upload: false });
+  });
+
+  it("tells the difference between not yet keyed in and not keyed in at all", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-14" });
+    await loadBookings(w, d.users.crm.session, [wants("OTF27A000001", "WAITING ONE")]);
+    // Allocated today. The DMS has not had its turn yet, and saying so would be noise every day.
+    expect((await rows(w, d))[0]).toMatchObject({ action: "ALLOT" });
+
+    w.at("2026-10-15 09:00");
+    const second = await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-15" });
+    expect(second.body.summary.not_keyed_in).toEqual({ cars: 0, oldest_days: null });
+
+    // A whole DMS cycle later and the allotment still is not in the report. That is no longer "not
+    // yet": somebody had the list and it did not get done.
+    w.at("2026-10-16 09:00");
+    const third = await loadStock(w, d.users.stock.session, [WHITE_THAR], { asOn: "2026-10-16" });
+    expect(third.body.summary.not_keyed_in.cars).toBe(1);
+    expect(third.body.summary.not_keyed_in.oldest_days).toBeGreaterThanOrEqual(2);
+    expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'DMS_UPDATES_NOT_KEYED_IN'`)[0].n).toBe(1);
+
+    // Once the DMS agrees, it stops being raised at all.
+    w.at("2026-10-17 09:00");
+    const fourth = await loadStock(w, d.users.stock.session, [{ ...WHITE_THAR, order: "OTF27A000001", customer: "WAITING ONE", allotDate: "2026-10-17" }], { asOn: "2026-10-17" });
+    expect(fourth.body.summary.not_keyed_in).toEqual({ cars: 0, oldest_days: null });
+    expect(await rows(w, d)).toEqual([]);
+  });
+
   it("gives the same list as a spreadsheet", async () => {
     const w = makeWorld("2026-10-14 10:00");
     const d = await makeMahindraDealer(w);

@@ -12,6 +12,7 @@ import { hex, timingSafeEqual } from "../lib/crypto";
 import { all, audit, first, run } from "../lib/db";
 import { HttpError, bad, iso, localDayBounds, localParts, parseDate, safeJson } from "../lib/util";
 import { dataStatus } from "../domain/data-status";
+import { syncState } from "../domain/dms-writeback";
 import { importBookingSheet, importRetailExport, importStockReport } from "../domain/dms-import";
 import { runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued } from "../whatsapp/outbox";
@@ -74,6 +75,9 @@ export function eodRoutes(app: App) {
     const loads = await all<any>(ctx.db, `SELECT u.id, u.kind, u.filename, u.report_date, u.at, u.status, u.row_count, u.created_count, u.updated_count, u.error_count, u.uploaded_by, us.name AS uploaded_by_name FROM uploads u LEFT JOIN users us ON us.id = u.uploaded_by WHERE u.tenant_id = ? AND u.at >= ? ORDER BY u.at DESC LIMIT 20`, ctx.tenantId, start);
     const lastRun = await first<any>(ctx.db, `SELECT r.id, r.business_date, r.trigger, r.started_at, r.summary_json, (SELECT COUNT(*) FROM recon_items i WHERE i.run_id = r.id AND i.status = 'OPEN') AS open_items FROM recon_runs r WHERE r.tenant_id = ? ORDER BY r.started_at DESC LIMIT 1`, ctx.tenantId);
     const key = await first<{ eod_key_set_at: string | null }>(ctx.db, `SELECT eod_key_set_at FROM tenants WHERE id = ?`, ctx.tenantId);
+    // Shown before the next file goes in: decisions this system has made that the DMS has not been
+    // told about, and whether anyone has so much as taken the sheet away since the last file.
+    const sync = await syncState(ctx, null);
     const loadedToday = (kind: string) => loads.find((l) => l.kind === kind && l.status === "DONE") ?? null;
     return c.json({
       business_date: today,
@@ -88,6 +92,7 @@ export function eodRoutes(app: App) {
         { key: "RECONCILIATION", label: "Day-end check run", done: Boolean(lastRun && lastRun.business_date === today && (!loads[0] || lastRun.started_at >= loads[0].at)), run: lastRun ? { id: lastRun.id, business_date: lastRun.business_date, started_at: lastRun.started_at, by: lastRun.trigger === "SCHEDULED" ? "Scheduled" : lastRun.trigger === "EOD" ? "End-of-day feed" : "A user", open_items: lastRun.open_items, items: safeJson<any>(lastRun.summary_json, {}).items ?? null } : null },
       ],
       loads_today: loads.map((l) => ({ ...l, uploaded_by_name: l.uploaded_by === "EOD" ? "End-of-day feed" : l.uploaded_by_name })),
+      sync,
       feed: { key_set_at: key?.eod_key_set_at ?? null, stock_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/stock`, bookings_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/bookings`, retail_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/retail`, run_url: `${new URL(c.req.url).origin}/api/eod/${ctx.tenant.slug}/run` },
     });
   });

@@ -142,7 +142,10 @@ describe("alarms for the Business Head / CEO and the Dealer Principal", () => {
     const rel = await day(w, d, "2026-10-11 10:00");
     expect(rel.released).toBe(1);
     expect(alarms(w, "REALLOCATED").map((a) => a.target_role)).toEqual(["ACCOUNTS", "BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
-    expect((await w.api("GET", "/api/alerts?alarms=1", undefined, d.users.finance.session)).body.map((a: any) => a.kind)).toEqual(["REALLOCATED"]);
+    // Finance now receives alarms, so it sees both of the day's: the car changing hands, and the
+    // standing complaint that this dealership's allocations are never keyed into its DMS -- which is
+    // true of the fixture and would be true of a dealership that ignored the update sheet.
+    expect((await w.api("GET", "/api/alerts?alarms=1", undefined, d.users.finance.session)).body.map((a: any) => a.kind).sort()).toEqual(["OUTSIDE_SYSTEM_ALLOTMENT", "REALLOCATED"]);
   });
 
   it("DMS files not loaded for longer than agreed: one alarm a day, and no car is re-allocated on old data", async () => {

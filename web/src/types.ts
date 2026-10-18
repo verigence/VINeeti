@@ -918,6 +918,7 @@ export interface RetailSummary {
 }
 
 export interface StockSummary {
+  not_keyed_in?: { cars: number; oldest_days: number | null };
   dealer_name: string;
   report_date: string;
   cars: number;
@@ -1031,7 +1032,17 @@ export interface EodStep {
   load?: EodLoad | null;
   run?: { id: string; business_date: string; started_at: string; by: string; open_items: number; items: ReconItemCounts | null } | null;
 }
+export interface SyncState {
+  pending: number;
+  allot: number;
+  remove: number;
+  downloaded_at: string | null;
+  downloaded_by: string | null;
+  last_upload_at: string | null;
+  downloaded_since_upload: boolean;
+}
 export interface EodStatus {
+  sync?: SyncState;
   business_date: string;
   day_end_time: string;
   files: DataStatus;
