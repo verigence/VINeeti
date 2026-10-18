@@ -17,7 +17,7 @@
 // Nothing here writes to the DMS. It produces the list a person works down.
 
 import type { Ctx } from "../env";
-import { all } from "../lib/db";
+import { all, first } from "../lib/db";
 import { buildWorkbook } from "../lib/xlsx";
 import { formatDate } from "./allocation";
 import { releaseWords } from "./release-reasons";
@@ -73,9 +73,35 @@ export interface WritebackRow {
   days_waiting: number;
 }
 
+/**
+ * Where every allocation this system has ever made now stands.
+ *
+ * Without this the list invites an arithmetic nobody can finish: the allocations report counts what
+ * was decided in a chosen set of dates, this list carries what is outstanding right now whatever day
+ * it was decided, and the difference between the two numbers has no home. So the difference is given
+ * one. Every allocation falls into exactly one line below and the lines add up to the total.
+ */
+export interface Reconcile {
+  /** Every allocation on record, of any age and any status. */
+  total: number;
+  /** Still held here, and the last stock report showed the DMS holding it for the same booking. */
+  confirmed: number;
+  /** Still held here, the DMS does not show it: these are the allotments to make. */
+  to_allot: number;
+  /** Still held here, but the DMS has already invoiced the car to another order. Not on the list. */
+  sold_elsewhere: number;
+  /** Let go here, and the DMS still shows it: these are the allotments to remove. */
+  to_remove: number;
+  /** Let go here, and the DMS already agrees -- usually because the DMS is where it was let go. */
+  released_settled: number;
+  /** Delivered and closed. */
+  fulfilled: number;
+}
+
 export interface Writeback {
   rows: WritebackRow[];
   totals: { allot: number; remove: number };
+  reconcile: Reconcile;
   /**
    * Cars held here that the DMS already holds for a different order. They are deliberately not on
    * the list: keying one in would mean overwriting somebody else's allotment, which is a conflict
@@ -257,13 +283,45 @@ export async function dmsWriteback(ctx: Ctx, outletIds: string[] | null = null):
     });
   }
 
+  // Where every allocation stands, so the difference between this list and the allocations report
+  // accounts for itself instead of being a question. Counted in the database rather than over the
+  // rows above, because the rows above are only the two lines that need doing.
+  const counts = await first<{ total: number; confirmed: number; active_elsewhere: number; active_unseen: number; released_shown: number; released_settled: number; fulfilled: number }>(
+    ctx.db,
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN a.status = 'ACTIVE' AND v.dms_booking_no = b.booking_no THEN 1 ELSE 0 END) AS confirmed,
+            SUM(CASE WHEN a.status = 'ACTIVE' AND v.dms_booking_no IS NOT NULL AND v.dms_booking_no <> b.booking_no AND v.dms_stock_type = 'IBND' THEN 1 ELSE 0 END) AS active_elsewhere,
+            SUM(CASE WHEN a.status = 'ACTIVE' AND (v.dms_booking_no IS NULL OR (v.dms_booking_no <> b.booking_no AND COALESCE(v.dms_stock_type, '') <> 'IBND')) THEN 1 ELSE 0 END) AS active_unseen,
+            SUM(CASE WHEN a.status = 'RELEASED' AND v.dms_booking_no = b.booking_no THEN 1 ELSE 0 END) AS released_shown,
+            SUM(CASE WHEN a.status = 'RELEASED' AND (v.dms_booking_no IS NULL OR v.dms_booking_no <> b.booking_no) THEN 1 ELSE 0 END) AS released_settled,
+            SUM(CASE WHEN a.status = 'FULFILLED' THEN 1 ELSE 0 END) AS fulfilled
+       FROM allocations a
+       JOIN bookings b ON b.id = a.booking_id
+       JOIN vehicles v ON v.id = a.vehicle_id
+      WHERE a.tenant_id = ?1${scoped(outletIds, "b.outlet_id")}`,
+    ...params,
+  );
+  // A released allocation the DMS still shows, whose release the DMS already knows about, is settled
+  // as far as anybody keying things in is concerned; it is on neither list.
+  const removeRows = rows.filter((r) => r.action === "REMOVE_ALLOTMENT").length;
+  const reconcile: Reconcile = {
+    total: Number(counts?.total ?? 0),
+    confirmed: Number(counts?.confirmed ?? 0),
+    to_allot: rows.filter((r) => r.action === "ALLOT").length,
+    sold_elsewhere: Number(counts?.active_elsewhere ?? 0),
+    to_remove: removeRows,
+    released_settled: Number(counts?.released_settled ?? 0) + Math.max(0, Number(counts?.released_shown ?? 0) - removeRows),
+    fulfilled: Number(counts?.fulfilled ?? 0),
+  };
+
   // Removals first: a car has to come off one booking before it can go on another, and a pair that
   // is keyed the other way round is rejected by the DMS for a reason nobody will enjoy diagnosing.
   rows.sort((x, y) => (x.action === y.action ? x.decided_at.localeCompare(y.decided_at) : x.action === "REMOVE_ALLOTMENT" ? -1 : 1));
 
   return {
     rows,
-    totals: { allot: rows.filter((r) => r.action === "ALLOT").length, remove: rows.filter((r) => r.action === "REMOVE_ALLOTMENT").length },
+    totals: { allot: reconcile.to_allot, remove: reconcile.to_remove },
+    reconcile,
     conflicts,
     generated_at: ctx.now.toISOString(),
     basis:
@@ -316,6 +374,15 @@ export function writebackXlsx(w: Writeback, dealer: string): Uint8Array {
         [`${dealer} — allocation decisions to load into the DMS`],
         [`As on ${formatDate(day(w.generated_at))} · ${remove.length} allotment(s) to remove, ${allot.length} to make`],
         [w.basis],
+        [],
+        ["Every allocation on record, and where it stands"],
+        ["  Already matching in the DMS", w.reconcile.confirmed],
+        ["  To allot (on the Allot tab)", w.reconcile.to_allot],
+        ["  To remove (on the Remove allotment tab)", w.reconcile.to_remove],
+        ["  Let go here, and the DMS already agrees", w.reconcile.released_settled],
+        ["  Already invoiced in the DMS to another order", w.reconcile.sold_elsewhere],
+        ["  Delivered and closed", w.reconcile.fulfilled],
+        ["  Total", w.reconcile.total],
         [],
         AUDIT_HEADINGS,
         ...w.rows.map((r) => [

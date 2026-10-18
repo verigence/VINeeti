@@ -144,6 +144,26 @@ describe("the changes the DMS has not been told about", () => {
     expect(raised).toBeGreaterThan(0);
   });
 
+  it("accounts for every allocation, so the difference from the allocations report is not a mystery", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadBookings(w, d.users.crm.session, [wants("OTF27A000001", "ALREADY IN"), wants("OTF27A000002", "NOT YET", "02-Oct-2026 10:00 AM")]);
+    // One car the DMS already shows against its booking, one the DMS has not been told about.
+    await loadStock(w, d.users.stock.session, [
+      { ...WHITE_THAR, order: "OTF27A000001", customer: "ALREADY IN", allotDate: "2026-10-14" },
+      { vin: "MA1THAR0000000002", car: "THAR_WHITE", oemInvoiceDate: "2026-09-20", grnDate: "2026-09-25" },
+    ], { asOn: "2026-10-14" });
+
+    const r = (await sheet(w, d)).body.reconcile;
+    // The list carries one line; the other allocation is accounted for rather than unexplained.
+    expect(r.to_allot).toBe(1);
+    expect(r.confirmed).toBe(1);
+    expect(r.total).toBe(2);
+    // Whatever the shape, the lines add up to every allocation on record. That is the whole point:
+    // a reader can finish the arithmetic without being told where the rest went.
+    expect(r.confirmed + r.to_allot + r.to_remove + r.sold_elsewhere + r.released_settled + r.fulfilled).toBe(r.total);
+  });
+
   it("gives the same list as a spreadsheet", async () => {
     const w = makeWorld("2026-10-14 10:00");
     const d = await makeMahindraDealer(w);

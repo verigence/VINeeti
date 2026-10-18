@@ -334,6 +334,30 @@ function Writeback() {
             </Notice>
           )}
           <Card
+            title="Every allocation, and where it stands"
+            note="So the difference between this list and the allocations report accounts for itself. Every allocation on record falls into one line, whatever day it was decided."
+            flush
+          >
+            <DataTable
+              columns={[
+                { header: "", primary: true, cell: (r: { label: string; n: number; tone?: string }) => <span className={r.tone === "do" ? "strong" : ""}>{r.label}</span> },
+                { header: "Allocations", num: true, cell: (r: { label: string; n: number; tone?: string }) => <span className={r.tone === "do" ? "strong" : r.n ? "" : "muted"}>{fmtNumber(r.n)}</span> },
+              ]}
+              rows={[
+                { label: "Already matching in the DMS — nothing to do", n: d.reconcile.confirmed },
+                { label: "To allot — on this list", n: d.reconcile.to_allot, tone: "do" },
+                { label: "To remove — on this list", n: d.reconcile.to_remove, tone: "do" },
+                { label: "Let go here, and the DMS already agrees", n: d.reconcile.released_settled },
+                { label: "Already invoiced in the DMS to another order", n: d.reconcile.sold_elsewhere },
+                { label: "Delivered and closed", n: d.reconcile.fulfilled },
+                { label: "Every allocation on record", n: d.reconcile.total },
+              ]}
+              rowKey={(r) => r.label}
+              caption="Every allocation, and where it stands"
+            />
+          </Card>
+
+          <Card
             title="Allocation decisions to load into the DMS"
             note="Allocation is decided here; this is what the DMS has not been told yet."
             actions={

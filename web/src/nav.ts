@@ -29,10 +29,10 @@ export const DESTINATIONS: Destination[] = [
   { to: "/", label: "Home", icon: "home", allowed: () => true, badge: "alerts" },
   // The first thing a sales person does all day: a customer asks for a car and they answer. It is its
   // own place in the app, not a panel inside the stock screens or beside their own bookings.
-  // The sales lead's board: what is owed on held cars, the order bank, and who to chase today.
-  { to: "/board", label: "Today's board", icon: "dashboards", allowed: (can) => can("dashboards.view") && can("booking.view_all") },
-  { to: "/stock/check", label: "Stock check", icon: "search", allowed: (can) => can("stock.view") },
-  { to: "/stock", label: "Stock", icon: "car", allowed: (can) => can("stock.view") },
+  // One entry, landing on the stock check, because that is the first thing a sales person does all
+  // day: a customer asks for a car and they answer. The summary, the browse and the car list are
+  // tabs of the same screen and were never worth a second line in the sidebar.
+  { to: "/stock/check", label: "Stock", icon: "search", allowed: (can) => can("stock.view") },
   { to: "/bookings", label: "Bookings", icon: "bookings", allowed: (can) => can("booking.view") },
   { to: "/approvals", label: "Approvals", icon: "approvals", allowed: canApprove, badge: "approvals" },
   // Allocation by hand is closed, so this is the one place a held car changes hands. It sits beside
@@ -43,7 +43,9 @@ export const DESTINATIONS: Destination[] = [
   { to: "/dashboards", label: "Day's work", icon: "dashboards", allowed: (can) => can("dashboards.view") },
   { to: "/analytics", label: "Reports", icon: "analytics", allowed: (can) => can("dashboards.view") },
   { to: "/eod", label: "Upload DMS files", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
-  { to: "/recon", label: "Day-end check", icon: "recon", allowed: (can) => can("recon.view") },
+  // Not a report: the findings the day-end run turns up, each needing a person to settle it and say
+  // so. The old name made it sound like a routine tick, which is how it got overlooked.
+  { to: "/recon", label: "Differences to settle", icon: "recon", allowed: (can) => can("recon.view") },
   { admin: true, to: "/master", label: "Models & colours", icon: "master", allowed: (can) => can("master.manage") },
   { admin: true, to: "/whatsapp", label: "WhatsApp", icon: "whatsapp", allowed: (can) => can("wa.view") },
   { admin: true, to: "/admin", label: "Settings", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },

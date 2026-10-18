@@ -13,6 +13,7 @@ import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
 import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
 import { MyDesk } from "./MyDesk";
+import { BoardPage } from "./Board";
 import { HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 /**
@@ -101,11 +102,7 @@ export function HomePage() {
           {isCeo ? <TrendBoard m={month.data} /> : <OutletLeague m={month.data} owner={owner.data ?? null} />}
         </div>
       )}
-      {runsTheBusiness && (
-        <p className="board-pointer">
-          <Link to="/board">{isCeo ? "Open the operations board — what is piling up, what sells, who is waiting" : "Open the money board — what is blocked, what churned, what is not clearing"}</Link>
-        </p>
-      )}
+
       {can("owner.view") && !verifies && !runsTheBusiness && <OwnerBoard owner={owner.data ?? null} />}
       {verifies && payments.data && <MoneyBoard awaiting={payments.data.filter((p) => p.state === "AWAITING_PAYMENT").length} toVerify={payments.data.filter((p) => p.state === "TO_VERIFY").length} verifiedNotInvoiced={owner.data?.payments.verified_not_invoiced ?? 0} />}
       {followsMessages && failed.data && <MessagesBoard counts={failed.data.counts} />}
@@ -116,6 +113,15 @@ export function HomePage() {
           {(rows) => (rows ? <PaymentsToVerify rows={rows} /> : null)}
         </Async>
       )}
+
+      {/*
+        The day's analysis, which used to be a second menu entry called "Today's board". It is the
+        same three boards chosen the same way -- by the job, not by a tab -- but on the end of Home
+        rather than a click away. Two screens where one would do is a cost paid every morning, and
+        the landing already carried half a board and a link to the rest, which was the app admitting
+        the split was arbitrary.
+      */}
+      {can("dashboards.view") && can("booking.view_all") && <BoardPage />}
 
       {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
           check is a door to its own screen here, not a form squeezed in above a list. */}

@@ -419,7 +419,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   ALLOTTED_OUTSIDE_SYSTEM: "Car allotted in the DMS, not here",
   ORDER_PLACED: "Manufacturer order recorded",
   ORDER_UPDATED: "Manufacturer order updated",
-  RECON_ITEM_RESOLVED: "Day-end check finding closed",
+  RECON_ITEM_RESOLVED: "Day-end difference settled",
   USER_CREATED: "User added",
   USER_UPDATED: "User changed",
   PASSWORD_CHANGED: "Password changed",
@@ -436,7 +436,7 @@ export const AUDIT_ENTITIES: Record<string, string> = {
   booking: "Booking",
   vehicle: "Car",
   order: "Manufacturer order",
-  recon_item: "Day-end check finding",
+  recon_item: "Day-end difference",
   user: "User",
   outlet: "Outlet",
   tenant: "Dealership settings",
@@ -534,7 +534,7 @@ export function auditSentence(action: string, d: Record<string, unknown>, outlet
     case "ORDER_UPDATED":
       return "Manufacturer order updated.";
     case "RECON_ITEM_RESOLVED":
-      return `Day-end check finding closed${tail(d.note)}.`;
+      return `Day-end difference settled${tail(d.note)}.`;
     case "USER_CREATED":
       return `User added: ${s(d.name)} (${roleLabel(s(d.role))}).`;
     case "USER_UPDATED":

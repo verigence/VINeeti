@@ -55,7 +55,7 @@ export function ReconPage() {
   return (
     <>
       <PageHeader
-        title="Day-end check"
+        title="Differences to settle"
         subtitle={`Checks that stock, bookings and allocations agree, and lists every difference for someone to resolve. Runs automatically at ${me.settings.day_end_time} every day.`}
         primary={
           can("recon.manage") ? (
@@ -67,7 +67,7 @@ export function ReconPage() {
       />
       <Card flush>
         <Async load={load} empty={<Empty title="No day-end check has run yet" hint={can("recon.manage") ? "Run it now to check today's position." : "The first run happens at day end."} />}>
-          {(rows) => <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Day-end checks" />}
+          {(rows) => <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Day-end runs" />}
         </Async>
       </Card>
     </>
@@ -108,8 +108,8 @@ function RunView({ run, reload }: { run: ReconRunDetail; reload: () => Promise<v
   return (
     <>
       <PageHeader
-        back={{ to: "/recon", label: "Day-end check" }}
-        title={`Day-end check for ${fmtDate(run.business_date)}`}
+        back={{ to: "/recon", label: "Differences to settle" }}
+        title={`Differences found for ${fmtDate(run.business_date)}`}
         subtitle={`${run.trigger === "SCHEDULED" ? "Automatic, at day end" : "Run on request"} · ${fmtDateTime(run.started_at)}`}
         actions={
           <a className="btn btn-secondary" href={api.reconCsvUrl(run.id)} download>

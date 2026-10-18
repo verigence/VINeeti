@@ -11,7 +11,6 @@ import { AuditPage } from "./pages/Audit";
 import { BookingDetailPage } from "./pages/BookingDetail";
 import { BookingFormPage } from "./pages/BookingForm";
 import { BookingsPage } from "./pages/Bookings";
-import { BoardPage } from "./pages/Board";
 import { DashboardsPage } from "./pages/Dashboards";
 import { EodPage } from "./pages/Eod";
 import { HomePage } from "./pages/Home";
@@ -73,7 +72,8 @@ const ROUTES: Route[] = [
   { path: "/owner/measures", allowed: (can) => can("owner.view"), render: () => <OwnerPage tab="measures" /> },
   { path: "/owner/money", allowed: (can) => can("owner.view") && can("stock.value"), render: () => <OwnerPage tab="money" /> },
 
-  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <BoardPage /> },
+  // Kept so a bookmark or an old link still works; the board itself now lives on Home.
+  { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <HomePage /> },
   { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
   { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
   { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="orders" /> },

@@ -593,9 +593,14 @@ export interface WritebackRow {
   paired_with: string | null;
   days_waiting: number;
 }
+export interface Reconcile {
+  total: number; confirmed: number; to_allot: number; sold_elsewhere: number;
+  to_remove: number; released_settled: number; fulfilled: number;
+}
 export interface Writeback {
   rows: WritebackRow[];
   totals: { allot: number; remove: number };
+  reconcile: Reconcile;
   conflicts: { booking_no: string; customer_name: string; vin: string; dms_booking_no: string }[];
   generated_at: string;
   basis: string;
