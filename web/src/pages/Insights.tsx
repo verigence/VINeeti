@@ -15,7 +15,7 @@ import { Async, Card, Chip, DataTable, Empty, Field, Notice, Stat, type Column }
 import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, plural, today } from "../format";
 import { useLoad } from "../hooks";
 import { useSession } from "../session";
-import type { ConsultantRow, ModelMoney, Unclaimed } from "../types";
+import type { ConsultantRow, ModelMoney, RequestRow, Unclaimed } from "../types";
 
 const Basis = ({ text }: { text: string }) => <p className="measure-basis">{text}</p>;
 const daysAgo = (n: number) => {
@@ -64,23 +64,21 @@ export function MoneyTab() {
     { header: "Sold", num: true, cell: (r) => fmtNumber(r.invoices) },
     { header: "Revenue", num: true, cell: (r) => fmtMoney(r.revenue) },
     { header: "Average sold for", num: true, cell: (r) => fmtMoney(r.avg_selling) },
-    { header: "Average cost", num: true, cell: (r) => (r.avg_cost === null ? <span className="muted">not known</span> : fmtMoney(r.avg_cost)) },
+    { header: "Out of our margin", num: true, cell: (r) => fmtMoney(r.dealer_discount) },
+    { header: "On schemes", num: true, cell: (r) => fmtMoney(r.oem_discount) },
     {
-      header: "Average margin",
+      header: "Given away per car",
       num: true,
       cell: (r) =>
-        r.avg_margin === null ? (
+        r.avg_discount === null ? (
           <span className="muted">—</span>
         ) : (
-          <span className={r.avg_margin < 0 ? "strong danger" : "strong"}>
-            {fmtMoney(r.avg_margin)}
-            <span className="sub">
-              {pc(r.margin_pct)} · {plural(r.margin_cars, "car")}
-            </span>
+          <span className={(r.discount_pct ?? 0) > 10 ? "strong danger" : "strong"}>
+            {fmtMoney(r.avg_discount)}
+            <span className="sub">{pc(r.discount_pct)} of the price</span>
           </span>
         ),
     },
-    { header: "Dealer discount", num: true, cell: (r) => fmtMoney(r.dealer_discount) },
   ];
 
   const unclaimedCols: Column<Unclaimed>[] = [
@@ -101,14 +99,15 @@ export function MoneyTab() {
               <Stat label="Cars invoiced" value={fmtNumber(d.totals.invoices)} hint={change(d.totals.invoices, d.previous.invoices)} />
               <Stat label="Average sold for" value={fmtMoneyShort(d.totals.avg_selling ?? 0)} hint={fmtMoney(d.totals.avg_selling ?? 0)} />
               <Stat
-                label="Gross margin"
-                value={fmtMoneyShort(d.totals.margin)}
-                hint={`${pc(d.totals.margin_pct)} on ${plural(d.totals.margin_cars, "car")} — cost known for ${pc(d.totals.cost_known_pct)}`}
-                tone={d.totals.margin < 0 ? "danger" : undefined}
+                label="Given away"
+                value={fmtMoneyShort(d.totals.discount)}
+                hint={`${pc(d.totals.discount_pct)} of what the cars would have sold for`}
+                tone={(d.totals.discount_pct ?? 0) > 10 ? "warn" : undefined}
               />
             </div>
             <div className="tiles">
               <Stat label="Out of our own margin" value={fmtMoneyShort(d.totals.dealer_discount)} hint="Dealer discount: gone, not recoverable" />
+              <Stat label="Loyalty and exchange" value={fmtMoneyShort(d.totals.loyalty_discount + d.totals.exchange_discount)} hint="Claimed back with their own credit notes" />
               <Stat label="On the manufacturer's schemes" value={fmtMoneyShort(d.totals.oem_discount)} hint="Recoverable with a credit note" />
               <Stat
                 label="Not claimed back"
@@ -119,15 +118,8 @@ export function MoneyTab() {
               <Stat label="Insurance written" value={fmtMoneyShort(d.attached.insurance_amount)} hint={`${pc(d.attached.insurance_pct)} of cars insured here`} />
             </div>
 
-            {d.totals.cost_known_pct !== null && d.totals.cost_known_pct < 90 && (
-              <Notice tone="info">
-                Margin is worked out for {plural(d.totals.margin_cars, "car")} of {fmtNumber(d.totals.invoices)} — {pc(d.totals.cost_known_pct)}. A car's cost is the Net Dealer Price from the stock
-                report, so it is known only for cars this system has seen in one; a car sold before the first report was loaded was never in it. The share rises on its own as the daily reports build up.
-              </Notice>
-            )}
-
             {d.days.length > 1 && (
-              <Card title="Revenue and margin, day by day" className="chart-card">
+              <Card title="Revenue and discount, day by day" className="chart-card">
                 <Chart
                   height={260}
                   option={{
@@ -141,45 +133,49 @@ export function MoneyTab() {
                     ],
                     series: [
                       { name: "Revenue", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[1], borderRadius: [3, 3, 0, 0] }, data: d.days.map((x) => x.revenue) },
-                      { name: "Gross margin", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[0], borderRadius: [3, 3, 0, 0] }, data: d.days.map((x) => x.margin) },
+                      { name: "Given away", type: "bar", barMaxWidth: 20, itemStyle: { color: PALETTE[5], borderRadius: [3, 3, 0, 0] }, data: d.days.map((x) => x.discount) },
                       { name: "Cars", type: "line", yAxisIndex: 1, smooth: true, symbol: "none", lineStyle: { color: PALETTE[5], width: 2 }, itemStyle: { color: PALETTE[5] }, data: d.days.map((x) => x.invoices) },
                     ],
                   }}
                 />
-                <p className="measure-basis">Margin is shown only for the cars whose cost this system knows, so on days with few such cars the two bars are not comparable.</p>
+                <p className="measure-basis">Discount is everything taken off the price that day — the dealership's own and the manufacturer's schemes together.</p>
               </Card>
             )}
 
             <div className="split split-even">
-              {d.models.some((m) => m.avg_margin !== null) && (
-                <Card title="What each model earns on a car" className="chart-card">
+              {d.models.some((m) => m.discount_pct !== null) && (
+                <Card title="How hard each model is discounted" className="chart-card">
                   <Chart
                     height={280}
                     option={{
-                      tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-                      grid: { left: 110, right: 24, top: 10, bottom: 28 },
-                      xAxis: { type: "value", axisLabel: { color: "#5b6672", formatter: (v: number) => fmtMoneyShort(v) }, splitLine: { lineStyle: { color: "#e9eff3" } } },
+                      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v: number) => `${v}%` },
+                      grid: { left: 110, right: 48, top: 10, bottom: 28 },
+                      xAxis: { type: "value", axisLabel: { color: "#5b6672", formatter: "{value}%" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
                       yAxis: {
                         type: "category",
-                        data: d.models.filter((m) => m.avg_margin !== null).slice(0, 10).map((m) => m.model).reverse(),
+                        data: d.models.filter((m) => m.discount_pct !== null).slice(0, 10).map((m) => m.model).reverse(),
                         axisLabel: { color: "#5b6672" },
                         axisTick: { show: false },
                       },
                       series: [
                         {
-                          name: "Average margin",
+                          name: "Share of the price given away",
                           type: "bar",
                           barMaxWidth: 18,
+                          label: { show: true, position: "right", formatter: "{c}%", color: "#5b6672" },
                           data: d.models
-                            .filter((m) => m.avg_margin !== null)
+                            .filter((m) => m.discount_pct !== null)
                             .slice(0, 10)
-                            .map((m) => ({ value: m.avg_margin, itemStyle: { color: (m.avg_margin ?? 0) < 0 ? "#9a2a20" : PALETTE[1], borderRadius: [0, 3, 3, 0] } }))
+                            .map((m) => ({ value: m.discount_pct, itemStyle: { color: (m.discount_pct ?? 0) > 10 ? "#9a2a20" : PALETTE[1], borderRadius: [0, 3, 3, 0] } }))
                             .reverse(),
                         },
                       ],
                     }}
                   />
-                  <p className="measure-basis">The ten models with the most revenue, by what a single car of that model makes. Volume and margin are not the same thing, and this is where they part company.</p>
+                  <p className="measure-basis">
+                    The ten models with the most revenue, by how much of the price is given away on them — the dealership's own discount and the manufacturer's schemes together, against what the cars
+                    would have sold for. A model that moves only when it is discounted shows up here and nowhere else.
+                  </p>
                 </Card>
               )}
 
@@ -240,6 +236,26 @@ export function MoneyTab() {
 }
 
 // ================================================================ the CEO: is the business healthy
+
+/** One shape for both request lists: waiting ones show how long, decided ones show who ruled. */
+const requestCols = (waiting: boolean): Column<RequestRow>[] => [
+  { header: "Booking", primary: true, cell: (r) => <><span className="strong nowrap">{r.booking_no}</span><span className="sub">{r.customer_name}</span></> },
+  { header: "What is being asked", cell: (r) => <>{r.what}{r.vin ? <span className="sub mono">{r.vin}</span> : null}</> },
+  { header: "Asked by", cell: (r) => r.requested_by || <span className="muted">–</span> },
+  { header: "Raised", cell: (r) => fmtDate(r.requested_at) },
+  waiting
+    ? { header: "Waiting", num: true, cell: (r) => <span className={(r.days_waiting ?? 0) > 2 ? "strong danger" : ""}>{plural(r.days_waiting ?? 0, "day")}</span> }
+    : {
+        header: "Decision",
+        status: true,
+        cell: (r) => (
+          <>
+            {r.status === "APPROVED" ? <Chip tone="green">Approved</Chip> : r.status === "REJECTED" ? <Chip tone="red">Refused</Chip> : <Chip tone="grey">{r.status}</Chip>}
+            {r.decided_by ? <span className="sub">by {r.decided_by}</span> : null}
+          </>
+        ),
+      },
+];
 
 export function BusinessTab() {
   const period = usePeriod(daysAgo(29));
@@ -336,6 +352,65 @@ export function BusinessTab() {
                   />
                 </Card>
               </>
+            )}
+
+            {/*
+              The two ends of the same question: what was put to an approver, and what went round
+              them anyway. Side by side, because a day with no requests and several allotments made
+              straight in the DMS is not a quiet day.
+            */}
+            <Card title="Put to an approver, and gone round them" className="chart-card">
+              <div className="tiles tiles-compact">
+                <Stat label="Changes put up for approval" value={fmtNumber(d.governance.totals.requested)} />
+                <Stat label="Approved" value={fmtNumber(d.governance.totals.approved)} />
+                <Stat label="Refused" value={fmtNumber(d.governance.totals.rejected)} />
+                <Stat
+                  label="Still waiting"
+                  value={fmtNumber(d.governance.totals.pending)}
+                  hint={d.governance.oldest_pending_days === null ? undefined : `oldest ${plural(d.governance.oldest_pending_days, "day")} old`}
+                  tone={(d.governance.oldest_pending_days ?? 0) > 2 ? "danger" : undefined}
+                />
+                <Stat
+                  label="Allotted in the DMS, not here"
+                  value={fmtNumber(d.governance.totals.outside)}
+                  hint="Nobody here was asked"
+                  tone={d.governance.totals.outside ? "danger" : undefined}
+                />
+              </div>
+              {d.days.length > 1 && (
+                <Chart
+                  height={230}
+                  option={{
+                    tooltip: { trigger: "axis" },
+                    legend: { bottom: 0, textStyle: { color: "#5b6672" } },
+                    grid: { left: 56, right: 24, top: 16, bottom: 48 },
+                    xAxis: { type: "category", data: d.governance.days.map((x) => dayLabel(x.date)), axisLabel: { color: "#5b6672" }, axisTick: { show: false } },
+                    yAxis: { type: "value", minInterval: 1, axisLabel: { color: "#5b6672" }, splitLine: { lineStyle: { color: "#e9eff3" } } },
+                    series: [
+                      { name: "Put up for approval", type: "bar", barMaxWidth: 16, itemStyle: { color: PALETTE[1], borderRadius: [3, 3, 0, 0] }, data: d.governance.days.map((x) => x.requested) },
+                      { name: "Approved", type: "bar", barMaxWidth: 16, itemStyle: { color: PALETTE[4], borderRadius: [3, 3, 0, 0] }, data: d.governance.days.map((x) => x.approved) },
+                      { name: "Refused", type: "bar", barMaxWidth: 16, itemStyle: { color: PALETTE[7], borderRadius: [3, 3, 0, 0] }, data: d.governance.days.map((x) => x.rejected) },
+                      { name: "Allotted in the DMS, not here", type: "line", symbol: "circle", symbolSize: 6, lineStyle: { color: "#9a2a20", width: 2 }, itemStyle: { color: "#9a2a20" }, data: d.governance.days.map((x) => x.outside) },
+                    ],
+                  }}
+                />
+              )}
+              <p className="measure-basis">
+                Requests are counted on the day they were raised and decisions on the day they were made. An allotment made in the DMS is counted on the day the DMS says it was allotted, not the day
+                the file reached us, so a report loaded late does not bunch three days of them onto one.
+              </p>
+            </Card>
+
+            {d.governance.pending.length > 0 && (
+              <Card title="Waiting for a decision" note="Nothing moves on these until somebody rules. The oldest is at the top." flush>
+                <DataTable columns={requestCols(true)} rows={d.governance.pending} rowKey={(r) => r.id} caption="Waiting for a decision" />
+              </Card>
+            )}
+
+            {d.governance.decided.length > 0 && (
+              <Card title="Decided in this period" flush>
+                <DataTable columns={requestCols(false)} rows={d.governance.decided} rowKey={(r) => r.id} caption="Decided in this period" />
+              </Card>
             )}
 
             {d.cancel_reasons.length > 0 && (

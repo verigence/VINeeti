@@ -7,21 +7,20 @@
 // screens could show how many cars were standing still but never what the standing still cost, and
 // never, for a single car, the difference between what it was bought for and what it was sold for.
 //
-// Two columns make the difference and both are already loaded:
+// Everything here is worked out from the selling side of the retail invoice -- what the car sold for
+// and what was taken off that price -- and from nothing else.
 //
-//   vehicles.net_dealer_price        what the dealership paid the manufacturer for this chassis
-//   retail_invoices.selling_price    what the customer paid for it, before tax
-//
-// Together they are gross margin per car, which is the number every other number here leans on.
-//
-// The honest limit, stated on every figure that depends on it: the cost is only known for a car this
-// system has seen in a stock report. A car sold before the first report was loaded was never in one,
-// so its margin cannot be worked out, and the coverage is reported rather than quietly averaged over
-// the cars that happen to have it.
+// There is deliberately no cost and no margin. This system adds nothing of its own to what the DMS
+// files give it, and what a chassis cost the dealership is not a number it should be carrying about
+// in its reports: it is the dealership's own buying position, it is not what the retail file is for,
+// and a margin figure assembled here would be this system asserting something no single file it was
+// given actually says. So the question answered is what the price was and how much of it was given
+// away, which the retail export states outright.
 
 import type { Ctx } from "../env";
 import { all, first } from "../lib/db";
 import { addDays, localDayBounds, localParts } from "../lib/util";
+import { releaseWords } from "./release-reasons";
 
 const inList = (ids: string[] | null, col: string) => (ids ? `AND ${col} IN (${ids.map(() => "?").join(",") || "''"})` : "");
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -42,9 +41,8 @@ export interface MoneyDay {
   date: string;
   invoices: number;
   revenue: number;
-  /** Gross margin on the cars of that day whose cost this system knows. */
-  margin: number;
-  margin_cars: number;
+  /** Everything taken off the price that day: the dealership's own and the manufacturer's together. */
+  discount: number;
 }
 
 export interface ModelMoney {
@@ -52,13 +50,11 @@ export interface ModelMoney {
   invoices: number;
   revenue: number;
   avg_selling: number;
-  /** Null where this system holds the cost for none of the model's cars. */
-  avg_cost: number | null;
-  avg_margin: number | null;
-  margin_pct: number | null;
-  margin_cars: number;
   dealer_discount: number;
   oem_discount: number;
+  /** Everything taken off the price, as a share of what the cars of this model sold for. */
+  discount_pct: number | null;
+  avg_discount: number | null;
 }
 
 export interface Unclaimed {
@@ -72,20 +68,20 @@ export interface Unclaimed {
 
 export interface OwnerMoney {
   period: { from: string; to: string };
-  previous: { revenue: number; invoices: number; margin: number };
+  previous: { revenue: number; invoices: number; discount: number };
   totals: {
     invoices: number;
     revenue: number;
     selling: number;
     avg_selling: number | null;
-    /** Gross margin, and over how many cars: the rest have no cost in this system. */
-    margin: number;
-    margin_cars: number;
-    margin_pct: number | null;
-    cost_known_pct: number | null;
     /** Discount out of the dealership's own margin, and the manufacturer's schemes passed on. */
     dealer_discount: number;
     oem_discount: number;
+    loyalty_discount: number;
+    exchange_discount: number;
+    /** Everything taken off the price, and what share of the price that is. */
+    discount: number;
+    discount_pct: number | null;
     /** Scheme money given away with no credit note raised to claim it back. */
     unclaimed: number;
     unclaimed_cars: number;
@@ -112,9 +108,8 @@ export interface OwnerMoney {
 /**
  * The money, for the person whose money it is.
  *
- * Revenue is the retail invoice, because that is when the dealership has earned it. Margin is the
- * selling price less what the chassis cost, which is the only margin figure in this system that is
- * not an estimate -- both halves are numbers the manufacturer's own files state.
+ * Revenue is the retail invoice, because that is when the dealership has earned it. Beside it is the
+ * only other thing the invoice states about the price: how much of it was given away.
  *
  * The discounts are kept apart on purpose. What comes out of the dealership's own margin is gone;
  * what was given on a manufacturer's scheme can be claimed back, and the claim is a credit note
@@ -137,7 +132,6 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
     model: string | null;
     invoice_amount: number | null;
     selling_price: number | null;
-    cost: number | null;
     dealer_discount: number | null;
     oem_scheme_discount: number | null;
     loyalty_discount: number | null;
@@ -153,24 +147,22 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
     all<Row>(
       ctx.db,
       `SELECT r.invoice_no, r.invoice_date, r.customer_name, r.vin, r.model, r.invoice_amount, r.selling_price,
-              v.net_dealer_price AS cost, r.dealer_discount, r.oem_scheme_discount, r.loyalty_discount, r.exchange_discount,
+              r.dealer_discount, r.oem_scheme_discount, r.loyalty_discount, r.exchange_discount,
               r.bndp_credit_note, r.financier, r.finance_arranged_by, r.insurance_amount, r.exchange_indicator, r.delivery_note_date
          FROM retail_invoices r
-         LEFT JOIN vehicles v ON v.id = r.vehicle_id
         WHERE r.tenant_id = ? AND r.withdrawn_on IS NULL AND r.invoice_date >= ? AND r.invoice_date <= ? ${inList(outletIds, "r.outlet_id")}`,
       T, p.from, p.to, ...scope,
     );
 
   const rows = await fetch(period);
   const before = await fetch(prior);
-  const marginOf = (r: Row) => (r.cost !== null && r.selling_price !== null ? r.selling_price - r.cost : null);
   const sum = (xs: (number | null)[]) => xs.reduce((a: number, b) => a + (b ?? 0), 0);
+  /** Everything taken off the price of one car, whoever is paying for it. */
+  const discountOf = (r: Row) => (r.dealer_discount ?? 0) + (r.oem_scheme_discount ?? 0) + (r.loyalty_discount ?? 0) + (r.exchange_discount ?? 0);
 
-  const withCost = rows.filter((r) => marginOf(r) !== null);
-  const margin = sum(withCost.map(marginOf));
   const selling = sum(rows.map((r) => r.selling_price));
   const revenue = sum(rows.map((r) => r.invoice_amount));
-  const priorWithCost = before.filter((r) => marginOf(r) !== null);
+  const discount = rows.reduce((n, r) => n + discountOf(r), 0);
 
   // A scheme discount with no credit note against it. Only counted where the file fills that column
   // somewhere: an export that leaves it blank on every row says nothing about what was claimed, and
@@ -181,40 +173,37 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
   const byDay = new Map<string, MoneyDay>();
   for (const r of rows) {
     if (!r.invoice_date) continue;
-    const d = byDay.get(r.invoice_date) ?? { date: r.invoice_date, invoices: 0, revenue: 0, margin: 0, margin_cars: 0 };
+    const d = byDay.get(r.invoice_date) ?? { date: r.invoice_date, invoices: 0, revenue: 0, discount: 0 };
     d.invoices++;
     d.revenue += r.invoice_amount ?? 0;
-    const m = marginOf(r);
-    if (m !== null) { d.margin += m; d.margin_cars++; }
+    d.discount += discountOf(r);
     byDay.set(r.invoice_date, d);
   }
 
-  const byModel = new Map<string, ModelMoney & { _cost: number; _selling_known: number }>();
+  const byModel = new Map<string, { model: string; invoices: number; revenue: number; _selling: number; dealer: number; oem: number; _discount: number }>();
   for (const r of rows) {
     const key = r.model || "Not stated";
-    const m = byModel.get(key) ?? { model: key, invoices: 0, revenue: 0, avg_selling: 0, avg_cost: null, avg_margin: null, margin_pct: null, margin_cars: 0, dealer_discount: 0, oem_discount: 0, _cost: 0, _selling_known: 0 };
+    const m = byModel.get(key) ?? { model: key, invoices: 0, revenue: 0, _selling: 0, dealer: 0, oem: 0, _discount: 0 };
     m.invoices++;
     m.revenue += r.invoice_amount ?? 0;
-    m.avg_selling += r.selling_price ?? 0;
-    m.dealer_discount += r.dealer_discount ?? 0;
-    m.oem_discount += r.oem_scheme_discount ?? 0;
-    const gm = marginOf(r);
-    if (gm !== null) { m.margin_cars++; m._cost += r.cost ?? 0; m._selling_known += r.selling_price ?? 0; }
+    m._selling += r.selling_price ?? 0;
+    m.dealer += r.dealer_discount ?? 0;
+    m.oem += r.oem_scheme_discount ?? 0;
+    m._discount += discountOf(r);
     byModel.set(key, m);
   }
   const models: ModelMoney[] = [...byModel.values()]
-    .map((m) => {
-      const avgSelling = m.invoices ? round(m.avg_selling / m.invoices) : 0;
-      const known = m.margin_cars;
-      const avgCost = known ? round(m._cost / known) : null;
-      const avgMargin = known ? round((m._selling_known - m._cost) / known) : null;
-      return {
-        model: m.model, invoices: m.invoices, revenue: round(m.revenue), avg_selling: avgSelling,
-        avg_cost: avgCost, avg_margin: avgMargin,
-        margin_pct: known && m._selling_known > 0 ? Math.round(((m._selling_known - m._cost) / m._selling_known) * 1000) / 10 : null,
-        margin_cars: known, dealer_discount: round(m.dealer_discount), oem_discount: round(m.oem_discount),
-      };
-    })
+    .map((m) => ({
+      model: m.model,
+      invoices: m.invoices,
+      revenue: round(m.revenue),
+      avg_selling: m.invoices ? round(m._selling / m.invoices) : 0,
+      dealer_discount: round(m.dealer),
+      oem_discount: round(m.oem),
+      // Against the price before the discount came off, which is what "a tenth of the price" means.
+      discount_pct: m._selling > 0 ? Math.round((m._discount / (m._selling + m._discount)) * 1000) / 10 : null,
+      avg_discount: m.invoices ? round(m._discount / m.invoices) : null,
+    }))
     .sort((a, b) => b.revenue - a.revenue);
 
   const financed = rows.filter((r) => r.financier && r.financier.toUpperCase() !== "CASH").length;
@@ -227,18 +216,18 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
 
   return {
     period,
-    previous: { revenue: round(sum(before.map((r) => r.invoice_amount))), invoices: before.length, margin: round(sum(priorWithCost.map(marginOf))) },
+    previous: { revenue: round(sum(before.map((r) => r.invoice_amount))), invoices: before.length, discount: round(before.reduce((n, r) => n + discountOf(r), 0)) },
     totals: {
       invoices: rows.length,
       revenue: round(revenue),
       selling: round(selling),
       avg_selling: rows.length ? round(selling / rows.length) : null,
-      margin: round(margin),
-      margin_cars: withCost.length,
-      margin_pct: withCost.length ? Math.round((margin / sum(withCost.map((r) => r.selling_price))) * 1000) / 10 : null,
-      cost_known_pct: pct(withCost.length, rows.length),
       dealer_discount: round(sum(rows.map((r) => r.dealer_discount))),
       oem_discount: round(sum(rows.map((r) => r.oem_scheme_discount))),
+      loyalty_discount: round(sum(rows.map((r) => r.loyalty_discount))),
+      exchange_discount: round(sum(rows.map((r) => r.exchange_discount))),
+      discount: round(discount),
+      discount_pct: selling + discount > 0 ? Math.round((discount / (selling + discount)) * 1000) / 10 : null,
       unclaimed: round(sum(unclaimedRows.map((r) => r.oem_scheme_discount))),
       unclaimed_cars: unclaimedRows.length,
     },
@@ -251,7 +240,7 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
       insurance_amount: round(sum(rows.map((r) => r.insurance_amount))),
     },
     delivery: { invoiced: rows.length, delivered, median_days: median(lags), over_a_week: lags.filter((n) => n > 7).length },
-    days: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({ ...d, revenue: round(d.revenue), margin: round(d.margin) })),
+    days: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({ ...d, revenue: round(d.revenue), discount: round(d.discount) })),
     models,
     unclaimed_list: unclaimedRows
       .sort((a, b) => (b.oem_scheme_discount ?? 0) - (a.oem_scheme_discount ?? 0))
@@ -259,8 +248,8 @@ export async function ownerMoney(ctx: Ctx, outletIds: string[] | null, period: {
       .map((r) => ({ invoice_no: r.invoice_no, invoice_date: r.invoice_date, customer_name: r.customer_name, vin: r.vin ?? "", model: r.model ?? "", amount: round(r.oem_scheme_discount ?? 0) })),
     claims_not_stated: !anyClaim,
     basis:
-      "Revenue is the retail invoice, counted on its invoice date. Gross margin is the selling price before tax less what the dealership paid the manufacturer for that chassis (Net Dealer Price), " +
-      "so it covers only cars this system has seen in a stock report -- the share is stated beside it, and no figure is averaged over the rest. " +
+      "Everything here comes from the retail invoice and nothing else: what the car sold for and what was taken off that price. There is no cost and no margin -- this system reports what the files " +
+      "state and does not work out the dealership's buying position. Revenue is counted on the invoice date. Discount is measured against the price before it came off. " +
       "Dealer discount comes out of the dealership's own margin; manufacturer scheme discount can be claimed back with a credit note, and scheme money with no credit note against it is listed car by car. " +
       "Withdrawn invoices are left out. The comparison is with the period of the same length immediately before.",
   };
@@ -293,6 +282,30 @@ export interface ConsultantRow {
   insured_pct: number | null;
 }
 
+export interface GovernanceDay {
+  date: string;
+  /** Allocation changes put to an approver that day. */
+  requested: number;
+  approved: number;
+  rejected: number;
+  /** Cars allotted in the DMS that never came through this system. */
+  outside: number;
+}
+
+export interface RequestRow {
+  id: string;
+  booking_no: string;
+  customer_name: string;
+  vin: string | null;
+  what: string;
+  status: string;
+  requested_at: string;
+  requested_by: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  days_waiting: number | null;
+}
+
 export interface BusinessHealth {
   period: { from: string; to: string };
   totals: {
@@ -309,6 +322,18 @@ export interface BusinessHealth {
   days: FunnelDay[];
   cancel_reasons: { reason: string; n: number }[];
   consultants: ConsultantRow[];
+  /**
+   * The two things an approver needs counted by day: what was put to them, and what went round them
+   * anyway. They belong together because they are the same question asked from both ends -- how much
+   * of the allocation that changed hands did anyone get to decide.
+   */
+  governance: {
+    days: GovernanceDay[];
+    totals: { requested: number; approved: number; rejected: number; pending: number; outside: number };
+    oldest_pending_days: number | null;
+    pending: RequestRow[];
+    decided: RequestRow[];
+  };
   basis: string;
 }
 
@@ -460,8 +485,83 @@ export async function businessHealth(ctx: Ctx, outletIds: string[] | null, perio
     .filter((p) => p.bookings || p.invoiced || p.cancelled)
     .sort((x, y) => y.revenue - x.revenue || y.invoiced - x.invoiced || y.bookings - x.bookings);
 
+  // ---- what was put to an approver, and what went round them anyway
+  const requests = await all<{ id: string; type: string; status: string; reason: string; payload_json: string; requested_at: string; decided_at: string | null; booking_no: string; customer_name: string; requester: string | null; decider: string | null }>(
+    ctx.db,
+    `SELECT e.id, e.type, e.status, e.reason, e.payload_json, e.requested_at, e.decided_at,
+            b.booking_no, b.customer_name, rq.name AS requester, dc.name AS decider
+       FROM exceptions e
+       JOIN bookings b ON b.id = e.booking_id
+       LEFT JOIN users rq ON rq.id = e.requested_by
+       LEFT JOIN users dc ON dc.id = e.decided_by
+      WHERE e.tenant_id = ? ${inList(outletIds, "b.outlet_id")}`,
+    T, ...scope,
+  );
+  // An allotment made in the DMS is dated by the day the DMS says it happened, not by the day the
+  // file reached us: a report loaded three days late would otherwise bunch three days of them onto
+  // one, which is the opposite of what a daily count is for.
+  const outsideRows = await all<{ at: string; detail_json: string }>(
+    ctx.db,
+    `SELECT a.at, a.detail_json FROM audit_log a WHERE a.tenant_id = ? AND a.action = 'ALLOTTED_OUTSIDE_SYSTEM'`,
+    T,
+  );
+
+  const gov: GovernanceDay[] = days.map((d) => ({ date: d.date, requested: 0, approved: 0, rejected: 0, outside: 0 }));
+  const govIndex = new Map(gov.map((d, i) => [d.date, i]));
+  const at = (date: string | null, key: keyof GovernanceDay) => {
+    if (!date) return;
+    const i = govIndex.get(date);
+    if (i !== undefined) (gov[i][key] as number)++;
+  };
+  for (const r of requests) {
+    at(dayOf(r.requested_at), "requested");
+    if (r.decided_at && r.status === "APPROVED") at(dayOf(r.decided_at), "approved");
+    if (r.decided_at && r.status === "REJECTED") at(dayOf(r.decided_at), "rejected");
+  }
+  for (const r of outsideRows) {
+    let when: string | null = null;
+    try {
+      const d = JSON.parse(r.detail_json) as Record<string, unknown>;
+      when = (typeof d.allotment_date === "string" && d.allotment_date) || (typeof d.report_date === "string" && d.report_date) || null;
+    } catch { /* an audit line whose detail will not parse is still one allotment, dated by its own row */ }
+    at(when ?? dayOf(r.at), "outside");
+  }
+
+  const shape = (r: (typeof requests)[number]): RequestRow => {
+    const p = (() => { try { return JSON.parse(r.payload_json) as Record<string, unknown>; } catch { return {}; } })();
+    const reason = typeof p.release_reason === "string" ? p.release_reason : null;
+    return {
+      id: r.id,
+      booking_no: r.booking_no,
+      customer_name: r.customer_name,
+      vin: typeof p.vin === "string" ? p.vin : null,
+      what: r.type === "RELEASE_ALLOCATION" ? (reason ? releaseWords(reason) : "Take the car back") : r.type.replace(/_/g, " ").toLowerCase().replace(/^./, (m) => m.toUpperCase()),
+      status: r.status,
+      requested_at: r.requested_at,
+      requested_by: r.requester ?? "",
+      decided_by: r.decider,
+      decided_at: r.decided_at,
+      days_waiting: r.decided_at ? null : Math.floor((ctx.now.getTime() - Date.parse(r.requested_at)) / 86_400_000),
+    };
+  };
+  const pending = requests.filter((r) => r.status === "PENDING").map(shape).sort((x, y) => x.requested_at.localeCompare(y.requested_at));
+  const decidedIn = requests.filter((r) => r.decided_at && r.decided_at >= a && r.decided_at < b).map(shape).sort((x, y) => (y.decided_at ?? "").localeCompare(x.decided_at ?? ""));
+
   return {
     period,
+    governance: {
+      days: gov,
+      totals: {
+        requested: gov.reduce((n, d) => n + d.requested, 0),
+        approved: gov.reduce((n, d) => n + d.approved, 0),
+        rejected: gov.reduce((n, d) => n + d.rejected, 0),
+        pending: pending.length,
+        outside: gov.reduce((n, d) => n + d.outside, 0),
+      },
+      oldest_pending_days: pending.length ? Math.max(...pending.map((x) => x.days_waiting ?? 0)) : null,
+      pending,
+      decided: decidedIn.slice(0, 100),
+    },
     totals: {
       booked: booked.length,
       cancelled: cancelled.length,
@@ -480,7 +580,8 @@ export async function businessHealth(ctx: Ctx, outletIds: string[] | null, perio
       "Each step is counted on the day it happened, not the day a file arrived, so a report loaded late does not pile onto the wrong day. " +
       "The queue is every booking taken by the end of that day that had no car, no cancellation and no invoice yet, counted from the whole order book rather than the period. " +
       "Days to allocate and to invoice are medians over the bookings that reached that step inside the period. " +
-      "A consultant's sales, revenue and discount come from the retail export, which names them on the invoice; bookings and cancellations come from the booking sheet. Withdrawn invoices are left out.",
+      "A consultant's sales, revenue and discount come from the retail export, which names them on the invoice; bookings and cancellations come from the booking sheet. Withdrawn invoices are left out. " +
+      "Requests are counted on the day they were raised and decisions on the day they were made. An allotment made in the DMS is counted on the day the DMS says it was allotted, not the day the file arrived.",
   };
 }
 

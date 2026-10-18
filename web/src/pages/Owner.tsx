@@ -31,7 +31,7 @@ export function OwnerPage({ tab }: { tab: Tab }) {
           { to: "/owner/measures", label: "Measures" },
           // What the cars earned. Needs the right to see what stock is worth, because it is built on
           // what each chassis cost.
-          ...(can("stock.value") ? [{ to: "/owner/money", label: "Money and margin (new)" }] : []),
+          ...(can("stock.value") ? [{ to: "/owner/money", label: "Money (new)" }] : []),
         ]}
       />
       {tab === "overview" && <Overview />}

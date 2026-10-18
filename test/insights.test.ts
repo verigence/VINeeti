@@ -14,47 +14,37 @@ const business = (w: World, d: Dealer, from: string, to: string) => w.api("GET",
 const system = (w: World, d: Dealer, from: string, to: string) => w.api("GET", `/api/insights/system?from=${from}&to=${to}`, undefined, d.users.admin.session);
 
 describe("what the cars earned", () => {
-  it("works margin out from what the chassis cost and what it sold for", async () => {
+  it("reports the price and what came off it, and nothing about what the car cost", async () => {
     const w = makeWorld("2026-10-14 10:00");
     const d = await makeMahindraDealer(w);
+    // The stock report carries a Net Dealer Price for every chassis. Nothing here reads it: what a
+    // car cost the dealership is its own buying position, and this system reports what the files
+    // state about the sale rather than working out a margin no single file it was given asserts.
     await loadStock(w, d.users.stock.session, [
       { vin: "MA1THAR0000000001", car: "THAR_WHITE", price: 1_000_000 },
       { vin: "MA1THAR0000000002", car: "THAR_BLACK", price: 1_000_000 },
     ], { asOn: "2026-10-14" });
     await loadRetail(w, d.users.crm.session, [
       { no: "INV27A000001", car: "THAR_WHITE", vin: "MA1THAR0000000001", date: "2026-10-10", selling: 1_200_000, dealerDiscount: 20_000 },
-      { no: "INV27A000002", car: "THAR_BLACK", vin: "MA1THAR0000000002", date: "2026-10-11", selling: 1_150_000 },
+      { no: "INV27A000002", car: "THAR_BLACK", vin: "MA1THAR0000000002", date: "2026-10-11", selling: 1_150_000, oemDiscount: 30_000 },
     ], { asOn: "2026-10-14" });
 
     const res = await money(w, d, "2026-10-01", "2026-10-14");
     expect(res.status).toBe(200);
     const t = res.body.totals;
     expect(t.invoices).toBe(2);
-    // 200,000 on the first car and 150,000 on the second.
-    expect(t.margin).toBe(350_000);
-    expect(t.margin_cars).toBe(2);
-    expect(t.cost_known_pct).toBe(100);
+    expect(t.selling).toBe(2_350_000);
     expect(t.dealer_discount).toBe(20_000);
-    // Margin is against the selling price before tax, not the invoice total.
-    expect(t.margin_pct).toBe(14.9);
-  });
-
-  it("leaves a car whose cost it has never seen out of the margin instead of counting it as free", async () => {
-    const w = makeWorld("2026-10-14 10:00");
-    const d = await makeMahindraDealer(w);
-    await loadStock(w, d.users.stock.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE", price: 1_000_000 }], { asOn: "2026-10-14" });
-    await loadRetail(w, d.users.crm.session, [
-      { no: "INV27A000001", car: "THAR_WHITE", vin: "MA1THAR0000000001", date: "2026-10-10", selling: 1_200_000 },
-      // Sold before this system saw a stock report, so the chassis is not in it and its cost is unknown.
-      { no: "INV27A000002", car: "THAR_BLACK", vin: "MA1THAR0000009999", date: "2026-10-11", selling: 1_150_000 },
-    ], { asOn: "2026-10-14" });
-
-    const t = (await money(w, d, "2026-10-01", "2026-10-14")).body.totals;
-    expect(t.invoices).toBe(2);
-    // The second car would have shown a 1,150,000 "margin" if a missing cost were read as zero.
-    expect(t.margin).toBe(200_000);
-    expect(t.margin_cars).toBe(1);
-    expect(t.cost_known_pct).toBe(50);
+    expect(t.oem_discount).toBe(30_000);
+    expect(t.discount).toBe(50_000);
+    // Against the price before the discount came off, which is what a share of the price means.
+    expect(t.discount_pct).toBe(2.1);
+    // No field anywhere in the answer carries a cost or a margin, however plainly the dealership's
+    // own buying price is sitting in the same database. (The wording of `basis` says so in prose,
+    // which is why the check is on the data rather than on the whole payload.)
+    const fields = (o: unknown): string[] =>
+      Array.isArray(o) ? o.flatMap(fields) : o && typeof o === "object" ? Object.entries(o).flatMap(([k, v]) => [k, ...fields(v)]) : [];
+    expect(fields(res.body).filter((k) => /cost|margin/i.test(k))).toEqual([]);
   });
 
   it("does not call scheme money unclaimed when the file never fills the credit note column", async () => {
@@ -151,6 +141,63 @@ describe("whether the business is keeping up", () => {
     // whole reason the column sits next to the revenue.
     expect(one).toMatchObject({ bookings: 1, invoiced: 1, avg_dealer_discount: 50_000 });
     expect(two).toMatchObject({ bookings: 1, invoiced: 1, avg_dealer_discount: 0 });
+  });
+
+  it("counts what was put to an approver and what went round them, day by day", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadBookings(w, d.users.crm.session, [
+      { no: "OTF27A000001", car: "THAR_WHITE", created: "01-Oct-2026 10:00 AM", customer: "HOLDING IT" },
+      { no: "OTF27A000002", car: "THAR_BLACK", created: "02-Oct-2026 10:00 AM", customer: "WALKED IN" },
+    ]);
+    await loadStock(w, d.users.stock.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE" }], { asOn: "2026-10-14" });
+    await w.api("PUT", "/api/settings", { allocation_control_from: "2026-10-01" }, d.users.admin.session);
+
+    // One change put up for approval and left waiting.
+    const bookingId = w.db.q<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'OTF27A000001'`)[0].id;
+    const ex = await w.api(
+      "POST", "/api/exceptions",
+      { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-30" }, reason: "Wanted for a demonstration" },
+      d.users.lead.session,
+    );
+    expect(ex.status).toBe(201);
+
+    // And one car allotted straight in the DMS that nobody here was asked about.
+    w.at("2026-10-15 09:00");
+    await loadStock(w, d.users.stock.session, [
+      { vin: "MA1THAR0000000001", car: "THAR_WHITE" },
+      { vin: "MA1THAR0000000002", car: "THAR_BLACK", order: "OTF27A000002", customer: "WALKED IN", allotDate: "2026-10-15" },
+    ], { asOn: "2026-10-15" });
+
+    const g = (await business(w, d, "2026-10-13", "2026-10-15")).body.governance;
+    expect(g.totals).toMatchObject({ requested: 1, approved: 0, rejected: 0, pending: 1, outside: 1 });
+    // Each on its own day: the request on the 14th, the DMS allotment on the day the DMS allotted it.
+    expect(g.days.map((x: any) => [x.date.slice(5), x.requested, x.outside])).toEqual([
+      ["10-13", 0, 0],
+      ["10-14", 1, 0],
+      ["10-15", 0, 1],
+    ]);
+    expect(g.pending).toHaveLength(1);
+    expect(g.pending[0]).toMatchObject({ booking_no: "OTF27A000001", customer_name: "HOLDING IT", what: "Priority changed by management", status: "PENDING" });
+    expect(g.pending[0].requested_by).toBe("Sunita Lead");
+  });
+
+  it("shows a decision once it is made, with who made it", async () => {
+    const w = makeWorld("2026-10-14 10:00");
+    const d = await makeMahindraDealer(w);
+    await loadBookings(w, d.users.crm.session, [{ no: "OTF27A000001", car: "THAR_WHITE", created: "01-Oct-2026 10:00 AM", customer: "HOLDING IT" }]);
+    await loadStock(w, d.users.stock.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE" }], { asOn: "2026-10-14" });
+    const bookingId = w.db.q<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'OTF27A000001'`)[0].id;
+    const ex = await w.api(
+      "POST", "/api/exceptions",
+      { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-30" }, reason: "Wanted for a demonstration" },
+      d.users.lead.session,
+    );
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(200);
+
+    const g = (await business(w, d, "2026-10-14", "2026-10-14")).body.governance;
+    expect(g.totals).toMatchObject({ requested: 1, approved: 1, pending: 0 });
+    expect(g.decided[0]).toMatchObject({ booking_no: "OTF27A000001", status: "APPROVED", decided_by: "Bikram Head" });
   });
 
   it("is not shown to someone who only sees their own bookings", async () => {

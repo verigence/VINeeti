@@ -507,20 +507,19 @@ export interface HeldCar {
  * than written here, so the form cannot drift from the rule it is collecting for.
  */
 /** Kept in step with src/domain/insights.ts. */
-export interface MoneyDay { date: string; invoices: number; revenue: number; margin: number; margin_cars: number }
+export interface MoneyDay { date: string; invoices: number; revenue: number; discount: number }
 export interface ModelMoney {
   model: string; invoices: number; revenue: number; avg_selling: number;
-  avg_cost: number | null; avg_margin: number | null; margin_pct: number | null; margin_cars: number;
-  dealer_discount: number; oem_discount: number;
+  dealer_discount: number; oem_discount: number; discount_pct: number | null; avg_discount: number | null;
 }
 export interface Unclaimed { invoice_no: string; invoice_date: string | null; customer_name: string; vin: string; model: string; amount: number }
 export interface OwnerMoney {
   period: { from: string; to: string };
-  previous: { revenue: number; invoices: number; margin: number };
+  previous: { revenue: number; invoices: number; discount: number };
   totals: {
     invoices: number; revenue: number; selling: number; avg_selling: number | null;
-    margin: number; margin_cars: number; margin_pct: number | null; cost_known_pct: number | null;
-    dealer_discount: number; oem_discount: number; unclaimed: number; unclaimed_cars: number;
+    dealer_discount: number; oem_discount: number; loyalty_discount: number; exchange_discount: number;
+    discount: number; discount_pct: number | null; unclaimed: number; unclaimed_cars: number;
   };
   attached: {
     financed: number; dealer_arranged: number; insured: number; exchanged: number;
@@ -538,6 +537,11 @@ export interface ConsultantRow {
   name: string; code: string | null; bookings: number; invoiced: number; cancelled: number; cancel_pct: number | null;
   revenue: number; avg_dealer_discount: number | null; financed_pct: number | null; insured_pct: number | null;
 }
+export interface GovernanceDay { date: string; requested: number; approved: number; rejected: number; outside: number }
+export interface RequestRow {
+  id: string; booking_no: string; customer_name: string; vin: string | null; what: string; status: string;
+  requested_at: string; requested_by: string; decided_by: string | null; decided_at: string | null; days_waiting: number | null;
+}
 export interface BusinessHealth {
   period: { from: string; to: string };
   totals: {
@@ -547,6 +551,13 @@ export interface BusinessHealth {
   days: FunnelDay[];
   cancel_reasons: { reason: string; n: number }[];
   consultants: ConsultantRow[];
+  governance: {
+    days: GovernanceDay[];
+    totals: { requested: number; approved: number; rejected: number; pending: number; outside: number };
+    oldest_pending_days: number | null;
+    pending: RequestRow[];
+    decided: RequestRow[];
+  };
   basis: string;
 }
 export interface LoadDay { date: string; stock: number; bookings: number; retail: number; errors: number }
