@@ -34,7 +34,7 @@ function headlines({ o, owner, payments, failed, can, ownOnly }: { o: Overview |
   if (can("owner.view") && owner) {
     items.push({ label: "Customers waiting for a car", value: fmtNumber(owner.customers_waiting), to: "/bookings?view=waiting" });
     items.push({ label: "Cars nobody has booked", value: fmtNumber(owner.unsold_by_age.total), sub: `${fmtNumber(owner.unsold_by_age.buckets.at(-1)?.cars ?? 0)} here the longest`, to: "/owner/unsold" });
-    items.push({ label: "Delivery dates at risk", value: fmtNumber(owner.delivery_dates_at_risk.count), sub: `${fmtNumber(owner.delivery_dates_at_risk.overdue)} already past`, to: "/dashboards/delayed", tone: owner.delivery_dates_at_risk.overdue ? "danger" : undefined });
+    items.push({ label: "Delivery dates at risk", value: fmtNumber(owner.delivery_dates_at_risk.count), sub: `${fmtNumber(owner.delivery_dates_at_risk.overdue)} already past`, to: "/analytics/delayed", tone: owner.delivery_dates_at_risk.overdue ? "danger" : undefined });
     items.push({ label: "Given out of turn this month", value: fmtNumber(owner.out_of_turn.this_month), sub: `${fmtNumber(owner.out_of_turn.under_review)} not looked at`, to: "/owner/out-of-turn", tone: owner.out_of_turn.under_review ? "warn" : undefined });
     return items;
   }
@@ -48,13 +48,13 @@ function headlines({ o, owner, payments, failed, can, ownOnly }: { o: Overview |
   if (can("wa.resend") || can("wa.manage")) {
     items.push({ label: "Messages that did not go", value: fmtNumber(failed), to: "/whatsapp/log?status=FAILED", tone: failed ? "danger" : undefined });
     items.push({ label: "Bookings on hold", value: fmtNumber(o.bookings.on_hold), to: "/bookings?view=hold", tone: o.bookings.on_hold ? "warn" : undefined });
-    items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/dashboards/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
+    items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/analytics/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
     return items;
   }
   items.push({ label: "Customers waiting for a car", value: fmtNumber(o.bookings.waiting), to: "/bookings?view=waiting" });
   items.push({ label: "Cars free in the yard", value: fmtNumber(o.stock.yard_free), to: can("stock.view") ? "/stock/cars?status=RECEIVED&commitment=FREE" : undefined });
   items.push({ label: "Waiting for your approval", value: fmtNumber(o.bookings.awaiting_approval + o.approvals.exceptions_pending), to: "/approvals", tone: o.bookings.awaiting_approval + o.approvals.exceptions_pending ? "warn" : undefined });
-  items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/dashboards/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
+  items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/analytics/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
   return items;
 }
 
@@ -155,7 +155,7 @@ export function HomePage() {
               tiles={[
                 failed.data && { label: "Messages that did not go", n: failed.data.counts.find((c) => c.status === "FAILED")?.n ?? 0, to: "/whatsapp/log?status=FAILED", tone: "danger" as const },
                 can("booking.ready") && { label: "Bookings on hold", n: o.bookings.on_hold, to: bookingLink("view=hold"), tone: "warn" as const },
-                { label: "Deliveries running late", n: o.bookings.delivery_overdue, to: "/dashboards/delayed", tone: "danger" as const },
+                { label: "Deliveries running late", n: o.bookings.delivery_overdue, to: "/analytics/delayed", tone: "danger" as const },
               ]}
             />
           )}
@@ -172,7 +172,7 @@ export function HomePage() {
                 !followsMessages && { label: "On hold", n: o.bookings.on_hold, to: bookingLink("view=hold") },
                 { label: "Car reserved", n: o.bookings.allocated, to: bookingLink("status=ALLOCATED") },
                 { label: "Billed, to deliver", n: o.bookings.invoiced, to: bookingLink("status=INVOICED") },
-                !followsMessages && { label: "Past the promised date", n: o.bookings.delivery_overdue, to: can("dashboards.view") ? "/dashboards/delayed" : undefined, tone: "danger" as const },
+                !followsMessages && { label: "Past the promised date", n: o.bookings.delivery_overdue, to: can("dashboards.view") ? "/analytics/delayed" : undefined, tone: "danger" as const },
               ]}
             />
           )}
@@ -247,7 +247,7 @@ function NeedsYou({ overview, payments, owner, status, failed }: { overview: Ove
   if (can("owner.view") && owner) add(owner.out_of_turn.under_review, "One car was given out of turn and nobody has looked at it yet.", "{n} cars were given out of turn and nobody has looked at them yet.", "/owner/out-of-turn", "Look at them", "warn");
   if (can("booking.payment_report") && !can("booking.payment") && payments) add(payments.filter((p) => p.state === "AWAITING_PAYMENT").length, "One customer has a car reserved and has not paid yet.", "{n} customers have a car reserved and have not paid yet.", "/payments", "See who");
   if (can("wa.resend")) add(failed, "One message to a customer did not go through.", "{n} messages to customers did not go through.", "/whatsapp/log?status=FAILED", "See the messages", "warn");
-  if (can("dashboards.view") && overview) add(overview.bookings.delivery_overdue, "One delivery is past the date promised to the customer.", "{n} deliveries are past the date promised to the customer.", "/dashboards/delayed", "See them", "danger");
+  if (can("dashboards.view") && overview) add(overview.bookings.delivery_overdue, "One delivery is past the date promised to the customer.", "{n} deliveries are past the date promised to the customer.", "/analytics/delayed", "See them", "danger");
   if (can("stock.manage") && overview) add(overview.stock.transit_overdue, "One car in transit is later than expected.", "{n} cars in transit are later than expected.", "/stock/cars?status=IN_TRANSIT&overdue=1", "See the cars");
 
   if (!overview && !payments && !owner) return null;
@@ -443,7 +443,7 @@ function MyOffers() {
       title="Alternatives for my waiting customers"
       note="The same model and variant is free in another colour. Nothing is allocated unless the booking is changed in the DMS."
       actions={
-        <Link to="/dashboards/alternatives" className="btn btn-secondary btn-sm">
+        <Link to="/analytics/alternatives" className="btn btn-secondary btn-sm">
           <span>All alternatives</span>
         </Link>
       }

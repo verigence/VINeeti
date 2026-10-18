@@ -133,7 +133,7 @@ export function TeamLeadBoard() {
         <Kpi n={d?.totals.past_window ?? 0} label={`Past the ${d?.window_days ?? 0}-day payment window`} tone="danger" to="/payments" />
         <Kpi n={d?.totals.awaiting ?? 0} label="Held, nothing paid yet" tone="warn" to="/payments" />
         <Kpi n={toInvoice.length} label="Paid, waiting to be invoiced" tone={toInvoice.length ? "warn" : undefined} to="/bookings?status=ALLOCATED" />
-        <Kpi n={dem?.totals.short ?? 0} label="Customers with nothing coming" tone="danger" to="/dashboards/orders" />
+        <Kpi n={dem?.totals.short ?? 0} label="Customers with nothing coming" tone="danger" to="/analytics/orders" />
         {short && short.minimum > 0 && <Kpi n={short.bookings.length} label={`Under the ${fmtMoney(short.minimum)} minimum, out of the queue`} tone="danger" />}
       </div>
 

@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { api } from "../api";
 import { configInput, configReady, ConfigSelects, useCatalog, type CarConfig } from "../components/ConfigPicker";
-import { DataSource } from "../components/DataSource";
 import { Dialog } from "../components/Dialog";
 import { RunAllocationButton } from "../components/RunAllocation";
-import { Async, Button, Card, Chip, DataTable, Empty, Field, Notice, PageHeader, Select, StatusChip, Tabs, type Column } from "../components/ui";
+import { Async, Button, Card, Chip, DataTable, Empty, Field, Notice, Select, StatusChip, type Column } from "../components/ui";
 import { fmtDate, fmtNumber, plural, today } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { allocationType, bookingStatus, ORDER_STATUS_OPTIONS, orderQueueStatus, orderStatus, plainText, vehicleStatus } from "../labels";
@@ -12,29 +11,9 @@ import { Link } from "../router";
 import { useSession } from "../session";
 import type { AllocationDashRow, DelayedRow, MatchRow, OrderQueueRow, OrderRow, OrderStatus, PaymentWindow } from "../types";
 
-type Tab = "allocation" | "orders" | "delayed" | "alternatives";
-
-export function DashboardsPage({ tab }: { tab: Tab }) {
-  return (
-    <>
-      <PageHeader title="Day's work" subtitle="Who is waiting, what to order, and which deliveries are running late." />
-      <DataSource />
-      <Tabs
-        current={`/dashboards/${tab}`}
-        tabs={[
-          { to: "/dashboards/allocation", label: "Stock allocation" },
-          { to: "/dashboards/orders", label: "Order queue" },
-          { to: "/dashboards/delayed", label: "Delayed deliveries" },
-          { to: "/dashboards/alternatives", label: "Alternatives available" },
-        ]}
-      />
-      {tab === "allocation" && <AllocationDashboard />}
-      {tab === "orders" && <OrderQueueDashboard />}
-      {tab === "delayed" && <DelayedDashboard />}
-      {tab === "alternatives" && <AlternativesDashboard />}
-    </>
-  );
-}
+// The four boards below are tabs of Reports now; this file keeps them and the page that used to
+// hold them is gone. They were a menu entry of their own ("Day's work") until it became clear the
+// same people opened it and Reports one after the other every morning.
 
 const BookingCell = ({ id, no, customer }: { id: string; no: string; customer: string }) => (
   <Link to={`/bookings/${id}`} className="cell-link">
@@ -67,7 +46,7 @@ function windowSummary(w: PaymentWindow | null, r: AllocationDashRow) {
   );
 }
 
-function AllocationDashboard() {
+export function AllocationDashboard() {
   const { can } = useSession();
   const load = useLoad(() => api.allocationDashboard(), "dash:allocation");
   const columns: Column<AllocationDashRow>[] = [
@@ -123,7 +102,7 @@ function AllocationDashboard() {
   );
 }
 
-function OrderQueueDashboard() {
+export function OrderQueueDashboard() {
   const { can } = useSession();
   const queue = useLoad(() => api.orderQueue(), "dash:order-queue");
   const orders = useLoad(() => api.orders(), "dash:orders");
@@ -303,7 +282,7 @@ function OrderDialog({ prefill, order, onClose, onDone }: { prefill?: OrderQueue
   );
 }
 
-function DelayedDashboard() {
+export function DelayedDashboard() {
   const load = useLoad(() => api.delayed(), "dash:delayed");
   const columns: Column<DelayedRow>[] = [
     { header: "Booking", primary: true, cell: (r) => <BookingCell id={r.booking_id} no={r.booking_no} customer={r.customer_name} /> },
@@ -330,7 +309,7 @@ function DelayedDashboard() {
 }
 
 /** Waiting customers who could be offered the same model and variant in another colour that is free. */
-function AlternativesDashboard() {
+export function AlternativesDashboard() {
   const load = useLoad(() => api.matches(), "dash:alternatives");
   const columns: Column<MatchRow>[] = [
     { header: "Booking", primary: true, cell: (r) => <BookingCell id={r.booking_id} no={r.booking_no} customer={r.customer_name} /> },

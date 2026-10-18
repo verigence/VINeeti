@@ -11,7 +11,6 @@ import { AuditPage } from "./pages/Audit";
 import { BookingDetailPage } from "./pages/BookingDetail";
 import { BookingFormPage } from "./pages/BookingForm";
 import { BookingsPage } from "./pages/Bookings";
-import { DashboardsPage } from "./pages/Dashboards";
 import { EodPage } from "./pages/Eod";
 import { HomePage } from "./pages/Home";
 import { ChangePasswordForm } from "./pages/Login";
@@ -74,11 +73,16 @@ const ROUTES: Route[] = [
 
   // Kept so a bookmark or an old link still works; the board itself now lives on Home.
   { path: "/board", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <HomePage /> },
-  { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
-  { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="allocation" /> },
-  { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="orders" /> },
-  { path: "/dashboards/delayed", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="delayed" /> },
-  { path: "/dashboards/alternatives", allowed: (can) => can("dashboards.view"), render: () => <DashboardsPage tab="alternatives" /> },
+  // The day's work is now four tabs of Reports. These paths still answer so a bookmark keeps working.
+  { path: "/dashboards", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
+  { path: "/dashboards/allocation", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
+  { path: "/dashboards/orders", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="orders" /> },
+  { path: "/dashboards/delayed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="delayed" /> },
+  { path: "/dashboards/alternatives", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="alternatives" /> },
+  { path: "/analytics/stock-allocation", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="stock-allocation" /> },
+  { path: "/analytics/orders", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="orders" /> },
+  { path: "/analytics/delayed", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="delayed" /> },
+  { path: "/analytics/alternatives", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="alternatives" /> },
 
   { path: "/analytics", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },
   { path: "/analytics/ageing", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="ageing" /> },

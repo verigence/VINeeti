@@ -114,9 +114,9 @@ export function CeoBoard() {
       <BoardStale source={models.data?.source} />
       <div className="board-kpis">
         <Kpi n={piling.length} label="Models with stock standing over 60 days" tone="warn" />
-        <Kpi n={stillOrdering.length} label="Of those, still being ordered" tone="danger" to="/dashboards/orders" />
+        <Kpi n={stillOrdering.length} label="Of those, still being ordered" tone="danger" to="/analytics/orders" />
         <Kpi value={fmtMoneyShort(m?.blocked_total.value)} label={`Lying in ${plural(m?.blocked_total.cars ?? 0, "unsold car")}`} />
-        <Kpi n={overSixty} label="Customers waiting over a month" tone="warn" to="/dashboards/orders" />
+        <Kpi n={overSixty} label="Customers waiting over a month" tone="warn" to="/analytics/orders" />
       </div>
 
       <div className="board-charts">

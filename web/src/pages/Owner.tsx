@@ -62,7 +62,7 @@ export function OwnerTiles({ o }: { o: OwnerView }) {
     { label: "Billed, not yet handed over", n: o.invoiced_not_delivered, to: can("booking.view") ? "/bookings?status=INVOICED" : undefined },
     { label: "Waiting for payment", n: o.payments.awaiting_payment, to: payments },
     { label: "Payments to check", n: o.payments.to_verify, to: payments, tone: "warn" as const },
-    { label: "Customers with no car coming", n: o.bookings_with_no_car_coming.bookings, to: can("dashboards.view") ? "/dashboards/order-queue" : undefined, tone: "danger" as const, hint: `across ${plural(o.bookings_with_no_car_coming.configurations, "model, variant and colour", "model, variant and colour combinations")}` },
+    { label: "Customers with no car coming", n: o.bookings_with_no_car_coming.bookings, to: can("dashboards.view") ? "/analytics/orders" : undefined, tone: "danger" as const, hint: `across ${plural(o.bookings_with_no_car_coming.configurations, "model, variant and colour", "model, variant and colour combinations")}` },
   ].filter((x) => x.n > 0);
   if (!tiles.length) return <p className="group-clear">Nothing needs the owner's attention today.</p>;
   return (

@@ -450,6 +450,11 @@ a.mono,
   overflow-x: auto;
   scrollbar-width: thin;
 }
+/* Many tabs: show them all on two lines rather than hiding the later ones behind a sideways scroll. */
+.tabs-wrap {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
 .tab {
   flex: none;
   display: inline-flex;

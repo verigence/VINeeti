@@ -132,9 +132,11 @@ export function Card({ title, actions, children, flush, className, note }: { tit
   );
 }
 
-export function Tabs({ tabs, current }: { tabs: { to: string; label: string; count?: number }[]; current: string }) {
+export function Tabs({ tabs, current, wrap }: { tabs: { to: string; label: string; count?: number }[]; current: string; wrap?: boolean }) {
+  // A bar of a dozen tabs that scrolls sideways hides half of itself, and nobody scrolls a tab bar
+  // looking for something they do not know is there. Past a certain number it wraps instead.
   return (
-    <nav className="tabs" aria-label="Sections">
+    <nav className={`tabs${wrap || tabs.length > 8 ? " tabs-wrap" : ""}`} aria-label="Sections">
       {tabs.map((t) => (
         <Link key={t.to} to={t.to} className={`tab${t.to === current ? " tab-active" : ""}`} aria-current={t.to === current ? "page" : undefined}>
           {t.label}

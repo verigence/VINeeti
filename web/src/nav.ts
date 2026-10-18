@@ -40,8 +40,9 @@ export const DESTINATIONS: Destination[] = [
   { to: "/deallocate", label: "Deallocate / Reallocate", icon: "approvals", allowed: (can) => can("exception.request") },
   { to: "/payments", label: "Payments", icon: "payments", allowed: canSeePayments },
   { to: "/owner", label: "Owner's view", icon: "owner", allowed: (can) => can("owner.view") },
-  { to: "/dashboards", label: "Day's work", icon: "dashboards", allowed: (can) => can("dashboards.view") },
-  { to: "/analytics", label: "Reports", icon: "analytics", allowed: (can) => can("dashboards.view") },
+  // The day's work and the reports were two entries that the same people opened one after the other.
+  // One screen now: the four things to do about today first, then what the files add up to.
+  { to: "/analytics/stock-allocation", label: "Reports", icon: "analytics", allowed: (can) => can("dashboards.view") },
   { to: "/eod", label: "Upload DMS files", icon: "dayend", allowed: (can) => canLoadFiles(can) || can("recon.view") },
   // Not a report: the findings the day-end run turns up, each needing a person to settle it and say
   // so. The old name made it sound like a routine tick, which is how it got overlooked.
@@ -71,8 +72,8 @@ export function tabsFor(can: Can): Destination[] {
   else if (can("booking.approve")) wanted = ["/stock/check", "/bookings", "/approvals"]; // leads a sales team
   else if (can("wa.resend")) wanted = ["/bookings", "/eod", "/whatsapp"]; // customer contact, loads the DMS files
   else if (can("stock.manage")) wanted = ["/stock", "/eod", "/bookings"]; // receives cars, loads the DMS files
-  else if (can("master.manage")) wanted = ["/dashboards", "/master", "/stock"]; // orders on the manufacturer, vehicle master
-  else wanted = ["/owner", "/bookings", "/stock", "/dashboards"];
+  else if (can("master.manage")) wanted = ["/analytics/stock-allocation", "/master", "/stock"]; // orders on the manufacturer, vehicle master
+  else wanted = ["/owner", "/bookings", "/stock", "/analytics/stock-allocation"];
   const allowed = destinationsFor(can);
   const picked = wanted.map((to) => allowed.find((d) => d.to === to)).filter((d): d is Destination => Boolean(d)).slice(0, 3);
   return [allowed[0], ...picked];

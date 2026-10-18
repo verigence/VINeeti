@@ -8,14 +8,37 @@ import { useLoad } from "../hooks";
 import { Link } from "../router";
 import { useSession } from "../session";
 import { BusinessTab } from "./Insights";
+import { AllocationDashboard, AlternativesDashboard, DelayedDashboard, OrderQueueDashboard } from "./Dashboards";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
 import type { AgeingRow, AllocationDayRow, ControlDay, ControlViolation, DeltaMovement, DeltaRow, NotPickedUpRow, SalesRow, StockDayRow, WritebackRow } from "../types";
 
-type Tab = "ageing" | "not-picked-up" | "sales" | "allocations" | "changed" | "control" | "writeback" | "business" | "stock-days";
+type Tab =
+  // The day's work: what needs doing now.
+  | "stock-allocation"
+  | "orders"
+  | "delayed"
+  | "alternatives"
+  // What the files add up to.
+  | "ageing"
+  | "not-picked-up"
+  | "sales"
+  | "allocations"
+  | "changed"
+  | "control"
+  | "writeback"
+  | "business"
+  | "stock-days";
 
 export function AnalyticsPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
+  // Two kinds of thing on one page, in that order: what somebody has to do about today, then what
+  // the files say when you stand back from them. They were two menu entries and the same people
+  // opened both, one after the other, every morning.
   const tabs = [
+    { to: "/analytics/stock-allocation", label: "Stock allocation" },
+    { to: "/analytics/orders", label: "Order queue" },
+    { to: "/analytics/delayed", label: "Delayed deliveries" },
+    { to: "/analytics/alternatives", label: "Alternatives available" },
     { to: "/analytics/ageing", label: "Ageing stock" },
     ...(can("booking.view_all") ? [{ to: "/analytics/not-picked-up", label: "Not picked up" }] : []),
     { to: "/analytics/sales", label: "Most and least selling" },
@@ -28,9 +51,13 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
   ];
   return (
     <>
-      <PageHeader title="Reports" subtitle="Worked out from the stock report and the booking sheet by fixed rules, so the same files always give the same answer." />
+      <PageHeader title="Reports" subtitle="What needs doing today, and what the files add up to. Every figure says the rule it was worked out by, so the same files always give the same answer." />
       <DataSource />
       <Tabs current={`/analytics/${tab}`} tabs={tabs} />
+      {tab === "stock-allocation" && <AllocationDashboard />}
+      {tab === "orders" && <OrderQueueDashboard />}
+      {tab === "delayed" && <DelayedDashboard />}
+      {tab === "alternatives" && <AlternativesDashboard />}
       {tab === "ageing" && <Ageing />}
       {tab === "not-picked-up" && <NotPickedUp />}
       {tab === "sales" && <Sales />}
