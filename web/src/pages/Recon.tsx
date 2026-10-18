@@ -2,20 +2,45 @@ import { useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/Dialog";
 import { Icon } from "../components/icons";
-import { Async, Button, Card, Chip, DataTable, Empty, PageHeader, Stat, StatusChip, type Column } from "../components/ui";
+import { Async, Button, Card, Chip, DataTable, Disclosure, Empty, PageHeader, Stat, StatusChip, type Column } from "../components/ui";
 import { fmtDate, fmtDateTime, fmtNumber, plural } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { humanize, plainText, reconItemStatus, severity, SEVERITY_TITLES } from "../labels";
 import { Link, useRouter } from "../router";
 import { useSession } from "../session";
+import type * as T from "../types";
 import type { ReconItem, ReconRunDetail, ReconRunRow, ReconSummary } from "../types";
 
 const runBy = (r: { trigger: string; run_by?: string | null }) => (r.trigger === "SCHEDULED" ? "Automatic, at day end" : `Run by ${r.run_by ?? "a user"}`);
+
+interface Group {
+  category: string;
+  label: string;
+  severity: T.OpenReconItem["severity"];
+  oldest: string;
+  items: T.OpenReconItem[];
+}
+
+const RANK: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+
+/** The open differences by kind, worst kind first, and within a kind the oldest first. */
+function groups(d: T.OpenRecon): Group[] {
+  const by = new Map<string, Group>();
+  for (const i of d.items) {
+    const g = by.get(i.category) ?? { category: i.category, label: d.categories[i.category] ?? humanize(i.category), severity: i.severity, oldest: i.business_date, items: [] };
+    g.items.push(i);
+    if (RANK[i.severity] < RANK[g.severity]) g.severity = i.severity;
+    if (i.business_date < g.oldest) g.oldest = i.business_date;
+    by.set(i.category, g);
+  }
+  return [...by.values()].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.oldest.localeCompare(b.oldest) || b.items.length - a.items.length);
+}
 
 export function ReconPage() {
   const { can, me } = useSession();
   const { navigate } = useRouter();
   const load = useLoad(() => api.reconRuns(), "recon:runs");
+  const open = useLoad(() => api.reconOpen(), "recon:open");
   const action = useAction();
 
   const runNow = async () => {
@@ -56,7 +81,7 @@ export function ReconPage() {
     <>
       <PageHeader
         title="Differences to settle"
-        subtitle={`Checks that stock, bookings and allocations agree, and lists every difference for someone to resolve. Runs automatically at ${me.settings.day_end_time} every day.`}
+        subtitle={`Everything the day-end check found that stock, bookings and allocations do not agree about, and that nobody has settled yet. The check runs automatically at ${me.settings.day_end_time} every day.`}
         primary={
           can("recon.manage") ? (
             <Button variant="primary" icon="refresh" busy={action.busy} onClick={() => void runNow()}>
@@ -65,7 +90,62 @@ export function ReconPage() {
           ) : undefined
         }
       />
-      <Card flush>
+      {/*
+        The differences themselves, not the days the check ran on. This screen used to land on a list
+        of runs -- dates and counts -- with the findings a click inside one of them, which made it a
+        screen about the machinery rather than about the work. An open finding from Tuesday is still
+        open on Friday and belongs at the top of the page, not three clicks into last week.
+      */}
+      <Async load={open} isEmpty={(d) => d.totals.open === 0} empty={<Empty title="Nothing to settle" hint="Every difference the day-end check has found has been settled." />}>
+        {(d) => (
+          <>
+            <div className="tiles">
+              <Stat label="Still to settle" value={fmtNumber(d.totals.open)} tone={d.totals.high ? "danger" : d.totals.open ? "warn" : undefined} />
+              <Stat label="High" value={fmtNumber(d.totals.high)} tone={d.totals.high ? "danger" : undefined} hint={SEVERITY_TITLES.HIGH} />
+              <Stat label="Medium" value={fmtNumber(d.totals.medium)} tone={d.totals.medium ? "warn" : undefined} />
+              <Stat label="Oldest" value={d.totals.oldest_date ? fmtDate(d.totals.oldest_date) : "—"} hint="The day the longest-standing one was found" />
+            </div>
+            {/*
+              Grouped by what kind of difference it is, because one kind swamps the rest: a free car
+              and a waiting booking that have not been matched is raised once per model, trim and
+              colour, so a quiet day produces fifty of them and the three that need a person are
+              somewhere in the middle. The kinds are the page; the findings are underneath each one.
+            */}
+            <Card title="What is waiting to be settled" note="By kind, most serious first. Open a kind to see every one of them." flush>
+              <DataTable
+                columns={[
+                  { header: "Kind of difference", primary: true, cell: (g: Group) => <span className="strong">{g.label}</span> },
+                  { header: "How serious", status: true, cell: (g: Group) => <StatusChip label={severity(g.severity)} /> },
+                  { header: "Oldest", cell: (g: Group) => fmtDate(g.oldest) },
+                  { header: "Waiting", num: true, cell: (g: Group) => <span className="strong">{fmtNumber(g.items.length)}</span> },
+                ]}
+                rows={groups(d)}
+                rowKey={(g) => g.category}
+                caption="Differences by kind"
+              />
+            </Card>
+
+            {groups(d).map((g) => (
+              <Disclosure key={g.category} summary={`${g.label} (${fmtNumber(g.items.length)})`}>
+                <div className="boxed-table">
+                  <DataTable
+                    columns={[
+                      { header: "Finding", primary: true, cell: (r: T.OpenReconItem) => plainText(r.message) },
+                      { header: "Outlet", cell: (r: T.OpenReconItem) => r.outlet ?? <span className="muted">All</span>, hideIfEmpty: (r: T.OpenReconItem) => !r.outlet },
+                      { header: "Found", cell: (r: T.OpenReconItem) => <Link to={`/recon/${r.run_id}`} className="cell-link">{fmtDate(r.business_date)}</Link> },
+                    ]}
+                    rows={g.items}
+                    rowKey={(r) => r.id}
+                    caption={g.label}
+                  />
+                </div>
+              </Disclosure>
+            ))}
+          </>
+        )}
+      </Async>
+
+      <Card title="Every run" note="The day-end check runs once a day and keeps what each one found." flush>
         <Async load={load} empty={<Empty title="No day-end check has run yet" hint={can("recon.manage") ? "Run it now to check today's position." : "The first run happens at day end."} />}>
           {(rows) => <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Day-end runs" />}
         </Async>

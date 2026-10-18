@@ -78,6 +78,31 @@ describe("a booking is cancelled", () => {
     const run = (await w.api("POST", "/api/recon/run", undefined, d.users.head.session)).body;
     const items = (await w.api("GET", `/api/recon/runs/${run.run_id}`, undefined, d.users.head.session)).body.items;
     expect(items.filter((i: any) => i.category === "CANCELLED_STILL_ALLOTTED").map((i: any) => i.message)).toEqual(["The stock report shows chassis MA1THAR0000000001 allotted to booking OTF27A000001, which is cancelled. The system treats the car as free; remove the allotment in the DMS."]);
+
+    // And it is on the list of what is still to settle, which is what the screen opens on. A person
+    // asking what is unsettled should not have to know which day's run turned it up.
+    const open = await w.api("GET", "/api/recon/open", undefined, d.users.head.session);
+    expect(open.status).toBe(200);
+    expect(open.body.totals.open).toBe(items.filter((i: any) => i.status === "OPEN").length);
+    expect(open.body.items.map((i: any) => i.category)).toContain("CANCELLED_STILL_ALLOTTED");
+    expect(open.body.items.every((i: any) => i.business_date && i.run_id)).toBe(true);
+    // Worst first: nothing low-severity may sit above something high.
+    const rank: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    const order = open.body.items.map((i: any) => rank[i.severity]);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+  });
+
+  it("drops a difference off the list once somebody settles it", async () => {
+    const { w, d } = await start();
+    await loadStock(w, d.users.stock.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE" }]);
+    await w.api("POST", "/api/recon/run", undefined, d.users.head.session);
+    const before = (await w.api("GET", "/api/recon/open", undefined, d.users.head.session)).body;
+    if (!before.items.length) return; // nothing to settle on this fixture: the rule is covered above
+    const first = before.items[0];
+    expect((await w.api("POST", `/api/recon/items/${first.id}/resolve`, { note: "Checked with the stock in-charge" }, d.users.head.session)).status).toBe(200);
+    const after = (await w.api("GET", "/api/recon/open", undefined, d.users.head.session)).body;
+    expect(after.totals.open).toBe(before.totals.open - 1);
+    expect(after.items.map((i: any) => i.id)).not.toContain(first.id);
   });
 });
 

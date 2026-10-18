@@ -357,6 +357,37 @@ export function opsRoutes(app: App) {
     );
     return c.json(rows.map((r) => ({ id: r.id, business_date: r.business_date, trigger: r.trigger === "SCHEDULED" ? "SCHEDULED" : "MANUAL", run_by: r.run_by, started_at: r.started_at, open_items: r.open_items, items: safeJson<any>(r.summary_json, {}).items ?? null })));
   });
+  /**
+   * Every difference still open, newest first, whichever day's run turned it up.
+   *
+   * The screen used to land on a list of runs -- dates and counts -- and the differences themselves
+   * were a click inside one of them. A person who opens this screen wants to know what is unsettled,
+   * not which days the check ran on, and an open finding from Tuesday is still open on Friday.
+   */
+  app.get("/api/recon/open", async (c) => {
+    need(c, "recon.view");
+    const ctx = c.get("ctx");
+    const scope = outletScope(c);
+    let items = await all<any>(
+      ctx.db,
+      `SELECT i.id, i.run_id, i.severity, i.category, i.message, i.detail_json, i.outlet_id, o.name AS outlet, r.business_date
+         FROM recon_items i
+         JOIN recon_runs r ON r.id = i.run_id
+         LEFT JOIN outlets o ON o.id = i.outlet_id
+        WHERE i.tenant_id = ? AND i.status = 'OPEN'
+        ORDER BY CASE i.severity WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END, r.business_date DESC, i.category
+        LIMIT 500`,
+      ctx.tenantId,
+    );
+    if (scope) items = items.filter((i) => !i.outlet_id || scope.includes(i.outlet_id));
+    const by = (sev: string) => items.filter((i) => i.severity === sev).length;
+    const oldest = items.reduce((d: string | null, i) => (!d || i.business_date < d ? i.business_date : d), null);
+    return c.json({
+      categories: RECON_CATEGORIES,
+      totals: { open: items.length, high: by("HIGH"), medium: by("MEDIUM"), low: by("LOW"), oldest_date: oldest },
+      items: items.map((i) => ({ ...i, detail: safeJson(i.detail_json, {}), detail_json: undefined })),
+    });
+  });
   app.get("/api/recon/runs/:id", async (c) => {
     need(c, "recon.view");
     const ctx = c.get("ctx");

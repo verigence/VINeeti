@@ -1077,6 +1077,17 @@ export interface ReconItem {
   resolved_at: string | null;
   resolution_note: string | null;
 }
+/** A difference still open, whichever day's run turned it up. */
+export interface OpenReconItem extends ReconItem {
+  run_id: string;
+  business_date: string;
+  detail: Record<string, unknown>;
+}
+export interface OpenRecon {
+  categories: Record<string, string>;
+  totals: { open: number; high: number; medium: number; low: number; oldest_date: string | null };
+  items: OpenReconItem[];
+}
 export interface ReconRunDetail {
   id: string;
   business_date: string;

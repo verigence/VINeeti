@@ -205,6 +205,7 @@ export const api = {
 
   // ---- day-end reconciliation
   reconRuns: () => get<T.ReconRunRow[]>("/api/recon/runs"),
+  reconOpen: () => get<T.OpenRecon>("/api/recon/open"),
   reconRun: (id: string) => get<T.ReconRunDetail>(`/api/recon/runs/${enc(id)}`),
   reconCsvUrl: (id: string) => `/api/recon/runs/${enc(id)}?format=csv`,
   runRecon: () => post<{ run_id: string; summary: T.ReconSummary }>("/api/recon/run"),

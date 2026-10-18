@@ -11,52 +11,10 @@ import { bookingStatus, personName, plainText } from "../labels";
 import { canLoadFiles } from "../nav";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
-import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow, Permission } from "../types";
+import type { AlertRow, BookingListRow, DataStatus, MatchRow, Overview, OwnerView, PaymentRow } from "../types";
 import { MyDesk } from "./MyDesk";
 import { BoardPage } from "./Board";
-import { HeadlineBand, MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
-
-/**
- * The three or four figures that go across the top, chosen for the person looking at them: an owner
- * wants the business, finance wants the money, a sales executive wants their own customers. Only
- * figures the server has already sent are used; nothing is worked out here.
- */
-function headlines({ o, owner, payments, failed, can, ownOnly }: { o: Overview | null; owner: OwnerView | null; payments: PaymentRow[] | null; failed: number; can: (p: Permission) => boolean; ownOnly: boolean }) {
-  const items: { label: string; value: string; sub?: string; to?: string; tone?: "warn" | "danger" }[] = [];
-  if (can("booking.payment") && payments) {
-    const toVerify = payments.filter((p) => p.state === "TO_VERIFY").length;
-    const awaiting = payments.filter((p) => p.state === "AWAITING_PAYMENT").length;
-    items.push({ label: "Payments to check", value: fmtNumber(toVerify), to: "/payments", tone: toVerify ? "warn" : undefined });
-    items.push({ label: "Customers yet to pay", value: fmtNumber(awaiting), to: "/payments" });
-    if (owner) items.push({ label: "Checked, waiting to be billed", value: fmtNumber(owner.payments.verified_not_invoiced), to: "/payments" });
-    return items;
-  }
-  if (can("owner.view") && owner) {
-    items.push({ label: "Customers waiting for a car", value: fmtNumber(owner.customers_waiting), to: "/bookings?view=waiting" });
-    items.push({ label: "Cars nobody has booked", value: fmtNumber(owner.unsold_by_age.total), sub: `${fmtNumber(owner.unsold_by_age.buckets.at(-1)?.cars ?? 0)} here the longest`, to: "/owner/unsold" });
-    items.push({ label: "Delivery dates at risk", value: fmtNumber(owner.delivery_dates_at_risk.count), sub: `${fmtNumber(owner.delivery_dates_at_risk.overdue)} already past`, to: "/analytics/delayed", tone: owner.delivery_dates_at_risk.overdue ? "danger" : undefined });
-    items.push({ label: "Given out of turn this month", value: fmtNumber(owner.out_of_turn.this_month), sub: `${fmtNumber(owner.out_of_turn.under_review)} not looked at`, to: "/owner/out-of-turn", tone: owner.out_of_turn.under_review ? "warn" : undefined });
-    return items;
-  }
-  if (!o) return items;
-  if (ownOnly) {
-    items.push({ label: "My customers waiting for a car", value: fmtNumber(o.bookings.waiting), to: "/bookings?view=waiting" });
-    items.push({ label: "Cars reserved for my customers", value: fmtNumber(o.bookings.allocated), to: "/bookings?status=ALLOCATED" });
-    items.push({ label: "Billed, still to hand over", value: fmtNumber(o.bookings.invoiced), to: "/bookings?status=INVOICED" });
-    return items;
-  }
-  if (can("wa.resend") || can("wa.manage")) {
-    items.push({ label: "Messages that did not go", value: fmtNumber(failed), to: "/whatsapp/log?status=FAILED", tone: failed ? "danger" : undefined });
-    items.push({ label: "Bookings on hold", value: fmtNumber(o.bookings.on_hold), to: "/bookings?view=hold", tone: o.bookings.on_hold ? "warn" : undefined });
-    items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/analytics/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
-    return items;
-  }
-  items.push({ label: "Customers waiting for a car", value: fmtNumber(o.bookings.waiting), to: "/bookings?view=waiting" });
-  items.push({ label: "Cars free in the yard", value: fmtNumber(o.stock.yard_free), to: can("stock.view") ? "/stock/cars?status=RECEIVED&commitment=FREE" : undefined });
-  items.push({ label: "Waiting for your approval", value: fmtNumber(o.bookings.awaiting_approval + o.approvals.exceptions_pending), to: "/approvals", tone: o.bookings.awaiting_approval + o.approvals.exceptions_pending ? "warn" : undefined });
-  items.push({ label: "Deliveries running late", value: fmtNumber(o.bookings.delivery_overdue), to: "/analytics/delayed", tone: o.bookings.delivery_overdue ? "danger" : undefined });
-  return items;
-}
+import { MessagesBoard, MoneyBoard, OutletLeague, OwnerBoard, PaceCard, QueueBoard, TrendBoard } from "./HomeBoards";
 
 export function HomePage() {
   const { me, can } = useSession();
@@ -85,7 +43,6 @@ export function HomePage() {
       <InstallHint />
       {status.data && <DataSource status={status.data} />}
       {me.receives_alarms && <AlarmsCard />}
-      <HeadlineBand items={headlines({ o, owner: owner.data ?? null, payments: payments.data ?? null, failed: failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0, can, ownOnly })} />
       <NeedsYou overview={o} payments={payments.data ?? null} owner={owner.data ?? null} status={status.data ?? null} failed={failed.data?.counts.find((c) => c.status === "FAILED")?.n ?? 0} />
 
       {/* The Dealer Principal answers for this month and for each outlet's part in it; the Business
@@ -121,19 +78,18 @@ export function HomePage() {
         the landing already carried half a board and a link to the rest, which was the app admitting
         the split was arbitrary.
       */}
-      {can("dashboards.view") && can("booking.view_all") && <BoardPage />}
-
-      {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
-          check is a door to its own screen here, not a form squeezed in above a list. */}
-      {ownOnly && <MyDesk />}
-      {ownOnly && <MyBookings />}
-      {ownOnly && can("dashboards.view") && <MyOffers />}
-
+      {/*
+        Every number on one card, grouped by what it is about, and only here. The same figure used to
+        appear three times on this screen -- as a headline across the top, as a sentence in what needs
+        you, and as a tile down here -- which reads as three different facts until you notice it is
+        one. The sentences above are for acting on; this is for looking up.
+      */}
       {overview.loading ? (
         <Loading />
       ) : !o ? (
         overview.error ? <ErrorBox message={overview.error} onRetry={() => void overview.reload()} /> : null
       ) : (
+        <Card title="Where everything stands" note="Every open figure, in one place. Tap any of them to see the list behind it.">
         <div className="tile-groups">
           {canApprove && (
             <TileGroup
@@ -205,7 +161,16 @@ export function HomePage() {
             />
           )}
         </div>
+        </Card>
       )}
+
+      {can("dashboards.view") && can("booking.view_all") && <BoardPage />}
+
+      {/* A customer walking in is the job; the bookings already made are the follow-up. So the stock
+          check is a door to its own screen here, not a form squeezed in above a list. */}
+      {ownOnly && <MyDesk />}
+      {ownOnly && <MyBookings />}
+      {ownOnly && can("dashboards.view") && <MyOffers />}
 
       {canLoadFiles(can) && status.data && <DmsFilesCard status={status.data} />}
       <AlertsCard />
