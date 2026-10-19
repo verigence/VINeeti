@@ -287,6 +287,14 @@ function Sales() {
 }
 
 // ---------------------------------------------------------------- what the DMS has not been told
+/** One line of the reconcile table: a state an allocation can be in, what that means, and how many. */
+interface ReconcileRow {
+  label: string;
+  n: number;
+  means: string;
+  tone?: string;
+}
+
 /**
  * The work list for the back office: every car this system and the DMS disagree about.
  *
@@ -386,19 +394,22 @@ function Writeback() {
             note="So the difference between this list and the allocations report accounts for itself. Every allocation on record falls into one line, whatever day it was decided."
             flush
           >
+            {/* Each line says what it is as well as how many. Seven labels and seven numbers is a
+                table that raises one question per row and answers none of them. */}
             <DataTable
               columns={[
-                { header: "", primary: true, cell: (r: { label: string; n: number; tone?: string }) => <span className={r.tone === "do" ? "strong" : ""}>{r.label}</span> },
-                { header: "Allocations", num: true, cell: (r: { label: string; n: number; tone?: string }) => <span className={r.tone === "do" ? "strong" : r.n ? "" : "muted"}>{fmtNumber(r.n)}</span> },
+                { header: "", primary: true, cell: (r: ReconcileRow) => <span className={r.tone === "do" ? "strong" : ""}>{r.label}</span> },
+                { header: "What it means", cell: (r: ReconcileRow) => <span className="muted">{r.means}</span> },
+                { header: "Allocations", num: true, cell: (r: ReconcileRow) => <span className={r.tone === "do" ? "strong" : r.n ? "" : "muted"}>{fmtNumber(r.n)}</span> },
               ]}
               rows={[
-                { label: "Already matching in the DMS — nothing to do", n: d.reconcile.confirmed },
-                { label: "To allot — on this list", n: d.reconcile.to_allot, tone: "do" },
-                { label: "To remove — on this list", n: d.reconcile.to_remove, tone: "do" },
-                { label: "Let go here, and the DMS already agrees", n: d.reconcile.released_settled },
-                { label: "Already invoiced in the DMS to another order", n: d.reconcile.sold_elsewhere },
-                { label: "Delivered and closed", n: d.reconcile.fulfilled },
-                { label: "Every allocation on record", n: d.reconcile.total },
+                { label: "Already matching in the DMS — nothing to do", n: d.reconcile.confirmed, means: "This system holds the car for the booking, and the last stock report showed the DMS holding the same chassis against the same order. The two agree." },
+                { label: "To allot — on this list", n: d.reconcile.to_allot, tone: "do", means: "Held here for a customer; the DMS does not show it. These are the rows on the Allot tab of the sheet." },
+                { label: "To remove — on this list", n: d.reconcile.to_remove, tone: "do", means: "Let go here — released, reallocated, cancelled or the payment window ran out — and the DMS still shows the car against that booking. The Remove allotment tab." },
+                { label: "Let go here, and the DMS already agrees", n: d.reconcile.released_settled, means: "Released here, and the DMS no longer shows it either — usually because the DMS is where it was let go and this system learnt it from the file. Nothing to key in." },
+                { label: "Already invoiced in the DMS to another order", n: d.reconcile.sold_elsewhere, means: "Still held here for one customer, but the DMS has already invoiced the car to another. A completed sale is not reversed from a sheet, so these go to the approvers instead of onto the list." },
+                { label: "Delivered and closed", n: d.reconcile.fulfilled, means: "The car reached the customer and the allocation is finished. History, not work." },
+                { label: "Every allocation on record", n: d.reconcile.total, means: "The six lines above, added up: every allocation this system has ever made, whatever day it was decided." },
               ]}
               rowKey={(r) => r.label}
               caption="Every allocation, and where it stands"
