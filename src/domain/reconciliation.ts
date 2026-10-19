@@ -61,6 +61,154 @@ export const RECON_CATEGORIES: Record<string, string> = {
   UPLOAD_ERRORS: "Rows reported in today's file loads",
 };
 
+/**
+ * What each kind of difference actually is, in the words of the person who has to settle it.
+ *
+ * The one-line labels above name a difference; they do not say what it means, what the system did
+ * about it, or what makes it go away -- and a person looking at "Reserved car no longer in the stock
+ * report, High, 27" has no way to work any of that out. The three answers are kept here, beside the
+ * label, so the two cannot drift apart, and they are sent to the screen with the findings.
+ *
+ * `clears` is the honest one: for most of these the next pair of files settles it by itself, and
+ * saying so stops a back office working through a list that was going to empty on its own.
+ */
+export interface ReconHelp {
+  /** What the system found, in plain words. */
+  means: string;
+  /** What it does to the day's work if it is left. */
+  matters: string;
+  /** What makes it go away. */
+  clears: string;
+}
+
+export const RECON_HELP: Record<string, ReconHelp> = {
+  STOCK_MOVEMENT: {
+    means: "The stock count does not add up. Yesterday's closing, plus the cars added today, minus the cars that left, should give today's closing — and it does not.",
+    matters: "Every figure about availability is built on this count. If it is wrong, what the sales team is being promised is wrong too.",
+    clears: "Load the stock report for the missing day. The usual cause is a day's file never loaded, so the cars that moved on it were never seen.",
+  },
+  BYPASS: {
+    means: "A car was reserved here for one customer, and the DMS shows it allotted or invoiced to a different booking.",
+    matters: "Somebody's car was taken and given to someone else outside this system. The customer it was reserved for is still waiting and does not know.",
+    clears: "Nothing to key in: the DMS already has it. It stays open until an approver has looked at it, because the point of the record is that the decision was made somewhere else.",
+  },
+  OUTSIDE_ALLOCATION: {
+    means: "The DMS invoiced a car to a booking that this system had not given that car to.",
+    matters: "The sale is done and stands. What is not on record is who decided it, or who else was waiting for that car.",
+    clears: "Review it. The invoice is not reversed — this is a record that the decision happened outside the queue.",
+  },
+  OUTSIDE_SYSTEM_ALLOTMENT: {
+    means: "A car was allotted to a booking directly in the DMS, without going through this system. It comes in three shapes: an allocation made here was overturned, a booking this system has never seen was given a car, or a booking that was waiting here was given one out of turn.",
+    matters: "This is the control the system exists for. Each one is a car that went to a customer without the queue deciding it.",
+    clears: "The allotment stands — the DMS is the record. It stays on the list until the VP or the owner has seen it.",
+  },
+  ALLOCATION_INTEGRITY: {
+    means: "A booking and the car reserved for it say different things: the booking is invoiced but the car is not, or the booking is marked as holding a car and holds none, or the car it holds is blocked.",
+    matters: "Until the two agree, neither the booking nor the car can be trusted by anything that reads them — including the next allocation run.",
+    clears: "Most of these are the two files being out of step. Load the stock report and the booking sheet of the same date and they settle themselves.",
+  },
+  QUEUE_ORDER: {
+    means: "A booking was given a car by the system while another booking that the dealership's own rules rank ahead of it was waiting for the same model, trim and colour at the same outlet — with no approved exception behind it.",
+    matters: "This is the queue being wrong, not somebody overriding it. The customer who was ahead is still waiting.",
+    clears: "Look at the two bookings. If the one that was skipped should have had the car, take it back through Deallocate / Reallocate; if the order is right and the rules are wrong, change the rules.",
+  },
+  UNMATCHED_STOCK: {
+    means: "There is a free car of a model, trim and colour, and a booking waiting for exactly that — and they have not been put together.",
+    matters: "A customer is waiting for a car that is standing in the yard.",
+    clears: "Run allocation. Raised once per model, trim and colour, so one quiet day can produce a long list of these and they all go at once.",
+  },
+  STALE_DATA: {
+    means: "The DMS files are older than they should be, or have not been loaded at all.",
+    matters: "Nothing moves on stale files. No car is allocated, no queue position changes, and what the sales team sees is yesterday's yard.",
+    clears: "Load today's three files on the Upload DMS files screen.",
+  },
+  CAR_LEFT_STOCK: {
+    means: "A car that was reserved for a customer has stopped appearing in the stock report, and that customer's booking is not invoiced. The car went somewhere this system cannot account for.",
+    matters: "The booking is put on hold, which takes it out of the queue, so the customer will not be given another car until somebody settles this. They are frozen.",
+    clears: "Usually the booking sheet is older than the stock report and the car really was delivered — load the matching booking sheet and these clear themselves. Whatever is left is real: either establish what happened to the car, or put the booking back in the queue, where it keeps its original place.",
+  },
+  CANCELLED_STILL_ALLOTTED: {
+    means: "The stock report still shows a car allotted to a booking that has been cancelled.",
+    matters: "This system treats the car as free and may offer it to somebody else, while the DMS still has it held for a cancelled order. The two will disagree at the invoice.",
+    clears: "Remove the allotment in the DMS. It is on the DMS update sheet.",
+  },
+  OUT_OF_TURN: {
+    means: "A car went to a booking while an earlier booking was waiting for the same car, and no approval is on record.",
+    matters: "Out-of-turn allocations are the thing the owner is answerable for. Unreviewed, there is no record of why it was right.",
+    clears: "The Dealer Principal or the Business Head reviews it on Owner's view. Reviewing is the settlement — nothing is undone.",
+  },
+  PAYMENT_UNVERIFIED: {
+    means: "Sales reported that a customer has paid, and Finance has not confirmed it against the bank within the agreed hours.",
+    matters: "The car is held on the strength of a payment nobody has checked.",
+    clears: "Finance checks it against the bank on the Payments screen.",
+  },
+  NOT_IN_BOOKING_SHEET: {
+    means: "The DMS has cars allotted to orders that appear in none of the booking sheets loaded so far. They usually predate the sheets.",
+    matters: "Those customers' details are not here, so nothing can be shown about them and no message can go to them.",
+    clears: "Load a booking sheet that goes back far enough to include those older orders.",
+  },
+  DMS_DATA: {
+    means: "Rows in the stock report whose own fields disagree — for example a car marked allotted with no booking number against it.",
+    matters: "A row that contradicts itself is loaded as best it can be, and whatever was unreadable is missing from everything built on it.",
+    clears: "Fix the rows in the DMS. They clear on the next stock report that has them right.",
+  },
+  COLOUR_NAMES: {
+    means: "The booking sheet and the stock report use different names for what may be the same colour, on cars the DMS has already allotted.",
+    matters: "A waiting booking is matched to a car by model, trim and colour. Two names for one colour means they never match, so cars sit free while customers wait for them.",
+    clears: "Say on Models & colours that the two names are the same colour. Say they are different, and it stops being raised.",
+  },
+  TRANSIT_OVERDUE: {
+    means: "A car in transit is past the arrival date the DMS gave for it, and has not been received.",
+    matters: "Delivery promises made on that car are now promises against a car nobody has.",
+    clears: "The next stock report that shows it received. If it does not arrive, chase it and change what the customer has been told.",
+  },
+  WINDOW_OVERDUE: {
+    means: "A customer's payment window has run out and the car they were holding has not been released.",
+    matters: "A car is being held past the rules for a customer who has not paid, while others wait for it.",
+    clears: "Release it through Deallocate / Reallocate, or extend the window if there is a reason to.",
+  },
+  TRANSFER_PENDING: {
+    means: "A car allocated to a customer at one outlet is still standing at another, more than two days after it was allocated.",
+    matters: "The customer cannot take delivery of a car that is not at their outlet, however firmly it is reserved for them.",
+    clears: "Move the car, and load the stock report that shows it at the right outlet.",
+  },
+  DELIVERY_OVERDUE: {
+    means: "A booking is past the delivery date committed to the customer and has not been delivered.",
+    matters: "The customer was given a date that has gone by. They usually find out before anybody here does.",
+    clears: "Deliver it, or tell the customer a new date and record it.",
+  },
+  APPROVAL_PENDING: {
+    means: "A booking or a special request has been waiting for a decision longer than the agreed time.",
+    matters: "Nothing moves while it waits. A booking not approved is not in the queue at all.",
+    clears: "Decide it, or send it back, on the Approvals screen.",
+  },
+  MESSAGE_FAILED: {
+    means: "A WhatsApp message to a customer failed, or has been waiting more than two hours to go.",
+    matters: "The customer was not told what the system thinks they were told.",
+    clears: "Check that the number held for the customer is right, then resend it from the WhatsApp screen.",
+  },
+  BACKDATED_BOOKING: {
+    means: "A booking was entered today carrying an earlier booking date.",
+    matters: "The booking date decides the place in the queue, so a date put in by hand moves that customer ahead of people who were already waiting.",
+    clears: "Check the docket and the payment proof against the date. If the date is right, nothing needs doing; the entry is the record.",
+  },
+  RULES_CHANGED: {
+    means: "Somebody changed the allocation rules today — the order the queue is worked out in, or what counts as a match.",
+    matters: "Allocations made before the change followed the old rules. The two sets of results are not comparable, and this says where the line falls.",
+    clears: "Nothing to do. It is on record so that a day's allocations can be read against the rules that were in force.",
+  },
+  NOT_RECOGNISED: {
+    means: "A Model Description in the file is in a pattern the system does not know. The car or booking was loaded under the DMS's own model name, with trim, transmission, fuel and drive left blank.",
+    matters: "Those cars are not matched to waiting bookings, because the fields the matching works on are empty.",
+    clears: "The pattern has to be added. Send the Model Description that was not recognised.",
+  },
+  UPLOAD_ERRORS: {
+    means: "Rows in a file that could not be loaded at all.",
+    matters: "Those cars or bookings are simply not here. Nothing on any screen knows about them.",
+    clears: "The details are on Upload DMS files, against that load. Fix the rows in the DMS and load the file again.",
+  },
+};
+
 export interface ReconSummary {
   business_date: string;
   stock: { outlet_id: string; outlet: string; in_transit: number; in_yard_free: number; in_yard_allocated: number; blocked: number; opening: number; added: number; left: number; closing: number; expected_closing: number }[];

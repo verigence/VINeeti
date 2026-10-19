@@ -5253,3 +5253,55 @@ button.primary {
 .board-pointer a {
   font-weight: 600;
 }
+
+/* ---------------------------------------------------------------- differences to settle: the kinds */
+.recon-kinds > .disclosure {
+  border-width: 1px 0 0;
+  border-radius: 0;
+}
+.recon-kinds > .disclosure:first-child {
+  border-top: 0;
+}
+.recon-kinds > .disclosure > summary {
+  min-height: 46px;
+  padding: 8px 12px;
+}
+.recon-kind {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.recon-kind .sub {
+  display: inline;
+  font-size: 12.5px;
+}
+.recon-kinds > .disclosure .disclosure-body {
+  padding: 0 0 10px;
+}
+/* The explanation, above the findings: what it is, what it costs to leave, what makes it go away. */
+.kind-help {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  max-width: 82ch;
+}
+.kind-help dt {
+  margin-top: 11px;
+  color: var(--gold-text);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.kind-help dt:first-child {
+  margin-top: 0;
+}
+.kind-help dd {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}

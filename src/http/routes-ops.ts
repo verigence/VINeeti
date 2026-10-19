@@ -9,7 +9,7 @@ import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches
 import { dmsWriteback, syncState, writebackXlsx } from "../domain/dms-writeback";
 import { businessHealth, ownerMoney, systemHealth } from "../domain/insights";
 import { allocationControl, dailyDelta, dailyMovement, demandQueue, holdingCars, modelPicture, moneyFlow, myWork, paymentsDue, waitingLine } from "../domain/role-views";
-import { RECON_CATEGORIES, resolveItem, runReconciliation } from "../domain/reconciliation";
+import { RECON_CATEGORIES, RECON_HELP, resolveItem, runReconciliation } from "../domain/reconciliation";
 import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type WaConfigRow } from "../whatsapp/outbox";
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
 import { DEFAULT_TEMPLATES, paramNames, validateTemplateBody, type EventKey } from "../whatsapp/templates";
@@ -391,6 +391,7 @@ export function opsRoutes(app: App) {
     const oldest = items.reduce((d: string | null, i) => (!d || i.business_date < d ? i.business_date : d), null);
     return c.json({
       categories: RECON_CATEGORIES,
+      help: RECON_HELP,
       totals: { open: items.length, high: by("HIGH"), medium: by("MEDIUM"), low: by("LOW"), oldest_date: oldest },
       items: items.map((i) => ({ ...i, detail: safeJson(i.detail_json, {}), detail_json: undefined })),
     });
@@ -407,7 +408,7 @@ export function opsRoutes(app: App) {
       const csv = toCsv([["Severity", "Category", "Outlet", "Finding", "Status", "Resolution"], ...items.map((i) => [i.severity, RECON_CATEGORIES[i.category] ?? i.category, i.outlet ?? "", i.message, i.status, i.resolution_note ?? ""])]);
       return new Response(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="reconciliation-${r.business_date}.csv"` } });
     }
-    return c.json({ id: r.id, business_date: r.business_date, trigger: r.trigger === "SCHEDULED" ? "SCHEDULED" : "MANUAL", run_by: r.run_by, started_at: r.started_at, summary: safeJson(r.summary_json, {}), categories: RECON_CATEGORIES, items: items.map((i) => ({ ...i, detail: safeJson(i.detail_json, {}), detail_json: undefined })) });
+    return c.json({ id: r.id, business_date: r.business_date, trigger: r.trigger === "SCHEDULED" ? "SCHEDULED" : "MANUAL", run_by: r.run_by, started_at: r.started_at, summary: safeJson(r.summary_json, {}), categories: RECON_CATEGORIES, help: RECON_HELP, items: items.map((i) => ({ ...i, detail: safeJson(i.detail_json, {}), detail_json: undefined })) });
   });
   app.post("/api/recon/items/:id/resolve", async (c) => {
     need(c, "recon.manage");

@@ -1,6 +1,7 @@
 // Reconciling the two DMS files, case by case, with small files in the DMS's own format. Each case is
 // one thing that happens at a dealership between two loads.
 import { describe, expect, it } from "vitest";
+import { RECON_CATEGORIES, RECON_HELP } from "../src/domain/reconciliation";
 import { CARS, bookingFile, loadBookings, loadFile, loadStock, makeMahindraDealer, makeWorld, stockFile, type Dealer, type World } from "./harness";
 
 const q = <T = any>(w: World, sql: string, ...p: unknown[]) => w.db.q<T>(sql, ...p);
@@ -459,5 +460,34 @@ describe("what a file may and may not do", () => {
     for (const who of ["exec", "lead", "finance", "dp", "head", "auditor"]) expect((await w.send(`/api/uploads/stock`, file, d.users[who].session)).status, who).toBe(403);
     for (const who of ["exec", "lead", "finance", "auditor"]) expect((await w.send(`/api/uploads/bookings`, bookingFile([{ no: "OTF27A000001", car: "THAR_WHITE", created: "01-Sep-2026 10:00 AM" }]), d.users[who].session)).status, who).toBe(403);
     expect((await w.send(`/api/uploads/stock?report_date=2026-10-06`, file, d.users.crm.session)).status).toBe(200);
+  });
+});
+
+describe("the differences screen explains itself", () => {
+  // A person looking at "Reserved car no longer in the stock report, High, 27" cannot work out from
+  // those four words what was found, what it costs to leave it, or what makes it go away. The screen
+  // carries all three now, and they come from the server beside the label so the two cannot drift.
+  it("has an explanation for every kind of difference it can raise", () => {
+    for (const [key, label] of Object.entries(RECON_CATEGORIES)) {
+      const h = RECON_HELP[key];
+      expect(h, `no explanation for ${key} ("${label}")`).toBeTruthy();
+      // Three answers, each a real sentence rather than a restatement of the label.
+      for (const part of ["means", "matters", "clears"] as const) {
+        expect(h[part].length, `${key}.${part} is too short`).toBeGreaterThan(40);
+        expect(h[part].trim().endsWith("."), `${key}.${part} is not a sentence`).toBe(true);
+        expect(h[part].toLowerCase(), `${key}.${part} only repeats the label`).not.toBe(label.toLowerCase());
+      }
+    }
+    // Nothing explained that cannot be raised: a stale entry here is an answer to a question the
+    // screen never asks.
+    for (const key of Object.keys(RECON_HELP)) expect(RECON_CATEGORIES[key], `${key} is explained but never raised`).toBeTruthy();
+  });
+
+  it("sends the explanations to the screen with the open differences", async () => {
+    const { w, d } = await start();
+    const res = await w.api("GET", "/api/recon/open", undefined, d.users.head.session);
+    expect(res.status).toBe(200);
+    expect(res.body.help.CAR_LEFT_STOCK.means).toContain("stopped appearing in the stock report");
+    expect(Object.keys(res.body.help).sort()).toEqual(Object.keys(res.body.categories).sort());
   });
 });

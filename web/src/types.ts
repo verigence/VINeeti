@@ -1095,8 +1095,15 @@ export interface OpenReconItem extends ReconItem {
   business_date: string;
   detail: Record<string, unknown>;
 }
+/** What a kind of difference means, why it matters and what makes it go away. */
+export interface ReconHelp {
+  means: string;
+  matters: string;
+  clears: string;
+}
 export interface OpenRecon {
   categories: Record<string, string>;
+  help?: Record<string, ReconHelp>;
   totals: { open: number; high: number; medium: number; low: number; oldest_date: string | null };
   items: OpenReconItem[];
 }
@@ -1108,6 +1115,7 @@ export interface ReconRunDetail {
   started_at: string;
   summary: Partial<ReconSummary>;
   categories: Record<string, string>;
+  help?: Record<string, ReconHelp>;
   items: ReconItem[];
 }
 

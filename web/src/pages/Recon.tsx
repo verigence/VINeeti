@@ -111,36 +111,46 @@ export function ReconPage() {
               colour, so a quiet day produces fifty of them and the three that need a person are
               somewhere in the middle. The kinds are the page; the findings are underneath each one.
             */}
-            <Card title="What is waiting to be settled" note="By kind, most serious first. Open a kind to see every one of them." flush>
-              <DataTable
-                columns={[
-                  { header: "Kind of difference", primary: true, cell: (g: Group) => <span className="strong">{g.label}</span> },
-                  { header: "How serious", status: true, cell: (g: Group) => <StatusChip label={severity(g.severity)} /> },
-                  { header: "Oldest", cell: (g: Group) => fmtDate(g.oldest) },
-                  { header: "Waiting", num: true, cell: (g: Group) => <span className="strong">{fmtNumber(g.items.length)}</span> },
-                ]}
-                rows={groups(d)}
-                rowKey={(g) => g.category}
-                caption="Differences by kind"
-              />
+            {/*
+              One row per kind, and opening it gives the whole answer: what the difference is, what
+              it does to the day's work if it is left, what makes it go away, and then every one of
+              them. The kinds used to be listed twice -- once in a table of counts and again as the
+              headings underneath it -- which said the same four facts in two places and explained
+              none of them. "Waiting" is now a word in the row rather than a column heading nobody
+              could ask a question about.
+            */}
+            <Card title="What is waiting to be settled" note="By kind, most serious first. Open one to see what it means and every one of them." flush>
+              <div className="recon-kinds">
+                {groups(d).map((g) => (
+                  <Disclosure
+                    key={g.category}
+                    summary={
+                      <span className="recon-kind">
+                        <span className="strong">{g.label}</span>
+                        <StatusChip label={severity(g.severity)} />
+                        <span className="sub">
+                          {fmtNumber(g.items.length)} waiting · oldest {fmtDate(g.oldest)}
+                        </span>
+                      </span>
+                    }
+                  >
+                    <KindHelp help={d.help?.[g.category]} />
+                    <div className="boxed-table">
+                      <DataTable
+                        columns={[
+                          { header: "Finding", primary: true, cell: (r: T.OpenReconItem) => plainText(r.message) },
+                          { header: "Outlet", cell: (r: T.OpenReconItem) => r.outlet ?? <span className="muted">All</span>, hideIfEmpty: (r: T.OpenReconItem) => !r.outlet },
+                          { header: "Found", cell: (r: T.OpenReconItem) => <Link to={`/recon/${r.run_id}`} className="cell-link">{fmtDate(r.business_date)}</Link> },
+                        ]}
+                        rows={g.items}
+                        rowKey={(r) => r.id}
+                        caption={g.label}
+                      />
+                    </div>
+                  </Disclosure>
+                ))}
+              </div>
             </Card>
-
-            {groups(d).map((g) => (
-              <Disclosure key={g.category} summary={`${g.label} (${fmtNumber(g.items.length)})`}>
-                <div className="boxed-table">
-                  <DataTable
-                    columns={[
-                      { header: "Finding", primary: true, cell: (r: T.OpenReconItem) => plainText(r.message) },
-                      { header: "Outlet", cell: (r: T.OpenReconItem) => r.outlet ?? <span className="muted">All</span>, hideIfEmpty: (r: T.OpenReconItem) => !r.outlet },
-                      { header: "Found", cell: (r: T.OpenReconItem) => <Link to={`/recon/${r.run_id}`} className="cell-link">{fmtDate(r.business_date)}</Link> },
-                    ]}
-                    rows={g.items}
-                    rowKey={(r) => r.id}
-                    caption={g.label}
-                  />
-                </div>
-              </Disclosure>
-            ))}
           </>
         )}
       </Async>
@@ -151,6 +161,26 @@ export function ReconPage() {
         </Async>
       </Card>
     </>
+  );
+}
+
+/**
+ * What a kind of difference means, before the list of them. Three questions, because they are the
+ * three a person actually has: what is this, what happens if I leave it, and what makes it go away.
+ * Nothing is shown at all if the server did not send text for this kind -- an empty explanation box
+ * is worse than none.
+ */
+function KindHelp({ help }: { help?: T.ReconHelp }) {
+  if (!help) return null;
+  return (
+    <dl className="kind-help">
+      <dt>What this means</dt>
+      <dd>{help.means}</dd>
+      <dt>Why it matters</dt>
+      <dd>{help.matters}</dd>
+      <dt>What settles it</dt>
+      <dd>{help.clears}</dd>
+    </dl>
   );
 }
 
