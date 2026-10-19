@@ -108,11 +108,9 @@ function DmsSheetCard({ sync }: { sync: SyncState }) {
       title="Sheet for the DMS"
       note="Allocation is decided here. This is the list of decisions the DMS has not been told about yet, as a sheet to key in."
       actions={
-        sync.pending > 0 ? (
-          <a className="btn btn-primary btn-sm" href={api.dmsWritebackUrl} download>
-            Download as Excel
-          </a>
-        ) : undefined
+        <a className="btn btn-primary btn-sm" href={api.dmsWritebackUrl} download>
+          Download as Excel
+        </a>
       }
     >
       {sync.pending > 0 ? (

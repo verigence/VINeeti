@@ -357,13 +357,11 @@ function Writeback() {
                 : "Nothing is waiting: the DMS agrees with this system about every car."
             }
           >
-            {d.rows.length > 0 ? (
-              <a className="btn btn-primary" href={api.dmsWritebackUrl} download>
-                Download as Excel
-              </a>
-            ) : (
-              <p className="muted">There is nothing to download today.</p>
-            )}
+            {/* Always here, pending or not. A button that comes and goes is a button nobody
+                trusts to be there, and an empty sheet is a clearer answer than a missing control. */}
+            <a className="btn btn-primary" href={api.dmsWritebackUrl} download>
+              Download as Excel
+            </a>
           </Card>
           <div className="tiles">
             <Stat label="Allotments to remove" value={fmtNumber(d.totals.remove)} hint="Still allotted in the DMS to a booking this system has released" tone={d.totals.remove ? "danger" : undefined} />
