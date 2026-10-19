@@ -13,7 +13,7 @@ import { useAction, useLoad } from "../hooks";
 import { plainText, uploadedBy, uploadKind } from "../labels";
 import { Link } from "../router";
 import { useAlerts, useSession } from "../session";
-import type { BookingSummary, DmsUploadResult, EodStatus, EodStep, RetailSummary, StockSummary, UploadError, UploadRow } from "../types";
+import type { BookingSummary, DmsUploadResult, EodStatus, EodStep, RetailSummary, StockSummary, SyncState, UploadError, UploadRow } from "../types";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
@@ -66,6 +66,8 @@ export function EodPage() {
         </Notice>
       )}
 
+      {can("dashboards.view") && status.data?.sync && <DmsSheetCard sync={status.data.sync} />}
+
       {/* The status carries the same file dates; re-read after every load so the line never lags behind. */}
       <DataSource key={status.data ? `${status.data.files.stock?.upload_id}:${status.data.files.bookings?.upload_id}` : "none"} status={status.data?.files} />
       {can("recon.view") && (
@@ -87,6 +89,51 @@ export function EodPage() {
       </Card>
       {can("admin.users") && status.data && <FeedCard feed={status.data.feed} reload={status.reload} />}
     </>
+  );
+}
+
+// ---------------------------------------------------------------- the sheet that goes the other way
+/**
+ * The exchange with the DMS runs both ways and now sits on one screen: the sheet of decisions goes
+ * out from here, the three files come back in here. It used to be a tab of Reports and nothing else,
+ * which is a long way to walk for the one output the rest of this system exists to produce -- and a
+ * person who does not know the tab is there has no way to find out that anything is waiting.
+ *
+ * The card is shown whether or not anything is pending. An empty one says the DMS agrees, which is
+ * worth knowing; a card that appears only when there is work is a card nobody learns the place of.
+ */
+function DmsSheetCard({ sync }: { sync: SyncState }) {
+  return (
+    <Card
+      title="Sheet for the DMS"
+      note="Allocation is decided here. This is the list of decisions the DMS has not been told about yet, as a sheet to key in."
+      actions={
+        sync.pending > 0 ? (
+          <a className="btn btn-primary btn-sm" href={api.dmsWritebackUrl} download>
+            Download as Excel
+          </a>
+        ) : undefined
+      }
+    >
+      {sync.pending > 0 ? (
+        <>
+          <div className="tiles tiles-compact">
+            <Stat label="To allot in the DMS" value={fmtNumber(sync.allot)} />
+            <Stat label="To remove in the DMS" value={fmtNumber(sync.remove)} />
+          </div>
+          <p className="muted">
+            {sync.downloaded_since_upload
+              ? `Taken on ${fmtDateTime(sync.downloaded_at ?? "")}${sync.downloaded_by ? ` by ${sync.downloaded_by}` : ""}. A line goes from the list when a stock report comes back showing the DMS agreeing, so nothing has to be ticked off by hand.`
+              : "Nobody has taken the sheet since the last file was loaded."}{" "}
+            <Link to="/analytics/writeback">See the list, car by car</Link>
+          </p>
+        </>
+      ) : (
+        <p className="muted">
+          Nothing is waiting. The DMS agrees with this system about every car. <Link to="/analytics/writeback">Open the list</Link>
+        </p>
+      )}
+    </Card>
   );
 }
 

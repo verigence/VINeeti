@@ -347,6 +347,24 @@ function Writeback() {
     <Async load={load}>
       {(d) => (
         <>
+          {/* The sheet is the point of this tab, so it is the first thing on it and not a small
+              button halfway down the page beside a card heading, which is where it used to sit. */}
+          <Card
+            title="The sheet to key into the DMS"
+            note={
+              d.rows.length > 0
+                ? `${fmtNumber(d.totals.allot)} to allot, ${fmtNumber(d.totals.remove)} to remove. One file, three tabs, in the DMS's own column names.`
+                : "Nothing is waiting: the DMS agrees with this system about every car."
+            }
+          >
+            {d.rows.length > 0 ? (
+              <a className="btn btn-primary" href={api.dmsWritebackUrl} download>
+                Download as Excel
+              </a>
+            ) : (
+              <p className="muted">There is nothing to download today.</p>
+            )}
+          </Card>
           <div className="tiles">
             <Stat label="Allotments to remove" value={fmtNumber(d.totals.remove)} hint="Still allotted in the DMS to a booking this system has released" tone={d.totals.remove ? "danger" : undefined} />
             <Stat label="Allotments to make" value={fmtNumber(d.totals.allot)} hint="Held here for a customer, not yet allotted in the DMS" />
