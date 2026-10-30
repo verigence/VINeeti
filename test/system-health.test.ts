@@ -26,6 +26,7 @@ describe("counting what the Worker serves", () => {
     // Nothing has been written yet: the first minute's counts are still in memory.
     resetForTests(w.now());
     w.db.raw.exec(`DELETE FROM health_minutes`);
+    w.db.raw.exec(`DELETE FROM health_isolates`);
     for (let i = 0; i < 5; i++) expect((await w.api("GET", "/api/auth/me", undefined, d.users.exec.session)).status).toBe(200);
     expect((await w.api("GET", "/api/no-such-thing", undefined, d.users.exec.session)).status).toBe(404);
     expect((await w.api("GET", "/api/bookings", undefined, s)).status).toBe(401);
