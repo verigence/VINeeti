@@ -13,6 +13,7 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { all, first, run, stmt } from "../lib/db";
 import { ROLE_LABELS } from "../lib/permissions";
 import { temporaryPassword } from "../domain/onboarding";
+import { platformHealth } from "../domain/platform-health";
 import { bad, conflict, HttpError, iso, newId, normMobile, notFound } from "../lib/util";
 import { clock, getCookie, jsonBody, type App, type C } from "./app";
 import { createTenant } from "./routes-auth";
@@ -239,6 +240,16 @@ export function platformRoutes(app: App) {
     ]);
     c.header("Cache-Control", "private, no-store");
     return c.json({ dealer: t.slug, name: target.name, mobile: target.mobile, role_label: ROLE_LABELS.ADMIN, temporary_password: password });
+  });
+
+  /**
+   * System health: is the deployment up, fast, and running its job, and is each dealership's data
+   * flowing. Counts only; no dealership's records are reachable through it.
+   */
+  app.get("/api/platform/health", async (c) => {
+    await working(c);
+    c.header("Cache-Control", "private, no-store");
+    return c.json(await platformHealth(c.env, clock.now()));
   });
 
   /** What has been done on this deployment, newest first. */

@@ -2,30 +2,18 @@
 // sign-in and shows only what belongs to the deployment — which dealerships exist, how big each one is,
 // and what has been done here. No dealership's customers, bookings or stock are reachable from it.
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, errorMessage } from "../api";
+import { errorMessage } from "../api";
 import { BrandFoot } from "../components/Brand";
 import { Dialog } from "../components/Dialog";
-import { Button, Card, Chip, type Column, DataTable, Empty, Field, Notice, PasswordInput, Stat } from "../components/ui";
+import { Button, Card, Chip, type Column, DataTable, Empty, Field, Notice, PasswordInput, Segments, Stat } from "../components/ui";
 import { fmtDateTime, fmtNumber } from "../format";
 import { PRODUCT } from "../product";
+import { platformCall as call } from "../platform-api";
+import { PlatformHealthPage } from "./PlatformHealth";
 
 interface Admin { id: string; name: string; mobile: string; must_change_password: boolean }
 interface Tenant { id: string; slug: string; name: string; oem: string; timezone: string; is_active: boolean; created_at: string; outlets: number; users: number; cars_in_stock: number; open_bookings: number; last_file_at: string | null }
 interface AuditRow { id: string; actor: string; actor_name: string | null; action: string; entity: string | null; detail: Record<string, unknown>; at: string }
-
-async function call<R>(method: string, path: string, body?: unknown): Promise<R> {
-  const res = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  let json: any = null;
-  try { json = JSON.parse(text); } catch { /* not JSON */ }
-  if (!res.ok) throw new ApiError(res.status, json?.error?.code ?? "ERROR", json?.error?.message ?? `Request failed (${res.status})`);
-  return json as R;
-}
 
 const ACTIONS: Record<string, string> = {
   PLATFORM_ADMIN_CREATED: "Platform administrator created",
@@ -142,7 +130,15 @@ function ChangePassword({ onDone }: { onDone: () => void }) {
   );
 }
 
+type Section = "dealerships" | "health";
+
 function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void }) {
+  // Which part of the console is open: kept in the address (#health) so a bookmark opens it directly.
+  const [section, setSection] = useState<Section>(() => (typeof window !== "undefined" && window.location.hash === "#health" ? "health" : "dealerships"));
+  const go = (s: Section) => {
+    setSection(s);
+    if (typeof window !== "undefined") window.history.replaceState(null, "", s === "health" ? "#health" : window.location.pathname);
+  };
   const [tenants, setTenants] = useState<Tenant[] | null>(null);
   const [audit, setAudit] = useState<AuditRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +195,9 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
         <Button size="sm" onClick={() => act(async () => { await call("POST", "/api/platform/logout"); onSignedOut(); })}>Sign out</Button>
       </header>
       <main className="platform-main">
+        <Segments<Section> label="Console sections" value={section} onChange={go} options={[{ value: "dealerships", label: "Dealerships" }, { value: "health", label: "System health" }]} />
+        {section === "health" && <PlatformHealthPage />}
+        {section === "dealerships" && (<>
         {error && <Notice tone="error">{error}</Notice>}
         <div className="tiles">
           <Stat label="Dealerships" value={fmtNumber(tenants?.length ?? 0)} />
@@ -226,6 +225,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
             <Empty title="Nothing yet" />
           )}
         </Card>
+        </>)}
       </main>
 
       {adding && <AddDealership onClose={() => setAdding(false)} onDone={async (made) => { setAdding(false); setPassword(made); await refresh(); }} />}

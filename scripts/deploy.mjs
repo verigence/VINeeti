@@ -19,9 +19,19 @@
 // DATA_KEY protects each dealership's WhatsApp credentials in the database. It is created once and must
 // never be replaced: a different key cannot read what the old one wrote.
 
+import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+/** The checked-out commit, when there is a repository to ask. */
+function gitSha() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+}
 import { ROOT, Stop, credentials, ensureDatabase, main, note, randomSecret, readConfig, run, urlFromDeployOutput, waitHealthy, workerSecrets, workerUrl, wrangler } from "./lib/cloudflare.mjs";
 
 const flags = new Set(process.argv.slice(2));
@@ -50,6 +60,10 @@ main(async () => {
     return;
   }
   db.database_id = database.id;
+  // The version deployed and when, shown on the platform console's System health page. From the
+  // pipeline's own commit when run there; from git when run by hand.
+  const sha = process.env.GITHUB_SHA ?? gitSha();
+  config.vars = { ...(config.vars ?? {}), APP_VERSION: sha ? sha.slice(0, 12) : "unknown", APP_DEPLOYED_AT: new Date().toISOString() };
   writeFileSync(join(ROOT, CONFIG), JSON.stringify(config, null, 2));
 
   step(2, "Building the web app");

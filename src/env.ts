@@ -5,6 +5,9 @@ export interface Env {
   ASSETS?: Fetcher;
   APP_NAME?: string;
   WA_GRAPH_VERSION?: string;
+  /** Set by the deployment (scripts/deploy.mjs): the commit deployed and when. Shown on the platform console's System health page. */
+  APP_VERSION?: string;
+  APP_DEPLOYED_AT?: string;
   /** Signs login sessions. */
   SESSION_SECRET: string;
   /** Encrypts stored WhatsApp credentials. */

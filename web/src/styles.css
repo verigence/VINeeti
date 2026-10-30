@@ -5305,3 +5305,42 @@ button.primary {
   font-size: 13.5px;
   line-height: 1.55;
 }
+
+/* ---------------------------------------------------------------- system health (platform console) */
+.health-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.health-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.health-details {
+  margin-top: 12px;
+}
+.health-details > summary {
+  cursor: pointer;
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.health-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 16px;
+}
+.health-foot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+@media (max-width: 860px) {
+  .health-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

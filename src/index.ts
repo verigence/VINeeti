@@ -10,14 +10,46 @@ import { opsRoutes } from "./http/routes-ops";
 import { platformRoutes } from "./http/routes-platform";
 import { stockRoutes } from "./http/routes-stock";
 import { runScheduled } from "./scheduled";
+import { flush, flushDue, instrumentEnv, pruneStmts, recordCron, recordError, recordRequest, routePattern, withTally } from "./lib/health";
+import { iso, newId } from "./lib/util";
 
 export function createApp() {
   const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
   app.onError((err, c) => {
-    if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status as 400);
+    if (err instanceof HttpError) {
+      if (err.status >= 500) recordError({ now: clock.now(), source: "HTTP", route: routePattern(c.req.method, new URL(c.req.url).pathname), status: err.status, code: err.code, message: err.message });
+      return c.json({ error: { code: err.code, message: err.message } }, err.status as 400);
+    }
     console.error(err);
+    recordError({ now: clock.now(), source: "HTTP", route: routePattern(c.req.method, new URL(c.req.url).pathname), status: 500, code: "INTERNAL", message: (err as Error)?.message ?? String(err) });
     return c.json({ error: { code: "INTERNAL", message: "Something went wrong. Please try again." } }, 500);
+  });
+
+  // Counts every request for the System health page: how it ended, how long it took, and what it cost
+  // the database. Nothing is written here; the totals go out in one batch a minute, after the response.
+  app.use("*", async (c, next) => {
+    instrumentEnv(c.env);
+    const started = Date.now();
+    const now = clock.now();
+    let failed: unknown = null;
+    const { db } = await withTally(async () => {
+      try {
+        await next();
+      } catch (e) {
+        failed = e;
+      }
+    });
+    const status = failed ? (failed instanceof HttpError ? failed.status : 500) : c.res.status;
+    recordRequest({ now, path: new URL(c.req.url).pathname, status, ms: Date.now() - started, db, colo: ((c.req.raw as { cf?: { colo?: string } }).cf?.colo as string | undefined) ?? null });
+    if (flushDue(now)) {
+      try {
+        c.executionCtx.waitUntil(flush(c.env, now));
+      } catch {
+        // No execution context (a test harness without one): the next request or the scheduled job writes it.
+      }
+    }
+    if (failed) throw failed;
   });
 
   // Browsers only send the session cookie on same-site requests (SameSite=Lax); requiring JSON or a form
@@ -63,11 +95,50 @@ export function createApp() {
   return app;
 }
 
+/**
+ * The scheduled job, with its firing recorded for the System health page: when, how long, what each
+ * dealership reported, and whether anything failed. Once a day it also removes health rows past their keep.
+ */
+export async function runScheduledWithHealth(env: Env, now: Date) {
+  instrumentEnv(env);
+  const started = Date.now();
+  let reports: Awaited<ReturnType<typeof runScheduled>> = [];
+  let failure: string | null = null;
+  const { db } = await withTally(async () => {
+    try {
+      reports = await runScheduled(env, now);
+    } catch (e) {
+      failure = (e as Error)?.message ?? String(e);
+      console.error("scheduled job failed:", e);
+    }
+  });
+  const ms = Date.now() - started;
+  const errors = reports.filter((r) => r.error).length + (failure ? 1 : 0);
+  recordCron(now, ms, errors === 0, db);
+  if (failure) recordError({ now, source: "CRON", route: "scheduled", message: failure });
+  for (const r of reports) if (r.error) recordError({ now, source: "CRON", route: `scheduled ${r.tenant}`, message: r.error });
+  const stmts = [
+    env.DB.prepare(`INSERT INTO health_cron_runs (id, started_at, finished_at, duration_ms, ok, tenants, errors, report_json) VALUES (?,?,?,?,?,?,?,?)`).bind(
+      newId("run"), iso(now), iso(new Date(now.getTime() + ms)), ms, errors === 0 ? 1 : 0, reports.length, errors, JSON.stringify(failure ? [{ tenant: "*", error: failure }, ...reports] : reports),
+    ),
+    // Once a day, in the quiet hours (around 01:30 IST): rows past their keep go.
+    ...(now.getUTCHours() === 20 && now.getUTCMinutes() < 15 ? pruneStmts(env, now) : []),
+  ];
+  try {
+    await env.DB.batch(stmts);
+    await flush(env, now, true);
+  } catch (e) {
+    console.error("health record failed:", e);
+  }
+  if (failure) throw new Error(failure);
+  return reports;
+}
+
 const app = createApp();
 
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runScheduled(env, clock.now()));
+    ctx.waitUntil(runScheduledWithHealth(env, clock.now()));
   },
 } satisfies ExportedHandler<Env>;
