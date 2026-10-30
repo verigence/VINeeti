@@ -317,7 +317,19 @@ export async function registerDmsCars(ctx: Ctx, cars: DmsCarInput[]): Promise<{ 
       ),
     );
   }
-  if (stmts.length) await ctx.db.batch(stmts);
+  if (stmts.length) {
+    // A model's category (its segment) is the same for all its variants. A variant that came from a booking
+    // sheet has none; once any sibling from a stock report has one, the blanks take it.
+    stmts.push(
+      stmt(
+        ctx.db,
+        `UPDATE vehicle_variants SET category = (SELECT s.category FROM vehicle_variants s WHERE s.tenant_id = ?1 AND s.model = vehicle_variants.model AND s.category <> '' ORDER BY s.origin DESC, s.created_at LIMIT 1), updated_at = ?2
+         WHERE tenant_id = ?1 AND category = '' AND EXISTS (SELECT 1 FROM vehicle_variants s WHERE s.tenant_id = ?1 AND s.model = vehicle_variants.model AND s.category <> '')`,
+        ctx.tenantId, at,
+      ),
+    );
+    await ctx.db.batch(stmts);
+  }
   const fresh = stmts.length ? await loadMaster(ctx, true) : m;
   return { byKey: fresh.byKey, added: inserts.length, filled: updates.length, conflicts: conflicts.slice(0, 50) };
 }

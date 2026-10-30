@@ -202,6 +202,7 @@ function UsersTab() {
     { header: "Mobile (sign-in ID)", cell: (u) => fmtMobile(u.mobile) },
     { header: "Role", cell: (u) => roleLabel(u.role) },
     { header: "Outlets", cell: (u) => (u.all_outlets ? "All outlets" : u.outlet_ids.length ? u.outlet_ids.map((id) => outletName(id)).join(", ") : <span className="danger">None chosen</span>) },
+    { header: "Segments", hideIfEmpty: (u) => !u.segments?.length, cell: (u) => (u.segments?.length ? u.segments.map((k) => me.segments.find((s) => s.key === k)?.short ?? k).join(", ") : <span className="muted">All</span>) },
     { header: "DMS ID", hideIfEmpty: (u) => !u.dms_code, cell: (u) => (u.dms_code ? <span className="mono">{u.dms_code}</span> : <span className="muted">—</span>) },
     {
       header: "Password",
@@ -285,6 +286,8 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
   const [role, setRole] = useState<Role | "">(user?.role ?? "");
   const [scope, setScope] = useState<"all" | "some">(user ? (user.all_outlets ? "all" : "some") : "some");
   const [outletIds, setOutletIds] = useState<string[]>(user?.outlet_ids ?? []);
+  const [segmentScope, setSegmentScope] = useState<"all" | "some">(user?.segments?.length ? "some" : "all");
+  const [segments, setSegments] = useState<string[]>(user?.segments ?? []);
   const [dmsCode, setDmsCode] = useState(user?.dms_code ?? "");
   const [active, setActive] = useState(user ? Boolean(user.is_active) : true);
   const [password, setPassword] = useState("");
@@ -299,18 +302,20 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
     if (!user && r && wide !== undefined) setScope(wide ? "all" : "some");
   };
   const toggleOutlet = (id: string, on: boolean) => setOutletIds((list) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id)));
+  const toggleSegment = (key: string, on: boolean) => setSegments((list) => (on ? [...new Set([...list, key])] : list.filter((x) => x !== key)));
 
   const submit = async () => {
     if (!name.trim()) return setProblem("Enter the person's name.");
     if (!user && mobile.replace(/\D/g, "").length < 10) return setProblem("Enter a 10-digit mobile number.");
     if (!role) return setProblem("Choose a role.");
     if (scope === "some" && !outletIds.length) return setProblem("Choose at least one outlet, or give access to all outlets.");
+    if (segmentScope === "some" && !segments.length) return setProblem("Tick at least one segment, or let the person work with every segment.");
     if (!user) {
       const p = passwordProblem(password);
       if (p) return setProblem(p);
     }
     setProblem(null);
-    const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null };
+    const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null, segments: segmentScope === "all" ? [] : segments };
     if (user && !self) body.is_active = active;
     const res = user
       ? await action.run(() => api.updateUser(user.id, body), { quiet: true, success: `${name.trim()} saved.` })
@@ -383,6 +388,29 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
             </fieldset>
           )}
         </div>
+        {me.segments.length > 0 && (
+          <div className="field-wide">
+            <RadioGroup
+              legend="Vehicle segments"
+              value={segmentScope}
+              onChange={setSegmentScope}
+              options={[
+                { value: "all", label: "Every segment" },
+                { value: "some", label: "Only the segments ticked below", help: "The person then sees, books and raises requests for cars of those segments only. Approvals are not affected: approvers decide every segment." },
+              ]}
+            />
+            {segmentScope === "some" && (
+              <fieldset className="check-grid">
+                <legend className="sr-only">Segments this user works with</legend>
+                {me.segments.map((sg) => (
+                  <Check key={sg.key} checked={segments.includes(sg.key)} onChange={(on) => toggleSegment(sg.key, on)}>
+                    {sg.label} ({sg.short})
+                  </Check>
+                ))}
+              </fieldset>
+            )}
+          </div>
+        )}
         {user ? (
           <div className="field-wide">
             <Check checked={active} onChange={setActive} disabled={self} hint={self ? "You cannot switch off your own access." : "When unticked, the person is signed out everywhere and can no longer sign in. Their bookings and history are kept."}>
@@ -610,7 +638,7 @@ function RolesView({ d }: { d: RolesResponse }) {
           </div>
         </dl>
       </Card>
-      <Card title="Roles and controls" note="What each role may do. This table cannot be edited. A role acts only within the outlets it is given." flush>
+      <Card title="Roles and controls" note="What each role may do. This table cannot be edited. A role acts only within the outlets, and the vehicle segments, it is given." flush>
         {/* Wide screens: one grid, permissions down the side and roles across the top. */}
         <div className="table-scroll only-wide">
           <table className="table matrix">

@@ -1,7 +1,8 @@
 import { Hono, type Context } from "hono";
 import type { Ctx, Env, Role, SessionUser, TenantRow } from "../env";
 import { verifySession } from "../lib/crypto";
-import { all, first } from "../lib/db";
+import { all, first, marks } from "../lib/db";
+import { segmentLabel } from "../oem";
 import { can, permissionsFor, type Permission } from "../lib/permissions";
 import { parseSettings } from "../lib/settings";
 import { forbidden, HttpError } from "../lib/util";
@@ -49,7 +50,8 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   );
   if (!tenant || !u || u.token_version !== claims.tv) throw new HttpError(401, "Please sign in again", "UNAUTHENTICATED");
   const outletIds = u.all_outlets ? [] : (await all<{ outlet_id: string }>(c.env.DB, `SELECT outlet_id FROM user_outlets WHERE user_id = ? AND tenant_id = ?`, u.id, tenant.id)).map((r) => r.outlet_id);
-  const user: SessionUser = { id: u.id, name: u.name, mobile: u.mobile, role: u.role, allOutlets: Boolean(u.all_outlets), outletIds, mustChangePassword: Boolean(u.must_change_password) };
+  const segments = (await all<{ segment: string }>(c.env.DB, `SELECT segment FROM user_segments WHERE user_id = ? AND tenant_id = ? ORDER BY segment`, u.id, tenant.id)).map((r) => r.segment);
+  const user: SessionUser = { id: u.id, name: u.name, mobile: u.mobile, role: u.role, allOutlets: Boolean(u.all_outlets), outletIds, segments, mustChangePassword: Boolean(u.must_change_password) };
   c.set("user", user);
   const ctx = buildCtx(c.env, tenant, user.id, now);
   c.set("ctx", ctx);
@@ -76,6 +78,49 @@ export function outletScope(c: C): string[] | null {
 export function needOutlet(c: C, outletId: string) {
   const user = c.get("user");
   if (!user.allOutlets && !user.outletIds.includes(outletId)) throw forbidden("This record belongs to an outlet you do not have access to");
+}
+
+/**
+ * The models a person's segments cover: null for a person who works with every segment. A model whose
+ * category the master does not know yet belongs to no segment, so a restricted person does not see it
+ * until the administrator sets it on the Vehicle master screen.
+ */
+export async function segmentModels(ctx: Ctx, user: SessionUser): Promise<string[] | null> {
+  if (!user.segments.length) return null;
+  const key = `segment_models:${user.id}`;
+  const cached = ctx.cache.get(key) as string[] | undefined;
+  if (cached) return cached;
+  const rows = await all<{ model: string }>(ctx.db, `SELECT DISTINCT model FROM vehicle_variants WHERE tenant_id = ? AND category IN (${marks(user.segments.length)})`, ctx.tenantId, ...user.segments);
+  const models = rows.map((r) => r.model);
+  ctx.cache.set(key, models);
+  return models;
+}
+
+/** Models the signed-in person may see and act on: null means every model. */
+export async function modelScope(c: C): Promise<string[] | null> {
+  return segmentModels(c.get("ctx"), c.get("user"));
+}
+
+/** The model of the car a form names, by variant id or by model name, checked against the person's segments. */
+export async function needSegmentOfCar(c: C, body: { variant_id?: unknown; model?: unknown }) {
+  if (!c.get("user").segments.length) return;
+  const ctx = c.get("ctx");
+  let model = String(body.model ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (body.variant_id) model = (await first<{ model: string }>(ctx.db, `SELECT model FROM vehicle_variants WHERE id = ? AND tenant_id = ?`, String(body.variant_id), ctx.tenantId))?.model ?? model;
+  if (model) await needSegment(c, model);
+}
+
+/** Refuses a booking or a car of a model outside the person's segments. */
+export async function needSegment(c: C, model: string) {
+  const user = c.get("user");
+  const ctx = c.get("ctx");
+  if (!user.segments.length) return;
+  const models = (await segmentModels(ctx, user)) ?? [];
+  if (!models.includes(model)) {
+    const known = await first<{ category: string }>(ctx.db, `SELECT category FROM vehicle_variants WHERE tenant_id = ? AND model = ? AND category <> '' LIMIT 1`, ctx.tenantId, model);
+    if (!known) throw forbidden(`${model} has no segment on the Vehicle master yet. Ask the administrator to set its category; until then only people who work with every segment can act on it.`);
+    throw forbidden(`${model} is ${segmentLabel(ctx.tenant.oem, known.category)}, which is outside the segments you work with`);
+  }
 }
 
 export async function jsonBody<T = Record<string, any>>(c: C): Promise<T> {

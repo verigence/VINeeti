@@ -154,6 +154,8 @@ export function authRoutes(app: App) {
       outlets: scope ? outlets.filter((o) => scope.includes(o.id)) : outlets,
       all_outlets: outlets.map((o) => ({ id: o.id, code: o.code, name: o.name })),
       role_labels: ROLE_LABELS,
+      // The manufacturer's vehicle segments, for the Users screen and for saying which a person works with.
+      segments: oemAdapter(ctx.tenant.oem)?.segments ?? [],
       receives_alarms: ctx.settings.alarm_roles.includes(c.get("user").role),
       app_name: c.env.APP_NAME ?? "Verigence VINeeti",
     });
@@ -217,7 +219,8 @@ export function authRoutes(app: App) {
     const ctx = c.get("ctx");
     const users = await all<any>(ctx.db, `SELECT id, name, mobile, email, role, all_outlets, is_active, must_change_password, dms_code, created_at FROM users WHERE tenant_id = ? ORDER BY name`, ctx.tenantId);
     const links = await all<{ user_id: string; outlet_id: string }>(ctx.db, `SELECT user_id, outlet_id FROM user_outlets WHERE tenant_id = ?`, ctx.tenantId);
-    return c.json(users.map((u) => ({ ...u, outlet_ids: links.filter((l) => l.user_id === u.id).map((l) => l.outlet_id) })));
+    const segs = await all<{ user_id: string; segment: string }>(ctx.db, `SELECT user_id, segment FROM user_segments WHERE tenant_id = ? ORDER BY segment`, ctx.tenantId);
+    return c.json(users.map((u) => ({ ...u, outlet_ids: links.filter((l) => l.user_id === u.id).map((l) => l.outlet_id), segments: segs.filter((l) => l.user_id === u.id).map((l) => l.segment) })));
   });
 
   /** Names only, for pickers such as "sales executive" on a booking. */
@@ -233,6 +236,19 @@ export function authRoutes(app: App) {
       stmt(ctx.db, `DELETE FROM user_outlets WHERE user_id = ? AND tenant_id = ?`, userId, ctx.tenantId),
       ...outletIds.map((id) => stmt(ctx.db, `INSERT INTO user_outlets (user_id, outlet_id, tenant_id) VALUES (?,?,?)`, userId, id, ctx.tenantId)),
     ]);
+  }
+
+  /** The segments a person works with: the manufacturer's categories; an empty list means every segment. */
+  async function setSegments(ctx: ReturnType<typeof buildCtx>, userId: string, segments: unknown): Promise<string[]> {
+    const known = new Set((oemAdapter(ctx.tenant.oem)?.segments ?? []).map((s) => s.key));
+    const list = [...new Set((Array.isArray(segments) ? segments : []).map((x) => String(x).trim().toUpperCase()).filter(Boolean))];
+    for (const key of list) if (!known.has(key)) throw bad(`${key} is not a vehicle segment of this manufacturer`);
+    await ctx.db.batch([
+      stmt(ctx.db, `DELETE FROM user_segments WHERE user_id = ? AND tenant_id = ?`, userId, ctx.tenantId),
+      ...list.map((key) => stmt(ctx.db, `INSERT INTO user_segments (tenant_id, user_id, segment) VALUES (?,?,?)`, ctx.tenantId, userId, key)),
+      // Narrowing or widening what a person may act on takes effect at their next request; sessions are untouched.
+    ]);
+    return list;
   }
 
   /** The person's ID in the DMS (the booking sheet's SC Mile Id). One person per ID. */
@@ -293,7 +309,7 @@ export function authRoutes(app: App) {
   app.post("/api/users", async (c) => {
     need(c, "admin.users");
     const ctx = c.get("ctx");
-    const b = await jsonBody<{ name?: string; mobile?: string; email?: string; role?: Role; password?: string; all_outlets?: boolean; outlet_ids?: string[]; dms_code?: string }>(c);
+    const b = await jsonBody<{ name?: string; mobile?: string; email?: string; role?: Role; password?: string; all_outlets?: boolean; outlet_ids?: string[]; dms_code?: string; segments?: string[] }>(c);
     const mobile = normMobile(b.mobile);
     const dmsCode = await checkDmsCode(ctx, b.dms_code, null);
     if (!b.name?.trim() || !mobile) throw bad("Name and a valid mobile number are required");
@@ -305,8 +321,9 @@ export function authRoutes(app: App) {
     const id = newId("usr");
     await run(ctx.db, `INSERT INTO users (id, tenant_id, name, mobile, email, role, password_hash, must_change_password, all_outlets, dms_code, created_at) VALUES (?,?,?,?,?,?,?,1,?,?,?)`, id, ctx.tenantId, b.name.trim(), mobile, b.email?.trim() || null, b.role, await hashPassword(password), allOutlets ? 1 : 0, dmsCode, iso(ctx.now));
     if (!allOutlets) await setOutlets(ctx, id, b.outlet_ids ?? []);
+    const segments = b.segments?.length ? await setSegments(ctx, id, b.segments) : [];
     if (dmsCode) await linkBookingsTo(ctx, id, dmsCode);
-    await audit(ctx, "USER_CREATED", "user", id, { name: b.name.trim(), role: b.role, all_outlets: allOutlets, outlet_ids: b.outlet_ids ?? [] });
+    await audit(ctx, "USER_CREATED", "user", id, { name: b.name.trim(), role: b.role, all_outlets: allOutlets, outlet_ids: b.outlet_ids ?? [], segments });
     return c.json({ id }, 201);
   });
 
@@ -314,7 +331,7 @@ export function authRoutes(app: App) {
     need(c, "admin.users");
     const ctx = c.get("ctx");
     const me = c.get("user");
-    const b = await jsonBody<{ name?: string; email?: string; role?: Role; password?: string; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null }>(c);
+    const b = await jsonBody<{ name?: string; email?: string; role?: Role; password?: string; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
     const u = await first<any>(ctx.db, `SELECT * FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!u) throw notFound("User");
     const dmsCode = b.dms_code === undefined ? u.dms_code : await checkDmsCode(ctx, b.dms_code, u.id);
@@ -336,6 +353,7 @@ export function authRoutes(app: App) {
     );
     if (dmsCode && dmsCode !== u.dms_code) await linkBookingsTo(ctx, u.id, dmsCode);
     if (b.outlet_ids || b.all_outlets !== undefined) await setOutlets(ctx, u.id, allOutlets ? [] : b.outlet_ids ?? []);
+    if (b.segments !== undefined) await setSegments(ctx, u.id, b.segments);
     await audit(ctx, "USER_UPDATED", "user", u.id, { ...b, password: b.password ? "(changed)" : undefined });
     return c.json({ ok: true });
   });

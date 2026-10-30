@@ -262,8 +262,8 @@ export async function updateVehicleDetails(
 }
 
 /** Free and committed stock by model / variant / colour, with the earliest arrival of a free in-transit car. */
-export async function stockSummary(ctx: Ctx, outletIds: string[] | null, filter: { category?: string; model?: string; fuel?: string; transmission?: string } = {}) {
-  const scope = outletIds ? `AND v.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
+export async function stockSummary(ctx: Ctx, outletIds: string[] | null, filter: { category?: string; model?: string; fuel?: string; transmission?: string } = {}, models: string[] | null = null) {
+  const scope = (outletIds ? `AND v.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "") + (models ? ` AND v.model IN (${models.map(() => "?").join(",") || "''"})` : "");
   const today = localParts(ctx.now, ctx.tenant.timezone).date;
   const where: string[] = [];
   const params: unknown[] = [];
@@ -285,6 +285,7 @@ export async function stockSummary(ctx: Ctx, outletIds: string[] | null, filter:
     today,
     ctx.tenantId,
     ...(outletIds ?? []),
+    ...(models ?? []),
     ...params,
   );
 }

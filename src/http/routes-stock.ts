@@ -20,7 +20,7 @@ import {
   unblockVehicle,
   updateVehicleDetails,
 } from "../domain/inventory";
-import { jsonBody, need, needOutlet, outletScope, type App, type C } from "./app";
+import { jsonBody, modelScope, need, needOutlet, needSegment, needSegmentOfCar, outletScope, type App, type C } from "./app";
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 
@@ -49,7 +49,7 @@ export function stockRoutes(app: App) {
     need(c, "stock.view");
     const q = c.req.query();
     // Sales teams see stock across the dealership so they can offer what is available elsewhere.
-    return c.json(await stockSummary(c.get("ctx"), q.outlet_id ? [q.outlet_id] : null, { category: q.category, model: q.model, fuel: q.fuel, transmission: q.transmission }));
+    return c.json(await stockSummary(c.get("ctx"), q.outlet_id ? [q.outlet_id] : null, { category: q.category, model: q.model, fuel: q.fuel, transmission: q.transmission }, await modelScope(c)));
   });
 
   /**
@@ -61,7 +61,7 @@ export function stockRoutes(app: App) {
     const q = c.req.query();
     const pick: Record<string, string> = {};
     for (const f of FACETS) if (q[f]) pick[f] = String(q[f]);
-    return c.json(await browseStock(c.get("ctx"), { ...pick, show: q.show === "ALL" ? "ALL" : "FREE" }, null));
+    return c.json(await browseStock(c.get("ctx"), { ...pick, show: q.show === "ALL" ? "ALL" : "FREE" }, null, await modelScope(c)));
   });
 
   /**
@@ -73,6 +73,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const q = c.req.query();
     const cfg = await resolveConfig(ctx, { variant_id: q.variant_id, model: q.model, variant: q.variant, colour: q.colour }, { allowInactive: true });
+    await needSegment(c, cfg.model);
     const limit = Math.min(12, Math.max(1, Number(q.limit) || 6));
     return c.json(await alternatives(ctx, cfg, q.outlet_id ?? null, { withValue: can(c.get("user"), ctx.settings, "stock.value"), limit }));
   });
@@ -82,6 +83,7 @@ export function stockRoutes(app: App) {
     // The car is named by master variant (or by model and variant name) and colour.
     const q = c.req.query();
     const cfg = await resolveConfig(c.get("ctx"), { variant_id: q.variant_id, model: q.model, variant: q.variant, colour: q.colour }, { allowInactive: true });
+    await needSegment(c, cfg.model);
     return c.json({ ...(await availabilityAnswer(c.get("ctx"), cfg, q.outlet_id ?? null)), ...cfg });
   });
 
@@ -91,6 +93,8 @@ export function stockRoutes(app: App) {
     const q = c.req.query();
     const where = ["v.tenant_id = ?"];
     const params: unknown[] = [ctx.tenantId];
+    const models = await modelScope(c);
+    if (models) (where.push(`v.model IN (${models.map(() => "?").join(",") || "''"})`), params.push(...models));
     if (q.model) (where.push("v.model = ?"), params.push(norm(q.model)));
     if (q.variant_id) (where.push("v.variant_id = ?"), params.push(q.variant_id));
     // Filters on the vehicle-master attributes.
@@ -157,6 +161,7 @@ export function stockRoutes(app: App) {
     need(c, "stock.view");
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
+    await needSegment(c, v.model);
     const outlet = await first<{ name: string }>(ctx.db, `SELECT name FROM outlets WHERE id = ?`, v.outlet_id);
     const events = await all<any>(ctx.db, `SELECT e.type, e.from_status, e.to_status, e.detail_json, e.actor, e.at, u.name AS actor_name FROM vehicle_events e LEFT JOIN users u ON u.id = e.actor WHERE e.tenant_id = ? AND e.vehicle_id = ? ORDER BY e.at DESC`, ctx.tenantId, v.id);
     const allocations = await all<any>(ctx.db, `SELECT a.id, a.type, a.status, a.allocated_at, a.allocated_by, a.released_at, a.release_reason, a.needs_transfer, b.id AS booking_id, b.booking_no, b.outlet_id AS booking_outlet_id FROM allocations a JOIN bookings b ON b.id = a.booking_id WHERE a.tenant_id = ? AND a.vehicle_id = ? ORDER BY a.allocated_at DESC`, ctx.tenantId, v.id);
@@ -182,6 +187,7 @@ export function stockRoutes(app: App) {
     need(c, "stock.manage");
     const b = await jsonBody(c);
     needOutlet(c, String(b.outlet_id ?? ""));
+    await needSegmentOfCar(c, b);
     return c.json(await addVehicle(c.get("ctx"), b as any), 201);
   });
 
@@ -190,6 +196,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     return c.json(await updateVehicleDetails(ctx, v.id, await jsonBody(c)));
   });
 
@@ -198,6 +205,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     return c.json(await receiveVehicle(ctx, v.id));
   });
 
@@ -211,10 +219,12 @@ export function stockRoutes(app: App) {
     const done: string[] = [];
     const errors: { vin: string; message: string }[] = [];
     for (const vin of vins) {
-      const v = await first<{ id: string; outlet_id: string }>(ctx.db, `SELECT id, outlet_id FROM vehicles WHERE tenant_id = ? AND vin = ?`, ctx.tenantId, vin);
+      const v = await first<{ id: string; outlet_id: string; model: string }>(ctx.db, `SELECT id, outlet_id, model FROM vehicles WHERE tenant_id = ? AND vin = ?`, ctx.tenantId, vin);
       try {
         if (!v) throw notFound(`Chassis ${vin}`);
         needOutlet(c, v.outlet_id);
+        await needSegment(c, v.model);
+    await needSegment(c, v.model);
         await receiveVehicle(ctx, v.id);
         done.push(vin);
       } catch (e) {
@@ -229,6 +239,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     const b = await jsonBody<{ outlet_id?: string }>(c);
     return c.json(await transferVehicle(ctx, v.id, String(b.outlet_id ?? "")));
   });
@@ -238,6 +249,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     return c.json(await blockVehicle(ctx, v.id, String((await jsonBody(c)).reason ?? "")));
   });
 
@@ -246,6 +258,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     return c.json(await unblockVehicle(ctx, v.id));
   });
 
@@ -254,6 +267,7 @@ export function stockRoutes(app: App) {
     const ctx = c.get("ctx");
     const v = await getVehicle(ctx, c.req.param("id"));
     needOutlet(c, v.outlet_id);
+    await needSegment(c, v.model);
     return c.json(await removeVehicle(ctx, v.id, String((await jsonBody(c)).reason ?? "")));
   });
 

@@ -90,12 +90,14 @@ export interface OutletRef {
 }
 
 export interface Me {
-  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; mustChangePassword: boolean; permissions: Permission[] };
+  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; segments: string[]; mustChangePassword: boolean; permissions: Permission[] };
   tenant: { id: string; slug: string; name: string; oem: string; timezone: string };
   settings: TenantSettings;
   outlets: Outlet[];
   all_outlets: OutletRef[];
   role_labels: Record<Role, string>;
+  /** The manufacturer's vehicle segments (passenger, electric, commercial), for the Users screen. */
+  segments: Segment[];
   /** True when the user's role is one of the dealership's alarm recipients. */
   receives_alarms: boolean;
   app_name: string;
@@ -750,6 +752,8 @@ export interface UserRow {
   dms_code: string | null;
   created_at: string;
   outlet_ids: string[];
+  /** The vehicle segments the person works with (the manufacturer's categories); empty means every segment. */
+  segments: string[];
 }
 export interface UserInput {
   name?: string;
@@ -761,6 +765,14 @@ export interface UserInput {
   outlet_ids?: string[];
   is_active?: boolean;
   dms_code?: string | null;
+  segments?: string[];
+}
+
+/** A vehicle segment as the manufacturer's stock report names it, with the name the dealership uses. */
+export interface Segment {
+  key: string;
+  label: string;
+  short: string;
 }
 
 export interface EmployeeImportResult {

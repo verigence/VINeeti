@@ -63,6 +63,8 @@ export interface SessionUser {
   role: Role;
   allOutlets: boolean;
   outletIds: string[];
+  /** The vehicle segments (master categories) the person works with; empty means every segment. */
+  segments: string[];
   mustChangePassword: boolean;
 }
 

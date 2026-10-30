@@ -31,8 +31,8 @@ interface Row {
  * The cars that match, the counts for every choice that could be made next, and a car-by-car list
  * grouped the way a customer thinks of it: model, variant, colour.
  */
-export async function browseStock(ctx: Ctx, q: BrowseQuery, outletIds: string[] | null) {
-  const scope = outletIds?.length ? ` AND v.outlet_id IN (${outletIds.map(() => "?").join(",")})` : "";
+export async function browseStock(ctx: Ctx, q: BrowseQuery, outletIds: string[] | null, models: string[] | null = null) {
+  const scope = (outletIds?.length ? ` AND v.outlet_id IN (${outletIds.map(() => "?").join(",")})` : "") + (models ? ` AND v.model IN (${models.map(() => "?").join(",") || "''"})` : "");
   const rows = await all<Row>(
     ctx.db,
     `SELECT v.id, v.vin, v.status, v.model, v.variant, v.colour,
@@ -44,7 +44,7 @@ export async function browseStock(ctx: Ctx, q: BrowseQuery, outletIds: string[] 
        JOIN outlets o ON o.id = v.outlet_id
        LEFT JOIN vehicle_variants vv ON vv.id = v.variant_id
       WHERE v.tenant_id = ? AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_demo = 0${scope}`,
-    ctx.tenantId, ...(outletIds ?? []),
+    ctx.tenantId, ...(outletIds ?? []), ...(models ?? []),
   );
 
   const show = q.show === "ALL" ? "ALL" : "FREE";

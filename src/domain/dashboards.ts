@@ -8,12 +8,13 @@ import { windowSchedule } from "./timers";
 const inList = (ids: string[] | null, col: string) => (ids ? `AND ${col} IN (${ids.map(() => "?").join(",") || "''"})` : "");
 
 /** Headline numbers for the home screen. */
-export async function overview(ctx: Ctx, outletIds: string[] | null, onlyUserId: string | null = null) {
+export async function overview(ctx: Ctx, outletIds: string[] | null, onlyUserId: string | null = null, models: string[] | null = null) {
   const T = ctx.tenantId;
-  const o = outletIds ?? [];
+  // The person's outlets, then the models of their segments: both narrow every count the same way.
+  const o = [...(outletIds ?? []), ...(models ?? [])];
   const today = localParts(ctx.now, ctx.tenant.timezone).date;
   const n = async (sql: string, ...p: unknown[]) => (await first<{ n: number }>(ctx.db, sql, ...p))?.n ?? 0;
-  const vScope = inList(outletIds, "v.outlet_id"), bScope = inList(outletIds, "b.outlet_id");
+  const vScope = inList(outletIds, "v.outlet_id") + inList(models, "v.model"), bScope = inList(outletIds, "b.outlet_id") + inList(models, "b.model");
   // Someone who sees only their own bookings gets their own numbers, so each tile agrees with the list behind it.
   const mine = onlyUserId ? "AND (b.sales_exec_id = ? OR b.created_by = ?)" : "";
   const me = onlyUserId ? [onlyUserId, onlyUserId] : [];
@@ -42,16 +43,17 @@ export async function overview(ctx: Ctx, outletIds: string[] | null, onlyUserId:
 }
 
 /** Dashboard A: bookings that hold a car, with where each stands in the payment window. */
-export async function allocationDashboard(ctx: Ctx, outletIds: string[] | null) {
+export async function allocationDashboard(ctx: Ctx, outletIds: string[] | null, models: string[] | null = null) {
   const rows = await all<any>(
     ctx.db,
     `SELECT a.id AS allocation_id, a.type, a.allocated_at, a.allocated_by, a.needs_transfer, a.clock_started_at, a.window_extension_days, a.reminder_sent_at, a.escalated_at, a.exception_id,
             b.id AS booking_id, b.booking_no, b.booking_date, b.customer_name, b.model, b.variant, b.colour, b.status AS booking_status, b.expected_delivery_date, b.payment_received_at, b.outlet_id,
             o.name AS outlet, v.id AS vehicle_id, v.vin, v.status AS vehicle_status, v.expected_arrival_date, v.outlet_id AS vehicle_outlet_id, vo.name AS vehicle_outlet
      FROM allocations a JOIN bookings b ON b.id = a.booking_id JOIN vehicles v ON v.id = a.vehicle_id JOIN outlets o ON o.id = b.outlet_id JOIN outlets vo ON vo.id = v.outlet_id
-     WHERE a.tenant_id = ? AND a.status = 'ACTIVE' ${inList(outletIds, "b.outlet_id")} ORDER BY a.allocated_at DESC LIMIT 500`,
+     WHERE a.tenant_id = ? AND a.status = 'ACTIVE' ${inList(outletIds, "b.outlet_id")} ${inList(models, "b.model")} ORDER BY a.allocated_at DESC LIMIT 500`,
     ctx.tenantId,
     ...(outletIds ?? []),
+    ...(models ?? []),
   );
   return rows.map((r) => {
     let window = null;
@@ -90,7 +92,7 @@ export async function orderQueueDashboard(ctx: Ctx) {
 }
 
 /** Dashboard C: bookings past their committed delivery date, with the reason. */
-export async function delayedDashboard(ctx: Ctx, outletIds: string[] | null) {
+export async function delayedDashboard(ctx: Ctx, outletIds: string[] | null, models: string[] | null = null) {
   const today = localParts(ctx.now, ctx.tenant.timezone).date;
   const rows = await all<any>(
     ctx.db,
@@ -98,12 +100,13 @@ export async function delayedDashboard(ctx: Ctx, outletIds: string[] | null) {
             b.payment_received_at, o.name AS outlet, v.vin, v.status AS vehicle_status, v.expected_arrival_date, a.needs_transfer
      FROM bookings b JOIN outlets o ON o.id = b.outlet_id
      LEFT JOIN allocations a ON a.booking_id = b.id AND a.status IN ('ACTIVE','FULFILLED') LEFT JOIN vehicles v ON v.id = a.vehicle_id
-     WHERE b.tenant_id = ? AND b.expected_delivery_date IS NOT NULL ${inList(outletIds, "b.outlet_id")}
+     WHERE b.tenant_id = ? AND b.expected_delivery_date IS NOT NULL ${inList(outletIds, "b.outlet_id")} ${inList(models, "b.model")}
        AND ((b.status IN ('APPROVED','ALLOCATED','INVOICED') AND b.expected_delivery_date < ?)
          OR (b.status = 'DELIVERED' AND substr(b.delivered_at, 1, 10) > b.expected_delivery_date AND b.delivered_at >= ?))
      ORDER BY b.expected_delivery_date LIMIT 500`,
     ctx.tenantId,
     ...(outletIds ?? []),
+    ...(models ?? []),
     today,
     new Date(ctx.now.getTime() - 45 * 86_400_000).toISOString(),
   );

@@ -14,7 +14,7 @@ import { dispatchQueued, ensureWaDefaults, loadCredentials, messageStmt, type Wa
 import { createOtpTemplateMeta, createTemplateMeta, listTemplatesMeta, verifyNumberMeta } from "../whatsapp/provider";
 import { DEFAULT_TEMPLATES, paramNames, validateTemplateBody, type EventKey } from "../whatsapp/templates";
 import { handleWebhookEvent, recentInbound, verifyWebhook } from "../whatsapp/webhook";
-import { clock, jsonBody, need, outletScope, type App, type C } from "./app";
+import { clock, jsonBody, modelScope, need, outletScope, type App, type C } from "./app";
 
 function publicConfig(c: C, cfg: WaConfigRow | null) {
   const origin = new URL(c.req.url).origin;
@@ -44,13 +44,13 @@ export function opsRoutes(app: App) {
     need(c, "dashboards.view");
     const ctx = c.get("ctx");
     const user = c.get("user");
-    return c.json(await overview(ctx, outletScope(c), can(user, ctx.settings, "booking.view_all") ? null : user.id));
+    return c.json(await overview(ctx, outletScope(c), can(user, ctx.settings, "booking.view_all") ? null : user.id, await modelScope(c)));
   });
   app.get("/api/dashboards/allocation", async (c) => {
     need(c, "dashboards.view");
     const ctx = c.get("ctx");
     const user = c.get("user");
-    let rows = await allocationDashboard(ctx, outletScope(c));
+    let rows = await allocationDashboard(ctx, outletScope(c), await modelScope(c));
     if (!can(user, ctx.settings, "booking.view_all")) {
       const mine = new Set((await all<{ id: string }>(ctx.db, `SELECT id FROM bookings WHERE tenant_id = ? AND (sales_exec_id = ? OR created_by = ?)`, ctx.tenantId, user.id, user.id)).map((b) => b.id));
       rows = rows.filter((r) => mine.has(r.booking_id));
@@ -160,7 +160,7 @@ export function opsRoutes(app: App) {
     need(c, "dashboards.view");
     const ctx = c.get("ctx");
     const user = c.get("user");
-    let rows = await delayedDashboard(ctx, outletScope(c));
+    let rows = await delayedDashboard(ctx, outletScope(c), await modelScope(c));
     if (!can(user, ctx.settings, "booking.view_all")) {
       const mine = new Set((await all<{ id: string }>(ctx.db, `SELECT id FROM bookings WHERE tenant_id = ? AND (sales_exec_id = ? OR created_by = ?)`, ctx.tenantId, user.id, user.id)).map((b) => b.id));
       rows = rows.filter((r) => mine.has(r.booking_id));

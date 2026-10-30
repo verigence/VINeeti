@@ -29,7 +29,7 @@ import { decideException, listExceptions, requestException } from "../domain/exc
 import { resolveConfig } from "../domain/master";
 import { queueFor, queuePositions } from "../domain/queue";
 import { windowSchedule } from "../domain/timers";
-import { jsonBody, need, needOutlet, outletScope, type App, type C } from "./app";
+import { jsonBody, modelScope, need, needOutlet, needSegment, needSegmentOfCar, outletScope, type App, type C } from "./app";
 
 /** A sales executive sees only their own bookings; everyone else sees bookings of their outlets. */
 function canSeeBooking(c: C, b: Pick<Booking, "outlet_id" | "sales_exec_id" | "created_by">): boolean {
@@ -43,8 +43,12 @@ function canSeeBooking(c: C, b: Pick<Booking, "outlet_id" | "sales_exec_id" | "c
 async function bookingFor(c: C, id: string): Promise<Booking> {
   const b = await getBooking(c.get("ctx"), id);
   if (!canSeeBooking(c, b)) throw forbidden("This booking is outside your access");
+  await needSegment(c, b.model); // a booking of another segment is outside the person's access too
   return b;
 }
+
+/** `AND col IN (...)` for the person's segments, or nothing for a person who works with all of them. */
+const inModels = (models: string[] | null, col: string) => (models ? `${col} IN (${models.map(() => "?").join(",") || "''"})` : "");
 
 export function bookingRoutes(app: App) {
   app.get("/api/bookings", async (c) => {
@@ -55,8 +59,10 @@ export function bookingRoutes(app: App) {
     const where = ["b.tenant_id = ?"];
     const params: unknown[] = [ctx.tenantId];
     const scope = outletScope(c);
+    const models = await modelScope(c);
     if (!can(user, ctx.settings, "booking.view_all")) (where.push("(b.sales_exec_id = ? OR b.created_by = ?)"), params.push(user.id, user.id));
     else if (scope) (where.push(`b.outlet_id IN (${scope.map(() => "?").join(",") || "''"})`), params.push(...scope));
+    if (models) (where.push(inModels(models, "b.model")), params.push(...models));
     if (q.outlet_id) (where.push("b.outlet_id = ?"), params.push(q.outlet_id));
     if (q.status) (where.push("b.status = ?"), params.push(q.status));
     if (q.view === "waiting") where.push("b.status = 'APPROVED' AND b.on_hold = 0");
@@ -90,6 +96,7 @@ export function bookingRoutes(app: App) {
     need(c, "booking.create");
     const body = await jsonBody(c);
     needOutlet(c, String(body.outlet_id ?? ""));
+    await needSegmentOfCar(c, body);
     return c.json(await createBooking(c.get("ctx"), body as any, c.get("user")), 201);
   });
 
@@ -162,6 +169,7 @@ export function bookingRoutes(app: App) {
     const b = await bookingFor(c, c.req.param("id"));
     const body = await jsonBody(c);
     if (body.outlet_id) needOutlet(c, String(body.outlet_id));
+    if (body.model || body.variant_id) await needSegmentOfCar(c, body);
     return c.json(await updateBooking(c.get("ctx"), b.id, body as any));
   });
 
@@ -217,6 +225,7 @@ export function bookingRoutes(app: App) {
     const user = c.get("user");
     if (!can(user, ctx.settings, "booking.payment") && !can(user, ctx.settings, "booking.view_all")) throw forbidden();
     const scope = outletScope(c);
+    const models = await modelScope(c);
     const rows = await all<any>(
       ctx.db,
       `SELECT b.id AS booking_id, b.booking_no, b.customer_name, b.model, b.variant, b.colour, b.outlet_id, o.name AS outlet, b.sales_exec_id, COALESCE(se.name, b.sc_name) AS sales_exec,
@@ -224,10 +233,11 @@ export function bookingRoutes(app: App) {
               b.status, v.vin, v.status AS vehicle_status, v.net_dealer_price, a.clock_started_at, a.window_extension_days, a.reminder_sent_at, a.escalated_at, a.allocated_at
        FROM bookings b JOIN outlets o ON o.id = b.outlet_id JOIN allocations a ON a.booking_id = b.id AND a.status = 'ACTIVE' JOIN vehicles v ON v.id = a.vehicle_id
        LEFT JOIN users se ON se.id = b.sales_exec_id LEFT JOIN users rb ON rb.id = b.payment_reported_by LEFT JOIN users vb ON vb.id = b.payment_verified_by
-       WHERE b.tenant_id = ? AND b.status = 'ALLOCATED' ${scope ? `AND b.outlet_id IN (${scope.map(() => "?").join(",") || "''"})` : ""}
+       WHERE b.tenant_id = ? AND b.status = 'ALLOCATED' ${scope ? `AND b.outlet_id IN (${scope.map(() => "?").join(",") || "''"})` : ""} ${models ? `AND ${inModels(models, "b.model")}` : ""}
        ORDER BY CASE WHEN b.payment_received_at IS NOT NULL THEN 2 WHEN b.payment_reported_at IS NOT NULL THEN 0 ELSE 1 END, COALESCE(b.payment_reported_at, a.clock_started_at, a.allocated_at) LIMIT 1000`,
       ctx.tenantId,
       ...(scope ?? []),
+      ...(models ?? []),
     );
     const showValue = can(user, ctx.settings, "stock.value");
     return c.json(
@@ -292,7 +302,9 @@ export function bookingRoutes(app: App) {
   app.get("/api/held-cars", async (c) => {
     need(c, "exception.request");
     const ctx = c.get("ctx");
-    return c.json(await heldCars(ctx, c.req.query("q") ?? "", can(c.get("user"), ctx.settings, "booking.view_all") ? outletScope(c) : null));
+    const models = await modelScope(c);
+    const held = await heldCars(ctx, c.req.query("q") ?? "", can(c.get("user"), ctx.settings, "booking.view_all") ? outletScope(c) : null);
+    return c.json(models ? held.filter((h) => models.includes(h.model)) : held);
   });
 
   app.get("/api/release-reasons", async (c) => {
@@ -309,6 +321,8 @@ export function bookingRoutes(app: App) {
     if (!can(user, ctx.settings, "exception.decide") && !can(user, ctx.settings, "release.decide") && !can(user, ctx.settings, "exception.request")) throw forbidden();
     let rows = (await listExceptions(ctx, c.req.query("status") ?? null, outletScope(c))) as any[];
     if (!can(user, ctx.settings, "booking.view_all")) rows = rows.filter((r) => r.requested_by === user.id);
+    const models = await modelScope(c);
+    if (models) rows = rows.filter((r) => models.includes(r.model));
     return c.json(rows.map((r) => ({ ...r, payload: safeJson(r.payload_json, {}), payload_json: undefined })));
   });
 

@@ -16,6 +16,11 @@ export interface OemAdapter {
   /** What the dealership's files look like, for the upload screen. */
   stock_file: string;
   booking_file: string;
+  /**
+   * The manufacturer's vehicle segments, as its stock report writes them in the model's category, with
+   * the name the dealership uses for each. A category the list does not know is shown as itself.
+   */
+  segments: { key: string; label: string; short: string }[];
   readStockReport(sheets: Sheet[], opts: { timeZone: string; asOf: string }): StockReport;
   readBookingSheet(sheets: Sheet[], opts: { timeZone: string }): BookingSheet;
 }
@@ -26,10 +31,21 @@ export const OEM_ADAPTERS: OemAdapter[] = [
     label: "Mahindra",
     stock_file: "Stock report (Dealer Name, Dealer Location Code, Model Description, Color, VIN, GRN, Vehicle Status, Order ID, Stock Type, Invoice ID, ...)",
     booking_file: "Booking sheet (DMS Booking Number, Booking Stage, Created Date, Customer, Model Code, Model Description, Color, Sales Consultant, ...)",
+    segments: [
+      { key: "PERSONAL", label: "Passenger vehicles", short: "PV" },
+      { key: "BEV", label: "Electric vehicles", short: "EV" },
+      { key: "PROSPER", label: "Commercial vehicles", short: "CV" },
+    ],
     readStockReport: mahindraStockReport,
     readBookingSheet: mahindraBookingSheet,
   },
 ];
+
+/** The segment as the dealership says it: "Commercial vehicles (CV)" for Mahindra's PROSPER. */
+export function segmentLabel(oem: string | null | undefined, category: string): string {
+  const s = oemAdapter(oem)?.segments.find((x) => x.key === category);
+  return s ? `${s.label} (${s.short})` : category;
+}
 
 /** The adapter for a dealership's manufacturer, matched on the name as written at onboarding ("Mahindra", "Mahindra & Mahindra", "M&M"). */
 export function oemAdapter(oem: string | null | undefined): OemAdapter | null {
