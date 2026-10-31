@@ -27,7 +27,10 @@ export function ExceptionItem({ e, showBooking, onChanged }: { e: ExceptionRow; 
       </div>
       {showBooking && e.booking_no && (
         <p>
-          Booking <Link to={`/bookings/${e.booking_id}`}>{e.booking_no}</Link> · {e.customer_name} · {e.model} {e.variant}, {e.colour}
+          {/* A request from another billing centre is readable here, but its booking is not this
+              person's to open, so the number is shown plainly rather than as a dead link. */}
+          Booking {e.can_decide === false ? <span className="strong">{e.booking_no}</span> : <Link to={`/bookings/${e.booking_id}`}>{e.booking_no}</Link>} · {e.customer_name} · {e.model} {e.variant}, {e.colour}
+          {e.outlet ? ` · ${e.outlet}` : ""}
         </p>
       )}
       {detail && (
@@ -63,7 +66,10 @@ export function ExceptionItem({ e, showBooking, onChanged }: { e: ExceptionRow; 
       )}
       {/* Taking a car back answers to its own, narrower list of approvers, so the buttons follow the
           type rather than one blanket permission. */}
-      {e.status === "PENDING" && can(e.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide") && (
+      {e.status === "PENDING" && e.can_decide === false && can(e.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide") && (
+        <p className="hint">{e.outlet ? `This is ${e.outlet}'s request: its own GM decides it.` : "This request belongs to another billing centre, whose own GM decides it."}</p>
+      )}
+      {e.status === "PENDING" && e.can_decide !== false && can(e.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide") && (
         <div className="request-actions">
           <Button size="sm" variant="primary" onClick={() => setDecision("approve")}>
             Approve

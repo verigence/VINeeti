@@ -315,15 +315,37 @@ export function bookingRoutes(app: App) {
   });
 
   // ------------------------------------------------------------ exception requests
+  /**
+   * The requests, and who may answer each one.
+   *
+   * A request is answered by the people of the billing centre it was raised at, and by anyone who works
+   * across every centre. But somebody who decides these at one centre is shown the others' as well,
+   * read-only: a dealership runs on knowing what the other centre is asking for, and the decision stays
+   * where it belongs. What they see is the request itself -- the customer, the car, the reason and who
+   * asked -- and not the booking behind it, which is still their own centre's to open.
+   *
+   * Vehicle segments are not widened the same way: a GM for electric vehicles is shown electric
+   * requests from every centre, and not the commercial ones.
+   */
   app.get("/api/exceptions", async (c) => {
     const ctx = c.get("ctx");
     const user = c.get("user");
-    if (!can(user, ctx.settings, "exception.decide") && !can(user, ctx.settings, "release.decide") && !can(user, ctx.settings, "exception.request")) throw forbidden();
-    let rows = (await listExceptions(ctx, c.req.query("status") ?? null, outletScope(c))) as any[];
+    const decides = can(user, ctx.settings, "exception.decide") || can(user, ctx.settings, "release.decide");
+    if (!decides && !can(user, ctx.settings, "exception.request")) throw forbidden();
+    const scope = outletScope(c);
+    let rows = (await listExceptions(ctx, c.req.query("status") ?? null, decides ? null : scope)) as any[];
     if (!can(user, ctx.settings, "booking.view_all")) rows = rows.filter((r) => r.requested_by === user.id);
     const models = await modelScope(c);
     if (models) rows = rows.filter((r) => models.includes(r.model));
-    return c.json(rows.map((r) => ({ ...r, payload: safeJson(r.payload_json, {}), payload_json: undefined })));
+    return c.json(
+      rows.map((r) => ({
+        ...r,
+        payload: safeJson(r.payload_json, {}),
+        payload_json: undefined,
+        // Whether this person may answer this one, so the screen never offers a button that would be refused.
+        can_decide: decides && (!scope || scope.includes(r.outlet_id)) && can(user, ctx.settings, r.type === "RELEASE_ALLOCATION" ? "release.decide" : "exception.decide"),
+      })),
+    );
   });
 
   app.post("/api/exceptions", async (c) => {
