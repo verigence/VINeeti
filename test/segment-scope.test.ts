@@ -26,7 +26,7 @@ async function start(): Promise<{ w: World; d: Dealer }> {
 }
 /** Creates a person with a role and their outlets, signed in and past the first-password screen. */
 async function addUser(w: World, d: Dealer, name: string, mobile: string, role: string, outletIds: string[]): Promise<Session> {
-  const made = await w.api("POST", "/api/users", { name, mobile, role, password: PASSWORD, all_outlets: false, outlet_ids: outletIds }, d.users.admin.session);
+  const made = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, password: PASSWORD, all_outlets: false, outlet_ids: outletIds }, d.users.admin.session);
   if (made.status !== 201) throw new Error(`${name} not created: ${JSON.stringify(made.body)}`);
   w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE mobile = '91${mobile}'`);
   return w.login(d.slug, mobile, PASSWORD);
@@ -50,7 +50,7 @@ describe("giving a person segments", () => {
       { key: "PROSPER", label: "Commercial vehicles", short: "CV" },
     ]);
     // Created with segments too, and the audit trail says so.
-    const made = await w.api("POST", "/api/users", { name: "Eva EV", mobile: "9100000099", role: "SALES_LEAD", password: PASSWORD, all_outlets: true, outlet_ids: [], segments: ["BEV"] }, d.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Eva EV", mobile: "9100000099", email: "9100000099@test.example", role: "SALES_LEAD", password: PASSWORD, all_outlets: true, outlet_ids: [], segments: ["BEV"] }, d.users.admin.session);
     expect(made.status).toBe(201);
     expect(q(w, `SELECT segment FROM user_segments WHERE user_id = ?`, made.body.id)).toEqual([{ segment: "BEV" }]);
     expect(q(w, `SELECT detail_json FROM audit_log WHERE action = 'USER_CREATED' AND entity_id = ?`, made.body.id)[0].detail_json).toContain('"segments":["BEV"]');

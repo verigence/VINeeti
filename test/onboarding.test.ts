@@ -348,7 +348,7 @@ describe("signing in with the mobile number", () => {
     // A number at one dealership: no dealer code needed.
     expect((await w.api("POST", "/api/auth/login", { mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(200);
     // The same person is also a user at the second dealership.
-    expect((await w.api("POST", "/api/users", { name: "Ravi Exec", mobile: a.users.exec.mobile, role: "SALES_CONSULTANT", password: "Other@2026", all_outlets: true }, b.users.admin.session)).status).toBe(201);
+    expect((await w.api("POST", "/api/users", { name: "Ravi Exec", mobile: a.users.exec.mobile, email: "ravi.other@test.example", role: "SALES_CONSULTANT", password: "Other@2026", all_outlets: true }, b.users.admin.session)).status).toBe(201);
     expect((await w.api("POST", "/api/auth/login", { mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(401);
     expect((await w.api("POST", "/api/auth/login", { dealer: "sample-mahindra", mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(200);
     expect((await w.api("POST", "/api/auth/login", { dealer: "other-mahindra", mobile: a.users.exec.mobile, password: "Other@2026" })).status).toBe(200);

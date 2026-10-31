@@ -25,7 +25,7 @@ const integrity = (w: World) => ({
 const CLEAN = { allocatedWithoutCar: 0, carHeldByClosedBooking: 0, allocationsWithoutRecord: 0, allocationsWithoutMessage: 0 };
 /** A stock in-charge who works at Patia only. */
 async function patiaOnly(w: World, d: Dealer): Promise<Session> {
-  const id = (await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000060", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session)).body.id;
+  const id = (await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000060", email: "9000000060@test.example", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session)).body.id;
   w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE id = '${id}'`);
   return w.login(d.slug, "9000000060", PASSWORD);
 }

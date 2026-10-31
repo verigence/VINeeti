@@ -288,6 +288,7 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
   const [outletIds, setOutletIds] = useState<string[]>(user?.outlet_ids ?? []);
   const [segmentScope, setSegmentScope] = useState<"all" | "some">(user?.segments?.length ? "some" : "all");
   const [segments, setSegments] = useState<string[]>(user?.segments ?? []);
+  const [email, setEmail] = useState(user?.email ?? "");
   const [dmsCode, setDmsCode] = useState(user?.dms_code ?? "");
   const [active, setActive] = useState(user ? Boolean(user.is_active) : true);
   const [password, setPassword] = useState("");
@@ -308,6 +309,7 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
     if (!name.trim()) return setProblem("Enter the person's name.");
     if (!user && mobile.replace(/\D/g, "").length < 10) return setProblem("Enter a 10-digit mobile number.");
     if (!role) return setProblem("Choose a role.");
+    if (!user && !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email.trim())) return setProblem("Enter the person's email address: the temporary password is sent to it.");
     if (scope === "some" && !outletIds.length) return setProblem("Choose at least one outlet, or give access to all outlets.");
     if (segmentScope === "some" && !segments.length) return setProblem("Tick at least one segment, or let the person work with every segment.");
     if (!user) {
@@ -315,7 +317,7 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
       if (p) return setProblem(p);
     }
     setProblem(null);
-    const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null, segments: segmentScope === "all" ? [] : segments };
+    const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null, segments: segmentScope === "all" ? [] : segments, email: email.trim() || undefined };
     if (user && !self) body.is_active = active;
     const res = user
       ? await action.run(() => api.updateUser(user.id, body), { quiet: true, success: `${name.trim()} saved.` })
@@ -358,6 +360,9 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
         )}
         <Field label="Role" hint={self ? "You cannot change your own role." : info?.purpose}>
           <Select value={role} onChange={changeRole} options={roleOptions} placeholder="Choose a role" disabled={self} />
+        </Field>
+        <Field label="Email address" hint="Where the temporary password is sent. The person signs in with their mobile number, not this.">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" inputMode="email" />
         </Field>
         <Field label="DMS ID" optional hint="The person's ID in the DMS (SC Mile Id), so their bookings in the booking sheet reach them.">
           <input value={dmsCode} onChange={(e) => setDmsCode(e.target.value.toUpperCase())} autoComplete="off" maxLength={40} className="mono" />
@@ -432,10 +437,15 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
 function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => void }) {
   const action = useAction();
   const [password, setPassword] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   const reset = async () => {
     const res = await action.run(() => api.resetUserPassword(user.id), { quiet: true, success: `Password reset for ${user.name}.` });
-    if (res) setPassword(res.temporary_password);
+    // The password is shown when it could not be emailed; when it was, there is nothing to pass on by hand.
+    if (res) setPassword(res.emailed ? null : res.temporary_password);
+    if (res) setSentTo(res.emailed ? res.email ?? null : null);
+    if (res) setDone(true);
   };
 
   return (
@@ -443,7 +453,7 @@ function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => 
       title={`Reset password for ${user.name}`}
       onClose={() => !action.busy && onClose()}
       footer={
-        password ? (
+        done ? (
           <Button variant="primary" onClick={onClose} data-autofocus="">
             Done
           </Button>
@@ -460,12 +470,20 @@ function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => 
       }
     >
       <div className="form-stack">
-        {password ? (
+        {done ? (
           <>
-            <Notice tone="warn" title="Copy the temporary password now. ">
-              It will not be shown again.
-            </Notice>
-            <CopyField label="Temporary password" value={password} />
+            {sentTo ? (
+              <Notice tone="ok" title="Sent. ">
+                The temporary password has gone to {sentTo}. It is not shown here, so nobody else can read it over a shoulder.
+              </Notice>
+            ) : (
+              <>
+                <Notice tone="warn" title="Copy the temporary password now. ">
+                  It could not be emailed, so it is shown here this once and will not be shown again.
+                </Notice>
+                {password && <CopyField label="Temporary password" value={password} />}
+              </>
+            )}
             <p className="muted">{user.name} is signed out on every device and is asked to replace this password at the next sign-in.</p>
           </>
         ) : (

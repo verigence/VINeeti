@@ -3,7 +3,7 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { alertStmt, all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatrix, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
-import { employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp } from "../domain/onboarding";
+import { employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn } from "../domain/onboarding";
 import { previewRules } from "../domain/preview";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
@@ -313,6 +313,9 @@ export function authRoutes(app: App) {
     const mobile = normMobile(b.mobile);
     const dmsCode = await checkDmsCode(ctx, b.dms_code, null);
     if (!b.name?.trim() || !mobile) throw bad("Name and a valid mobile number are required");
+    // The temporary password goes to the person by email, so an account cannot be made without one.
+    const email = (b.email ?? "").trim();
+    if (!email || !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email)) throw bad("A valid email address is required: the temporary password is sent to it");
     if (!b.role || !ROLES.includes(b.role)) throw bad("Role is not valid");
     const password = checkPassword(b.password);
     if (await first(ctx.db, `SELECT id FROM users WHERE tenant_id = ? AND mobile = ?`, ctx.tenantId, mobile)) throw conflict("A user with this mobile number already exists");
@@ -324,7 +327,10 @@ export function authRoutes(app: App) {
     const segments = b.segments?.length ? await setSegments(ctx, id, b.segments) : [];
     if (dmsCode) await linkBookingsTo(ctx, id, dmsCode);
     await audit(ctx, "USER_CREATED", "user", id, { name: b.name.trim(), role: b.role, all_outlets: allOutlets, outlet_ids: b.outlet_ids ?? [], segments });
-    return c.json({ id }, 201);
+    // Told by email; if that cannot be done the password is still shown once, as it was before.
+    const sent = await sendSignIn(ctx, "WELCOME", email, { name: b.name.trim(), roleLabel: ROLE_LABELS[b.role], mobile, password });
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ id, email, ...sent }, 201);
   });
 
   app.patch("/api/users/:id", async (c) => {

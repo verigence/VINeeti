@@ -112,7 +112,7 @@ describe("one dealership cannot reach another", () => {
     expect(noCode.body.error.code).toBe("INVALID_LOGIN");
     expect(noCode.headers.get("Set-Cookie")).toBeNull();
     // A number registered at one dealership only signs in to that dealership, and to no other.
-    const made = await w.api("POST", "/api/users", { name: "Only At Sai", mobile: "9000000090", role: "AUDITOR", password: PASSWORD }, b.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Only At Sai", mobile: "9000000090", email: "9000000090@test.example", role: "AUDITOR", password: PASSWORD }, b.users.admin.session);
     expect(made.status).toBe(201);
     const only = await w.api("POST", "/api/auth/login", { mobile: "9000000090", password: PASSWORD });
     expect(only.status).toBe(200);
@@ -174,7 +174,7 @@ describe("outlets inside a dealership", () => {
   });
 
   it("a Stock In-charge cannot change stock of an outlet they are not assigned to", async () => {
-    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
+    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", email: "9000000050@test.example", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
     expect(created.status).toBe(201);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE mobile = '919000000050'`);
     const s = await w.login("northstar-hyundai", "9000000050", PASSWORD);
