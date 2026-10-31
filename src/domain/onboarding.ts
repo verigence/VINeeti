@@ -6,7 +6,7 @@
 
 import type { Ctx, Env, Role, TenantRow } from "../env";
 import { hashPassword, hex, timingSafeEqual } from "../lib/crypto";
-import { all, auditStmt, chunk, first, run, stmt } from "../lib/db";
+import { alertStmt, all, auditStmt, chunk, first, run, stmt } from "../lib/db";
 import { MailError, mailer } from "../lib/mailer";
 import { resetMail, welcomeMail } from "./mail-templates";
 import { ROLE_LABELS, TENANT_WIDE_ROLES } from "../lib/permissions";
@@ -42,11 +42,59 @@ export function roleFromText(raw: unknown): Role | null {
  * mail server is down, so a failure comes back as a reason and the temporary password is still shown
  * on screen, which is what happened before there was any email at all.
  */
+/**
+ * Whether this deployment can send at all. Answered from configuration alone, so a caller can tell at
+ * once whether to expect an email or to fall back to showing the password on screen.
+ */
+export function emailPossible(env: Env): boolean {
+  return mailer(env) !== null;
+}
+
+/**
+ * Schedules the message to go out after the answer has already reached the browser. Talking to a mail
+ * server takes seconds — connect, STARTTLS, sign in, then a message carrying the two logos — and
+ * nobody should watch a spinner for that: the account exists the moment it is written, and the telling
+ * of the person can follow.
+ */
+export function sendSignInAfter(ctx: Ctx, after: (p: Promise<unknown>) => void, kind: "WELCOME" | "RESET", to: string | null | undefined, w: Told, userId: string): void {
+  after(sendSignInOrAlert(ctx, kind, to, w, userId));
+}
+
+/**
+ * One message, with a failure turned into something somebody will see. Sent after the answer, there is
+ * no screen left to show an error on, and an account whose owner was never told how to get in is worse
+ * than a visible failure: the administrator who made it gets an alert and can send it again.
+ */
+export async function sendSignInOrAlert(ctx: Ctx, kind: "WELCOME" | "RESET", to: string | null | undefined, w: Told, userId: string): Promise<void> {
+  try {
+    const sent = await sendSignIn(ctx, kind, to, w);
+    if (sent.emailed) return;
+    const what = kind === "WELCOME" ? "welcome email" : "new password";
+    await ctx.db.batch([
+      alertStmt(ctx, {
+        targetUser: ctx.actor.startsWith("usr") ? ctx.actor : null,
+        targetRole: ctx.actor.startsWith("usr") ? null : "ADMIN",
+        kind: "MAIL_FAILED",
+        title: `The ${what} for ${w.name} could not be sent`,
+        body: `${w.name} (${to ?? "no address"}) has an account but has not been told how to sign in. Use Reset password on their row to try again, or give them the password yourself.`,
+        entityType: "user",
+        entityId: userId,
+      }),
+      auditStmt(ctx, "SIGNIN_EMAIL_FAILED", "user", userId, { kind, email: to ?? null, error: sent.email_error }),
+    ]);
+  } catch {
+    /* Nothing further can be done from here, and the request it followed is long since answered. */
+  }
+}
+
+/** What a person is told so they can get in for the first time. */
+export type Told = { name: string; roleLabel: string; mobile: string; password: string };
+
 export async function sendSignIn(
   ctx: Ctx,
   kind: "WELCOME" | "RESET",
   to: string | null | undefined,
-  w: { name: string; roleLabel: string; mobile: string; password: string },
+  w: Told,
 ): Promise<{ emailed: boolean; email_error?: string }> {
   const address = (to ?? "").trim();
   if (!address) return { emailed: false, email_error: "NO_EMAIL" };
@@ -122,7 +170,7 @@ export async function employeeTemplate(ctx: Ctx): Promise<Uint8Array> {
 
 export interface EmployeeImportResult {
   row_count: number;
-  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email: string | null; emailed?: boolean; email_error?: string }[];
+  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email: string | null; emailed?: boolean; emailing?: boolean; email_error?: string }[];
   updated: { name: string; mobile: string; role_label: string; changes: string[] }[];
   unchanged: number;
   errors: { row: number; key: string; message: string }[];
@@ -136,7 +184,7 @@ export interface EmployeeImportResult {
  * in the system is updated (name, role, outlets, DMS ID), never given a new password. Nobody is removed
  * or switched off by a sheet.
  */
-export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: string | undefined, actorId: string): Promise<EmployeeImportResult> {
+export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: string | undefined, actorId: string, after?: (p: Promise<unknown>) => void): Promise<EmployeeImportResult> {
   const t = tableWith(await readExport(bytes, filename), ["Name", "Mobile", "Role"]);
   if (!t) throw bad("This is not the employee sheet: it needs the headings Name, Mobile and Role (and optionally Outlets, DMS ID, Email)");
   if (t.records.length > 2000) throw bad("The sheet has more than 2,000 people");
@@ -148,7 +196,7 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
   const dmsOwner = new Map(users.filter((u) => u.dms_code).map((u) => [u.dms_code!, u.id]));
   const result: EmployeeImportResult = { row_count: t.records.length, created: [], updated: [], unchanged: 0, errors: [], otp_available: await otpAvailable(ctx.env, ctx.db, ctx.tenantId) };
   const stmts: D1PreparedStatement[] = [];
-  const welcomes: { email: string | null; name: string; roleLabel: string; mobile: string; password: string }[] = [];
+  const welcomes: (Told & { id: string; email: string | null })[] = [];
   const seen = new Set<string>();
   const at = iso(ctx.now);
   for (const r of t.records) {
@@ -196,7 +244,7 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
       if (dms) dmsOwner.set(dms, id);
       result.created.push({ name, mobile, role, role_label: ROLE_LABELS[role], outlets: outletText, temporary_password: password, email });
       // Sent after the sheet is written, so one unreachable address never costs the rest their accounts.
-      welcomes.push({ email, name, roleLabel: ROLE_LABELS[role], mobile, password });
+      welcomes.push({ id, email, name, roleLabel: ROLE_LABELS[role], mobile, password });
       continue;
     }
     const had = links.filter((l) => l.user_id === cur.id).map((l) => outletCode.get(l.outlet_id) ?? "").sort().join(",");
@@ -219,16 +267,30 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
   for (const part of chunk(stmts, 40)) await ctx.db.batch(part);
   // Everybody is created first, then told. A mail account that is down, or a row with no address,
   // leaves that person's temporary password on the screen and the rest of the sheet untouched.
-  for (const w of welcomes) {
-    const sent = await sendSignIn(ctx, "WELCOME", w.email, w);
-    const row = result.created.find((c) => c.mobile === w.mobile);
-    if (row) Object.assign(row, sent);
+  // A sheet of thirty joiners means thirty conversations with a mail server, which inside the request
+  // would outlast the request. They go out one after another once the answer has been given.
+  if (after && emailPossible(ctx.env)) {
+    for (const row of result.created) {
+      row.emailing = true;
+      row.temporary_password = ""; // each person is written to; nobody else needs to see theirs
+    }
+    after(
+      (async () => {
+        for (const w of welcomes) await sendSignInOrAlert(ctx, "WELCOME", w.email, w, w.id);
+      })(),
+    );
+  } else {
+    for (const w of welcomes) {
+      const sent = await sendSignIn(ctx, "WELCOME", w.email, w);
+      const row = result.created.find((c) => c.mobile === w.mobile);
+      if (row) Object.assign(row, sent);
+    }
   }
   return result;
 }
 
 /** The administrator gives a person a new temporary password. It is shown once; the person must replace it at sign-in, and is signed out everywhere. */
-export async function resetPassword(ctx: Ctx, userId: string): Promise<{ temporary_password: string; emailed: boolean; email_error?: string; email?: string | null }> {
+export async function resetPassword(ctx: Ctx, userId: string, after?: (p: Promise<unknown>) => void): Promise<{ temporary_password: string; emailed?: boolean; emailing?: boolean; email_error?: string; email?: string | null }> {
   const u = await first<{ id: string; name: string; email: string | null; mobile: string; role: Role }>(ctx.db, `SELECT id, name, email, mobile, role FROM users WHERE id = ? AND tenant_id = ?`, userId, ctx.tenantId);
   if (!u) throw new HttpError(404, "User not found", "NOT_FOUND");
   const password = temporaryPassword();
@@ -237,7 +299,13 @@ export async function resetPassword(ctx: Ctx, userId: string): Promise<{ tempora
     stmt(ctx.db, `UPDATE password_otps SET used_at = ? WHERE tenant_id = ? AND user_id = ? AND used_at IS NULL`, iso(ctx.now), ctx.tenantId, u.id),
     auditStmt(ctx, "PASSWORD_RESET_BY_ADMIN", "user", u.id, {}),
   ]);
-  const sent = await sendSignIn(ctx, "RESET", u.email, { name: u.name, roleLabel: ROLE_LABELS[u.role], mobile: u.mobile, password });
+  const w = { name: u.name, roleLabel: ROLE_LABELS[u.role], mobile: u.mobile, password };
+  // The password is on the screen either way, so there is nothing to be gained by waiting for the mail.
+  if (after && emailPossible(ctx.env)) {
+    sendSignInAfter(ctx, after, "RESET", u.email, w, u.id);
+    return { temporary_password: password, email: u.email, emailing: true };
+  }
+  const sent = await sendSignIn(ctx, "RESET", u.email, w);
   return { temporary_password: password, email: u.email, ...sent };
 }
 

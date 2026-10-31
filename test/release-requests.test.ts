@@ -316,12 +316,12 @@ describe("what the approver is shown", () => {
   it("is what a Vice President is for", async () => {
     const w = makeWorld();
     const d = await makeDealer(w);
-    const made = await w.api("POST", "/api/users", { name: "Varsha Prasad", mobile: "9000009999", email: "9000009999@test.example", role: "CEO_VP", password: PASSWORD, all_outlets: true, outlet_ids: [] }, d.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Varsha Prasad", mobile: "9000009999", email: "9000009999@test.example", role: "CEO_VP", all_outlets: true, outlet_ids: [] }, d.users.admin.session);
     expect(made.status).toBe(201);
     // Every new user has to set a password before doing anything; the harness does the same for the
     // people it creates, and the point here is the role, not the first sign-in.
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE tenant_id = '${d.tenantId}'`);
-    const vp = await w.login(d.slug, "9000009999", PASSWORD);
+    const vp = await w.login(d.slug, "9000009999", made.body.temporary_password);
 
     const { b } = await held(w, d);
     const ex = await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, "Board member's family");

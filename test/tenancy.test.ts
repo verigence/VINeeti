@@ -112,12 +112,12 @@ describe("one dealership cannot reach another", () => {
     expect(noCode.body.error.code).toBe("INVALID_LOGIN");
     expect(noCode.headers.get("Set-Cookie")).toBeNull();
     // A number registered at one dealership only signs in to that dealership, and to no other.
-    const made = await w.api("POST", "/api/users", { name: "Only At Sai", mobile: "9000000090", email: "9000000090@test.example", role: "AUDITOR", password: PASSWORD }, b.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Only At Sai", mobile: "9000000090", email: "9000000090@test.example", role: "AUDITOR" }, b.users.admin.session);
     expect(made.status).toBe(201);
-    const only = await w.api("POST", "/api/auth/login", { mobile: "9000000090", password: PASSWORD });
+    const only = await w.api("POST", "/api/auth/login", { mobile: "9000000090", password: made.body.temporary_password });
     expect(only.status).toBe(200);
     expect((await w.api("GET", "/api/auth/me", undefined, { cookie: (only.headers.get("Set-Cookie") ?? "").split(";")[0] })).body.tenant.slug).toBe("sai-tata");
-    expect((await w.api("POST", "/api/auth/login", { dealer: "northstar-hyundai", mobile: "9000000090", password: PASSWORD })).status).toBe(401);
+    expect((await w.api("POST", "/api/auth/login", { dealer: "northstar-hyundai", mobile: "9000000090", password: made.body.temporary_password })).status).toBe(401);
   });
 });
 
@@ -174,10 +174,10 @@ describe("outlets inside a dealership", () => {
   });
 
   it("a Stock In-charge cannot change stock of an outlet they are not assigned to", async () => {
-    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", email: "9000000050@test.example", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
+    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", email: "9000000050@test.example", role: "EDP_MANAGER", all_outlets: false, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
     expect(created.status).toBe(201);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE mobile = '919000000050'`);
-    const s = await w.login("northstar-hyundai", "9000000050", PASSWORD);
+    const s = await w.login("northstar-hyundai", "9000000050", created.body.temporary_password);
     const car = await addCar(w, a, "MALC841CLRM200020", VENUE, "CUTTACK", "IN_TRANSIT");
     expect((await w.api("POST", `/api/vehicles/${car.id}/receive`, undefined, s)).status).toBe(403);
     expect((await w.api("POST", "/api/vehicles", { vin: "MALC841CLRM200021", ...VENUE, outlet_id: a.outlets.CUTTACK, status: "RECEIVED" }, s)).status).toBe(403);

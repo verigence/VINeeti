@@ -186,6 +186,7 @@ function UsersTab() {
   const roles = useLoad(() => api.roles(), "admin:roles");
   const [dialog, setDialog] = useState<{ user?: UserRow } | null>(null);
   const [resetting, setResetting] = useState<UserRow | null>(null);
+  const [removing, setRemoving] = useState<UserRow | null>(null);
 
   const columns: Column<UserRow>[] = [
     {
@@ -218,9 +219,14 @@ function UsersTab() {
             Edit
           </Button>
           {u.id !== me.user.id && (
-            <Button size="sm" onClick={() => setResetting(u)}>
-              Reset password
-            </Button>
+            <>
+              <Button size="sm" onClick={() => setResetting(u)}>
+                Reset password
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => setRemoving(u)}>
+                Remove
+              </Button>
+            </>
           )}
         </span>
       ),
@@ -270,11 +276,20 @@ function UsersTab() {
           }}
         />
       )}
+      {removing && (
+        <RemoveUserDialog
+          user={removing}
+          onClose={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
+            void users.reload();
+          }}
+        />
+      )}
     </>
   );
 }
 
-const passwordProblem = (pw: string) => (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw) ? "The password needs at least 8 characters, with a letter and a number." : null);
 
 function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow; roles: RoleInfo[]; outlets: Outlet[]; onClose: () => void; onDone: () => void }) {
   const { me, refresh } = useSession();
@@ -291,8 +306,9 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
   const [email, setEmail] = useState(user?.email ?? "");
   const [dmsCode, setDmsCode] = useState(user?.dms_code ?? "");
   const [active, setActive] = useState(user ? Boolean(user.is_active) : true);
-  const [password, setPassword] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
+  // Only ever set on a deployment with no mail account, where the password has to be read out by hand.
+  const [made, setMade] = useState<{ name: string; password: string } | null>(null);
   const self = user?.id === me.user.id;
   const info = roles.find((r) => r.role === role);
 
@@ -312,21 +328,40 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
     if (!user && !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email.trim())) return setProblem("Enter the person's email address: the temporary password is sent to it.");
     if (scope === "some" && !outletIds.length) return setProblem("Choose at least one outlet, or give access to all outlets.");
     if (segmentScope === "some" && !segments.length) return setProblem("Tick at least one segment, or let the person work with every segment.");
-    if (!user) {
-      const p = passwordProblem(password);
-      if (p) return setProblem(p);
-    }
     setProblem(null);
     const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null, segments: segmentScope === "all" ? [] : segments, email: email.trim() || undefined };
     if (user && !self) body.is_active = active;
     const res = user
       ? await action.run(() => api.updateUser(user.id, body), { quiet: true, success: `${name.trim()} saved.` })
-      : await action.run(() => api.createUser({ ...body, dms_code: dmsCode.trim() || undefined, mobile: mobile.trim(), password }), { quiet: true, success: `${name.trim()} added. Give them the temporary password; they are asked to replace it when they first sign in.` });
+      : await action.run(() => api.createUser({ ...body, dms_code: dmsCode.trim() || undefined, mobile: mobile.trim() }), { quiet: true, success: `${name.trim()} added. The sign-in details are on their way to ${email.trim()}.` });
+    // Without a mail account there is nothing in flight and the password has to be passed on by hand.
+    if (res && !user && "temporary_password" in res && res.temporary_password) setMade({ name: name.trim(), password: res.temporary_password });
     if (res) {
       if (self) await refresh();
-      onDone();
+      if (!(res && !user && "temporary_password" in res && res.temporary_password)) onDone();
     }
   };
+
+  if (made)
+    return (
+      <Dialog
+        title={`${made.name} added`}
+        onClose={onDone}
+        footer={
+          <Button variant="primary" onClick={onDone} data-autofocus="">
+            Done
+          </Button>
+        }
+      >
+        <div className="form-stack">
+          <Notice tone="warn" title="Copy the temporary password now. ">
+            This deployment has no mail account set up, so nothing could be sent. The password is shown here this once and will not be shown again.
+          </Notice>
+          <CopyField label="Temporary password" value={made.password} />
+          <p className="muted">{made.name} is asked to replace it when they first sign in.</p>
+        </div>
+      </Dialog>
+    );
 
   return (
     <Dialog
@@ -361,7 +396,7 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
         <Field label="Role" hint={self ? "You cannot change your own role." : info?.purpose}>
           <Select value={role} onChange={changeRole} options={roleOptions} placeholder="Choose a role" disabled={self} />
         </Field>
-        <Field label="Email address" hint="Where the temporary password is sent. The person signs in with their mobile number, not this.">
+        <Field label="Email address" hint="Where the sign-in details are sent. The person signs in with their mobile number, not this.">
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" inputMode="email" />
         </Field>
         <Field label="DMS ID" optional hint="The person's ID in the DMS (SC Mile Id), so their bookings in the booking sheet reach them.">
@@ -423,12 +458,49 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
             </Check>
           </div>
         ) : (
-          <Field label="Temporary password" hint="At least 8 characters with a letter and a number. They must replace it when they first sign in." wide>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} type="text" autoComplete="off" autoCapitalize="none" autoCorrect="off" className="mono" spellCheck={false} />
-          </Field>
+          <div className="field-wide">
+            <p className="muted">The password is made by the system and emailed to {email.trim() || "the address above"}. Nobody here chooses it or needs to see it, and the person is asked to replace it when they first sign in.</p>
+          </div>
         )}
       </div>
       {(problem || action.error) && <Notice tone="error">{problem ?? plainText(action.error)}</Notice>}
+    </Dialog>
+  );
+}
+
+/**
+ * Removes an account added by mistake. Only one that has done nothing: as soon as there is a booking,
+ * a request or a file against the name, the dealership's own record needs it, and the server refuses
+ * and says so. That refusal is the normal answer here, not an error to be worked around.
+ */
+function RemoveUserDialog({ user, onClose, onDone }: { user: UserRow; onClose: () => void; onDone: () => void }) {
+  const action = useAction();
+  const remove = async () => {
+    const res = await action.run(() => api.deleteUser(user.id), { quiet: true, success: `${user.name} removed.` });
+    if (res) onDone();
+  };
+  return (
+    <Dialog
+      title={`Remove ${user.name}?`}
+      onClose={() => !action.busy && onClose()}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={action.busy}>
+            Cancel
+          </Button>
+          <Button variant="danger" busy={action.busy} onClick={() => void remove()} data-autofocus="">
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="form-stack">
+        <p className="muted">
+          The account and its outlets and segments go for good. This can only be done while {user.name} has no history: if they have raised or approved anything, or uploaded a file, the account is kept and switched off instead so the record still reads
+          properly — untick Active on their row to do that.
+        </p>
+        {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
+      </div>
     </Dialog>
   );
 }
@@ -442,9 +514,10 @@ function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => 
 
   const reset = async () => {
     const res = await action.run(() => api.resetUserPassword(user.id), { quiet: true, success: `Password reset for ${user.name}.` });
-    // The password is shown when it could not be emailed; when it was, there is nothing to pass on by hand.
-    if (res) setPassword(res.emailed ? null : res.temporary_password);
-    if (res) setSentTo(res.emailed ? res.email ?? null : null);
+    // Shown either way now: the message goes out after the answer, so whether it arrived is not yet
+    // known here, and a password nobody can read is worse than one read off a screen.
+    if (res) setPassword(res.temporary_password);
+    if (res) setSentTo(res.emailing || res.emailed ? res.email ?? null : null);
     if (res) setDone(true);
   };
 
@@ -473,17 +546,15 @@ function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => 
         {done ? (
           <>
             {sentTo ? (
-              <Notice tone="ok" title="Sent. ">
-                The temporary password has gone to {sentTo}. It is not shown here, so nobody else can read it over a shoulder.
+              <Notice tone="ok" title="On its way. ">
+                The new password is being emailed to {sentTo}. If it cannot be sent you will see an alert; the password below is the same one.
               </Notice>
             ) : (
-              <>
-                <Notice tone="warn" title="Copy the temporary password now. ">
-                  It could not be emailed, so it is shown here this once and will not be shown again.
-                </Notice>
-                {password && <CopyField label="Temporary password" value={password} />}
-              </>
+              <Notice tone="warn" title="Copy the temporary password now. ">
+                It could not be emailed, so it is shown here this once and will not be shown again.
+              </Notice>
             )}
+            {password && <CopyField label="Temporary password" value={password} />}
             <p className="muted">{user.name} is signed out on every device and is asked to replace this password at the next sign-in.</p>
           </>
         ) : (
@@ -568,15 +639,23 @@ function EmployeeSheetCard({ onLoaded }: { onLoaded: () => void }) {
           </p>
           {r.created.length > 0 && (
             <>
-              <Notice tone="warn" title="Temporary passwords are shown this once. ">
-                Download the list or copy them now. Each person is asked to replace theirs at first sign-in.
-                {r.otp_available ? " People can instead set their own password from the sign-in page with a WhatsApp code." : ""}
-              </Notice>
-              <div className="form-actions">
-                <Button icon="download" onClick={() => downloadCreated(r.created)}>
-                  Download this list (CSV)
-                </Button>
-              </div>
+              {r.created.some((c) => c.temporary_password) ? (
+                <>
+                  <Notice tone="warn" title="Temporary passwords are shown this once. ">
+                    This deployment has no mail account set up, so nothing could be sent. Download the list or copy them now; each person is asked to replace theirs at first sign-in.
+                    {r.otp_available ? " People can instead set their own password from the sign-in page with a WhatsApp code." : ""}
+                  </Notice>
+                  <div className="form-actions">
+                    <Button icon="download" onClick={() => downloadCreated(r.created)}>
+                      Download this list (CSV)
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <Notice tone="ok" title="Everyone is being written to. ">
+                  Each person gets their own temporary password by email, so none is shown here. If one cannot be sent you will see an alert, and Reset password on their row sends it again.
+                </Notice>
+              )}
               <h4 className="result-title">Created ({r.created.length})</h4>
               <div className="boxed-table">
                 <DataTable
@@ -585,7 +664,7 @@ function EmployeeSheetCard({ onLoaded }: { onLoaded: () => void }) {
                     { header: "Mobile", cell: (c) => fmtMobile(c.mobile) },
                     { header: "Role", cell: (c) => c.role_label },
                     { header: "Outlets", cell: (c) => c.outlets },
-                    { header: "Temporary password", cell: (c) => <span className="mono">{c.temporary_password}</span> },
+                    { header: "Temporary password", hideIfEmpty: (c) => !c.temporary_password, cell: (c) => (c.temporary_password ? <span className="mono">{c.temporary_password}</span> : <span className="muted">Emailed</span>) },
                   ]}
                   rows={r.created}
                   rowKey={(c) => c.mobile}
