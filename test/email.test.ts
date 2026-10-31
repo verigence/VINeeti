@@ -41,16 +41,32 @@ describe("a deployment with no mail account", () => {
 describe("what the person is told", () => {
   const w = { name: "Arun AGM", dealership: "Aditya Motors", roleLabel: "AGM Sales", mobile: "919876500001", password: "kiv7mq2pra", signInUrl: "https://vineeti.example" };
 
-  it("carries the password, the dealership, the number they sign in with and where", () => {
+  it("carries the password, the dealership, the number they sign in with and where, in both parts", () => {
     const m = welcomeMail(w);
     expect(m.subject).toContain("Aditya Motors");
-    for (const part of [w.name, w.dealership, w.roleLabel, w.password, w.mobile, w.signInUrl]) expect(m.body).toContain(part);
+    // The number is written the way a person reads it, not the way it is stored.
+    for (const part of [w.name, w.dealership, w.roleLabel, w.password, "91 98765 00001", w.signInUrl]) {
+      expect(m.body, `text: ${part}`).toContain(part);
+      expect(m.html, `html: ${part}`).toContain(part);
+    }
     expect(m.body).toContain("replace this password the first time you sign in");
+    expect(m.html).toContain("<!doctype html>");
     // A reset says what happened and that sessions are gone, and never calls itself a welcome.
     const r = resetMail(w);
-    expect(r.body).toContain("has been reset by an administrator");
+    expect(r.body).toContain("has reset your password");
     expect(r.body).toContain("signed out");
     expect(r.body).not.toContain("An account has been created");
+  });
+
+  it("puts the logo inside the message when there is one, and manages without when there is not", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const withMark = welcomeMail({ ...w, logo: bytes });
+    expect(withMark.images).toEqual({ "vineeti-logo": bytes });
+    expect(withMark.html).toContain('src="cid:vineeti-logo"');
+    const without = welcomeMail(w);
+    expect(without.images).toBeUndefined();
+    expect(without.html).not.toContain("cid:");
+    expect(without.html).toContain("Verigence VINeeti");
   });
 
   it("escapes what it puts into the HTML, so a name can never carry markup into the message", () => {

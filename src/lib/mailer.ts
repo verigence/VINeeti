@@ -29,6 +29,8 @@ export interface Message {
   /** The plain-text body. An HTML alternative is made from it when none is given. */
   body: string;
   html?: string;
+  /** Pictures that ride inside the message, by the id the HTML refers to as `cid:`. */
+  images?: Record<string, Uint8Array>;
 }
 
 export interface Mailer {
@@ -52,27 +54,58 @@ export function bodyToHtml(body: string): string {
 /** A line of the message body that begins with a dot would end it, so it is doubled (RFC 5321). */
 const dotStuff = (s: string) => s.replace(/\r\n/g, "\n").split("\n").map((l) => (l.startsWith(".") ? `.${l}` : l)).join(CRLF);
 
+/** A picture as base64, wrapped at 76 characters the way a mail body wants it. */
+function base64Lines(bytes: Uint8Array): string {
+  let raw = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) raw += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return (btoa(raw).match(/.{1,76}/g) ?? []).join(CRLF);
+}
+
 function mime(from: string, m: Message, now: Date): string {
-  const boundary = `b${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const tag = `${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const outer = `alt${tag}`;
+  const related = `rel${tag}`;
   // A subject may carry anything; encoded-word keeps a non-ASCII one readable rather than mangled.
   const subject = /^[\x20-\x7E]*$/.test(m.subject) ? m.subject : `=?UTF-8?B?${b64(m.subject)}?=`;
+  const images = Object.entries(m.images ?? {});
+  const html = dotStuff(m.html ?? bodyToHtml(m.body));
+  // The HTML and the pictures it names travel together inside the alternative, so a reader that
+  // shows the plain text never downloads them and one that shows the HTML never has to fetch them.
+  const htmlPart = images.length
+    ? [
+        `Content-Type: multipart/related; boundary="${related}"`,
+        "",
+        `--${related}`,
+        `Content-Type: text/html; charset=UTF-8`,
+        "",
+        html,
+        ...images.flatMap(([cid, bytes]) => [
+          `--${related}`,
+          `Content-Type: image/png`,
+          `Content-Transfer-Encoding: base64`,
+          `Content-ID: <${cid}>`,
+          `Content-Disposition: inline; filename="${cid}.png"`,
+          "",
+          base64Lines(bytes),
+        ]),
+        `--${related}--`,
+      ]
+    : [`Content-Type: text/html; charset=UTF-8`, "", html];
   return [
     `From: ${from}`,
     `To: ${m.to}`,
     `Subject: ${subject}`,
     `Date: ${now.toUTCString()}`,
     `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/alternative; boundary="${outer}"`,
     "",
-    `--${boundary}`,
+    `--${outer}`,
     `Content-Type: text/plain; charset=UTF-8`,
     "",
     dotStuff(m.body),
-    `--${boundary}`,
-    `Content-Type: text/html; charset=UTF-8`,
-    "",
-    dotStuff(m.html ?? bodyToHtml(m.body)),
-    `--${boundary}--`,
+    `--${outer}`,
+    ...htmlPart,
+    `--${outer}--`,
     "",
   ].join(CRLF);
 }
