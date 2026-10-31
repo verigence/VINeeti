@@ -48,9 +48,11 @@ describe("Finance verifies that a payment has been received", () => {
     // It is in Finance's queue, first, as "to verify".
     const queue = (await w.api("GET", "/api/payments", undefined, u.finance.session)).body;
     expect(queue[0]).toMatchObject({ booking_no: "OTF27A000001", state: "TO_VERIFY", payment_ref: "UTR N123456789", overdue: false });
-    expect(q(w, `SELECT target_role, kind FROM alerts WHERE kind = 'PAYMENT_TO_VERIFY'`)).toEqual([{ target_role: "ACCOUNTS", kind: "PAYMENT_TO_VERIFY" }]);
+    expect(q(w, `SELECT target_role, kind FROM alerts WHERE kind = 'PAYMENT_TO_VERIFY'`)).toEqual([{ target_role: "FINANCE", kind: "PAYMENT_TO_VERIFY" }]);
     // Nobody in sales, and nobody in management, can mark it received.
-    for (const who of ["exec", "lead", "head", "dp", "crm", "stock", "auditor"]) {
+    // The Dealer Principal is the one exception: the owner can do anything. The CEO / VP cannot —
+    // payments are read-only there, which is what keeps the figures worth reading.
+    for (const who of ["exec", "lead", "agm", "gm", "head", "crm", "stock", "auditor"]) {
       expect((await w.api("POST", `/api/bookings/${first.id}/payment-received`, {}, u[who].session)).status, who).toBe(403);
       expect((await w.api("POST", `/api/bookings/${first.id}/payment-not-received`, { note: "x" }, u[who].session)).status, who).toBe(403);
     }
@@ -90,7 +92,7 @@ describe("Finance verifies that a payment has been received", () => {
     // Next day, more than 24 hours later: Finance has not verified it.
     const next = await day(w, d, "2026-10-06 11:00");
     expect(next.alarms).toBe(1);
-    expect(alarms(w, "PAYMENT_VERIFY_OVERDUE").map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "PAYMENT_VERIFY_OVERDUE").map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(alarms(w, "PAYMENT_VERIFY_OVERDUE")[0].body).toContain("OTF27A000001");
     expect(alarmMessages(w).filter((m) => m.rendered_text.includes("not verified by Finance")).map((m) => m.to_name)).toEqual(["Bikram Head", "Dinesh Principal"]);
     expect((await w.api("GET", "/api/payments", undefined, d.users.finance.session)).body[0]).toMatchObject({ booking_no: "OTF27A000001", overdue: true });
@@ -119,7 +121,7 @@ describe("Finance verifies that a payment has been received", () => {
     expect(booking(w, "OTF27A000001")).toMatchObject({ vin: null });
     expect(booking(w, "OTF27A000002")).toMatchObject({ status: "ALLOCATED", vin: VIN });
     // Taking a car back is an alarm for management.
-    expect(alarms(w, "REALLOCATED").map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "REALLOCATED").map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
   });
 });
 
@@ -137,11 +139,11 @@ describe("alarms for the Business Head / CEO and the Dealer Principal", () => {
     expect((await w.api("GET", "/api/auth/me", undefined, d.users.head.session)).body.receives_alarms).toBe(true);
     expect((await w.api("GET", "/api/auth/me", undefined, d.users.finance.session)).body.receives_alarms).toBe(false);
     // The dealership adds Finance to the alarm recipients. Finance cannot make that change; the Business Head can.
-    expect((await w.api("PUT", "/api/settings", { alarm_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL", "ACCOUNTS"] }, d.users.finance.session)).status).toBe(403);
-    expect((await w.api("PUT", "/api/settings", { alarm_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL", "ACCOUNTS"] }, d.users.head.session)).status).toBe(200);
+    expect((await w.api("PUT", "/api/settings", { alarm_roles: ["CEO_VP", "DEALER_PRINCIPAL", "FINANCE"] }, d.users.finance.session)).status).toBe(403);
+    expect((await w.api("PUT", "/api/settings", { alarm_roles: ["CEO_VP", "DEALER_PRINCIPAL", "FINANCE"] }, d.users.head.session)).status).toBe(200);
     const rel = await day(w, d, "2026-10-11 10:00");
     expect(rel.released).toBe(1);
-    expect(alarms(w, "REALLOCATED").map((a) => a.target_role)).toEqual(["ACCOUNTS", "BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "REALLOCATED").map((a) => a.target_role).sort()).toEqual(["CEO_VP", "DEALER_PRINCIPAL", "FINANCE"]);
     // Finance now receives alarms, so it sees both of the day's: the car changing hands, and the
     // standing complaint that this dealership's allocations are never keyed into its DMS -- which is
     // true of the fixture and would be true of a dealership that ignored the update sheet.
@@ -156,7 +158,7 @@ describe("alarms for the Business Head / CEO and the Dealer Principal", () => {
     expect(report).toMatchObject({ released: 0, held: 1, alarms: 1 });
     expect(booking(w, "OTF27A000001")).toMatchObject({ status: "ALLOCATED", vin: VIN });
     const stale = alarms(w, "STALE_DATA");
-    expect(stale.map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(stale.map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(stale[0].body).toBe("The stock report is 7 day(s) old (as on 2026-10-05); The booking sheet is 7 day(s) old (as on 2026-10-05). The files are expected every 3 day(s). Until they are loaded, stock and queue positions may be out of date and no car is re-allocated automatically.");
     w.at("2026-10-12 16:00");
     expect((await w.tick())[0].alarms).toBe(0);
@@ -173,11 +175,11 @@ describe("alarms for the Business Head / CEO and the Dealer Principal", () => {
     w.at("2026-10-06 18:00");
     const res = await loadStock(w, d.users.stock.session, [{ vin: "MA1SCN00000000001", car: "SCORPIO_N" }]);
     expect(res.body.summary.left_stock).toMatchObject({ on_hold: 1 });
-    expect(alarms(w, "CAR_LEFT_STOCK").map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "CAR_LEFT_STOCK").map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     const run = await w.api("POST", "/api/recon/run", undefined, d.users.head.session);
     expect(run.status).toBe(201);
     const high = alarms(w, "RECON_HIGH");
-    expect(high.map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(high.map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(high[0].body).toBe("Reconciliation for 2026-10-06: 1 high-severity finding(s). Reserved car no longer in the stock report: 1. Each one needs a person to look at it and close it with a note.");
     // Running it again the same day does not raise it again.
     await w.api("POST", "/api/recon/run", undefined, d.users.head.session);
@@ -197,30 +199,32 @@ describe("roles and controls", () => {
     };
     // Everyone can see stock and get the stock-and-date answer.
     await only(everyone, "GET", `/api/stock/availability?model=THAR&variant=${encodeURIComponent("LXT D MT 2WD 4S HT (M0877)")}&colour=${encodeURIComponent("EVEREST WHITE")}`);
-    // The owner's view, the measures and the out-of-turn list: management, Finance, the auditor and the administrator.
-    await only(["admin", "dp", "head", "finance", "auditor"], "GET", "/api/dashboards/owner");
-    await only(["admin", "dp", "head", "finance", "auditor"], "GET", "/api/dashboards/measures");
-    await only(["admin", "dp", "head", "finance", "auditor"], "GET", "/api/dashboards/out-of-turn");
-    // Reviewing an out-of-turn allocation: the Dealer Principal and the Business Head only (404: there is none here).
-    await only(["dp", "head"], "POST", "/api/out-of-turn/none/review", { note: "Checked" }, 404);
-    // Users and the employee sheet: the System Admin only.
-    await only(["admin"], "GET", "/api/users");
-    await only(["admin"], "GET", "/api/users/template");
-    // Settings and allocation rules: the System Admin, the Business Head and the Dealer Principal.
+    // The owner's view, the measures and the out-of-turn list: the owner, the CEO / VP and the
+    // administrator alone. Not Finance, not the auditor, and not the GM who works under them.
+    await only(["admin", "dp", "head"], "GET", "/api/dashboards/owner");
+    await only(["admin", "dp", "head"], "GET", "/api/dashboards/measures");
+    await only(["admin", "dp", "head"], "GET", "/api/dashboards/out-of-turn");
+    // Reviewing an out-of-turn allocation: the owner, the CEO / VP and the administrator (404: there is none here).
+    await only(["admin", "dp", "head"], "POST", "/api/out-of-turn/none/review", { note: "Checked" }, 404);
+    // Users and the employee sheet: the System Admin, and the two who can do anything.
+    await only(["admin", "dp", "head"], "GET", "/api/users");
+    await only(["admin", "dp", "head"], "GET", "/api/users/template");
+    // Settings and allocation rules: the System Admin, the CEO / VP and the Dealer Principal.
     await only(["admin", "dp", "head"], "PUT", "/api/settings", { payment_verify_hours: 24 });
     expect(await status("head", "PUT", "/api/settings", { dms_dealer_name: "OTHER MOTORS" })).toBe(403); // what ties the system to the DMS is the administrator's alone
     // The audit trail.
     await only(["admin", "dp", "head", "auditor"], "GET", "/api/audit");
     // The day-end reconciliation: seen by those who act on it, run by those who own it.
-    await only(["admin", "dp", "head", "lead", "finance", "crm", "stock", "auditor"], "GET", "/api/recon/runs");
-    await only(["admin", "head", "finance", "stock"], "POST", "/api/recon/run", undefined, 201);
-    // The vehicle master: the System Admin (and the ordering desk, which this dealership has not staffed).
-    await only(["admin"], "GET", "/api/master");
-    // WhatsApp: set up by the System Admin; the log is read by management, the Sales Lead, CRM and the auditor.
-    await only(["admin"], "PUT", "/api/wa/config", { enabled: true });
-    await only(["admin", "dp", "head", "lead", "crm", "auditor"], "GET", "/api/wa/messages");
-    // Correcting a customer's mobile number: CRM and the System Admin.
-    await only(["admin", "crm"], "POST", `/api/bookings/${first.id}/contact`, { customer_mobile: "9876500011" });
+    await only(["admin", "dp", "head", "gm", "agm", "lead", "finance", "crm", "stock", "auditor"], "GET", "/api/recon/runs");
+    // Resolving them is the EDP Manager's, and the two who can do anything.
+    await only(["admin", "dp", "head", "crm", "stock"], "POST", "/api/recon/run", undefined, 201);
+    // The vehicle master: the EDP Manager, the System Admin and the two above them.
+    await only(["admin", "dp", "head", "crm", "stock"], "GET", "/api/master");
+    // WhatsApp: set up by the System Admin; the log is read by the EDP Manager, management and the auditor.
+    await only(["admin", "dp", "head"], "PUT", "/api/wa/config", { enabled: true });
+    await only(["admin", "dp", "head", "lead", "crm", "stock", "auditor"], "GET", "/api/wa/messages");
+    // Correcting a customer's mobile number: the Sales Lead, the EDP Manager and those above them.
+    await only(["admin", "dp", "head", "lead", "crm", "stock"], "POST", `/api/bookings/${first.id}/contact`, { customer_mobile: "9876500011" });
     // The auditor reads everything and changes nothing.
     for (const [method, path, body] of [["POST", "/api/bookings", {}], ["POST", "/api/exceptions", {}], ["POST", "/api/allocations/run", {}], ["POST", `/api/bookings/${first.id}/cancel`, { reason: "x" }], ["POST", "/api/uploads/stock", {}], ["POST", "/api/vehicles", {}]] as const) {
       expect(await status("auditor", method, path, body), `auditor ${path}`).toBe(403);
@@ -235,8 +239,9 @@ describe("roles and controls", () => {
     expect(await price("dp")).toBe(1000000);
     expect(await price("exec")).toBeUndefined();
     expect(await price("lead")).toBeUndefined();
-    // Resetting a person's password: the System Admin only (it signs that person out, so it is checked last).
-    for (const who of everyone.filter((x) => x !== "admin")) expect(await status(who, "POST", `/api/users/${u.auditor.id}/reset-password`), who).toBe(403);
+    // Resetting a person's password: the System Admin, and the two who can do anything (it signs that
+    // person out, so it is checked last).
+    for (const who of everyone.filter((x) => !["admin", "dp", "head"].includes(x))) expect(await status(who, "POST", `/api/users/${u.auditor.id}/reset-password`), who).toBe(403);
     expect(await status("admin", "POST", `/api/users/${u.auditor.id}/reset-password`)).toBe(200);
     expect(await status("auditor", "GET", "/api/auth/me")).toBe(401);
   });
@@ -246,20 +251,23 @@ describe("roles and controls", () => {
     const res = await w.api("GET", "/api/roles", undefined, d.users.lead.session);
     expect(res.status).toBe(200);
     const roles: any[] = res.body.roles;
-    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "Business Head / CEO", "Vice President", "Sales Lead", "Sales Executive", "Finance", "CRM", "Stock In-charge", "Ordering Desk", "Auditor"]);
+    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "CEO / VP", "GM Sales", "AGM Sales", "Sales Lead", "Sales Consultant", "EDP Manager", "Finance", "Auditor"]);
     const perms = (role: string) => roles.find((r) => r.role === role).permissions as string[];
-    expect(perms("ACCOUNTS")).toContain("booking.payment");
-    expect(perms("SALES_EXEC")).toContain("booking.payment_report");
-    expect(perms("SALES_EXEC")).not.toContain("booking.payment");
-    expect(perms("BUSINESS_HEAD")).toContain("exception.decide");
+    expect(perms("FINANCE")).toContain("booking.payment");
+    expect(perms("SALES_CONSULTANT")).toContain("booking.payment_report");
+    expect(perms("SALES_CONSULTANT")).not.toContain("booking.payment");
+    expect(perms("CEO_VP")).toContain("exception.decide");
     expect(perms("DEALER_PRINCIPAL")).toContain("exception.decide");
-    expect(perms("SALES_MANAGER")).not.toContain("exception.decide");
-    // Taking a car back is the Vice President's to decide, and nobody else's by default: it is the
-    // only way a named car reaches a named booking now that allocation by hand is closed.
-    expect(perms("VP")).toContain("release.decide");
-    expect(perms("DEALER_PRINCIPAL")).not.toContain("release.decide");
-    expect(perms("VP")).not.toContain("exception.decide");
-    expect(roles.filter((r) => r.receives_alarms).map((r) => r.role)).toEqual(["DEALER_PRINCIPAL", "BUSINESS_HEAD"]);
+    expect(perms("SALES_LEAD")).not.toContain("exception.decide");
+    // Taking a car back is decided by the GM Sales and the CEO / VP, and by the owner, who can do
+    // anything: it is the only way a named car reaches a named booking now that allocation by hand
+    // is closed. The AGM who asks for it can never be the one who grants it.
+    expect(perms("GM_SALES")).toContain("release.decide");
+    expect(perms("CEO_VP")).toContain("release.decide");
+    expect(perms("AGM_SALES")).not.toContain("release.decide");
+    expect(perms("AGM_SALES")).not.toContain("exception.decide");
+    expect(perms("SALES_LEAD")).not.toContain("exception.request");
+    expect(roles.filter((r) => r.receives_alarms).map((r) => r.role)).toEqual(["DEALER_PRINCIPAL", "CEO_VP"]);
     expect(res.body.permission_labels["booking.payment"]).toBe("Verify payments; record invoicing");
     // Exceptions need two people: whoever raises a request cannot decide it, even with the right role.
     const b2 = booking(w, "OTF27A000002");

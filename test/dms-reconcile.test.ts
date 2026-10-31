@@ -127,7 +127,7 @@ describe("the bill must match the reservation", () => {
     expect(booking(w, "OTF27A000002")).toMatchObject({ status: "INVOICED", vin: "MA1THAR0000000001" });
     expect(car(w, "MA1THAR0000000001")).toMatchObject({ status: "INVOICED", dms_stock_type: "IBND" });
     // The Business Head / CEO and the Dealer Principal are both told, in the app and on WhatsApp.
-    expect(alarms(w, "BYPASS").map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "BYPASS").map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(alarms(w, "BYPASS")[0].body).toBe("THAR LXT D MT 2WD 4S HT (M0877) EVEREST WHITE (MA1THAR0000000001) was reserved for booking OTF27A000001, but the DMS shows it invoiced to OTF27A000002. Booking OTF27A000001 is back in the queue with its place kept.");
     expect(messages(w, "MANAGEMENT_ALARM").map((m) => m.to_name)).toEqual(["Bikram Head", "Dinesh Principal"]);
     // It is on the owner's list of out-of-turn allocations: given to the late booking, the early one bypassed, nobody approved it.
@@ -199,7 +199,7 @@ describe("an allotment made in the DMS, not by the system", () => {
     expect(res.body.summary.orders).toMatchObject({ recorded: 1, out_of_turn: 1, bypassed: 0 });
     expect(booking(w, "OTF27A000002")).toMatchObject({ status: "ALLOCATED", vin: "MA1THAR0000000001" });
     expect(booking(w, "OTF27A000001")).toMatchObject({ status: "APPROVED", vin: null });
-    expect(alarms(w, "OUT_OF_TURN").map((a) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(alarms(w, "OUT_OF_TURN").map((a) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(alarms(w, "OUT_OF_TURN")[0].body).toMatch(/OTF27A000002 \(ahead of OTF27A000001\)/);
 
     // The Dealer Principal reviews it; a sales lead cannot.
@@ -428,7 +428,7 @@ describe("what a file may and may not do", () => {
     await loadStock(w, d.users.admin.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE", loc: "SM01" }, { vin: "MA1THAR0000000002", car: "THAR_WHITE", loc: "SM02" }]);
     const outlets = (await w.api("GET", "/api/outlets", undefined, d.users.admin.session)).body as { id: string; code: string }[];
     const sm01 = outlets.find((o) => o.code === "SM01")!.id;
-    const made = await w.api("POST", "/api/users", { name: "Local Stock", mobile: "9100000050", role: "STOCK_INCHARGE", password: "Passw0rd!", all_outlets: false, outlet_ids: [sm01] }, d.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Local Stock", mobile: "9100000050", role: "EDP_MANAGER", password: "Passw0rd!", all_outlets: false, outlet_ids: [sm01] }, d.users.admin.session);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE id = '${made.body.id}'`);
     const local = await w.login(d.slug, "9100000050", "Passw0rd!");
     w.at("2026-10-07 09:00");
@@ -457,8 +457,9 @@ describe("what a file may and may not do", () => {
   it("only the roles that load data may load it", async () => {
     const { w, d } = await start();
     const file = stockFile([{ vin: "MA1THAR0000000001", car: "THAR_WHITE" }]);
-    for (const who of ["exec", "lead", "finance", "dp", "head", "auditor"]) expect((await w.send(`/api/uploads/stock`, file, d.users[who].session)).status, who).toBe(403);
-    for (const who of ["exec", "lead", "finance", "auditor"]) expect((await w.send(`/api/uploads/bookings`, bookingFile([{ no: "OTF27A000001", car: "THAR_WHITE", created: "01-Sep-2026 10:00 AM" }]), d.users[who].session)).status, who).toBe(403);
+    // The Dealer Principal is kept out of this deliberately: loading the files is the EDP Manager's daily job.
+    for (const who of ["exec", "lead", "agm", "gm", "finance", "dp", "auditor"]) expect((await w.send(`/api/uploads/stock`, file, d.users[who].session)).status, who).toBe(403);
+    for (const who of ["exec", "lead", "agm", "gm", "finance", "dp", "auditor"]) expect((await w.send(`/api/uploads/bookings`, bookingFile([{ no: "OTF27A000001", car: "THAR_WHITE", created: "01-Sep-2026 10:00 AM" }]), d.users[who].session)).status, who).toBe(403);
     expect((await w.send(`/api/uploads/stock?report_date=2026-10-06`, file, d.users.crm.session)).status).toBe(200);
   });
 });

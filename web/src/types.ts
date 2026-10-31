@@ -1,6 +1,6 @@
 // Shapes of the JSON the API returns. Kept in step with src/http/routes-*.ts and src/domain/*.ts.
 
-export type Role = "ADMIN" | "DEALER_PRINCIPAL" | "BUSINESS_HEAD" | "VP" | "SALES_MANAGER" | "SALES_EXEC" | "STOCK_INCHARGE" | "ORDERING" | "ACCOUNTS" | "CRM" | "AUDITOR";
+export type Role = "ADMIN" | "DEALER_PRINCIPAL" | "CEO_VP" | "GM_SALES" | "AGM_SALES" | "SALES_LEAD" | "SALES_CONSULTANT" | "EDP_MANAGER" | "FINANCE" | "AUDITOR";
 
 export type Permission =
   | "stock.view"

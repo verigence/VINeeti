@@ -167,7 +167,7 @@ describe("what happens to a violation", () => {
     await loadStock(w, d.users.admin.session, [car("VINOUT00000000001", { order: "OTF27A000002", type: "Alloted", allotDate: "2026-10-14", customer: "Walk In" })], { asOn: "2026-10-14" });
     // The release approvers, because they are the ones who would have had to agree to this.
     const alerts = w.db.q<{ target_role: string; title: string; body: string }>(`SELECT target_role, title, body FROM alerts WHERE kind = 'OUTSIDE_SYSTEM_ALLOTMENT'`);
-    expect(alerts.map((a) => a.target_role).sort()).toEqual(["BUSINESS_HEAD", "VP"]);
+    expect(alerts.map((a) => a.target_role).sort()).toEqual(["CEO_VP", "GM_SALES"]);
     expect(alerts[0].title).toBe("1 car allotted outside the system");
     expect(alerts[0].body).toContain("never seen");
   });

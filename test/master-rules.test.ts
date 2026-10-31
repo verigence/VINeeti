@@ -65,7 +65,7 @@ describe("vehicle master", () => {
     const d = await makeDealer(w);
     // The stock report registers the pick-up; its description states neither transmission, fuel nor drive.
     await loadStock(w, d.users.stock.session, [{ vin: "MA1MAXX0000000001", car: "MAXX_WHITE", loc: "PATIA" }]);
-    expect((await w.api("GET", "/api/master/export", undefined, d.users.stock.session)).status).toBe(403);
+    expect((await w.api("GET", "/api/master/export", undefined, d.users.se1.session)).status).toBe(403);
     const sheet = await w.api("GET", "/api/master/export", undefined, d.users.ordering.session);
     expect(sheet.headers.get("Content-Type")).toContain("text/csv");
     expect(sheet.body).toBe("Category,Model,Trim,Transmission,Fuel,Drive,Seater,Variant,OEM Model Code\nPROSPER,BOL MAXX PUP HD,LX,,,,3,1.7 LX (M0246),M0246");
@@ -181,9 +181,9 @@ describe("vehicle master", () => {
     const b = one(w, `SELECT id, colour FROM bookings`);
     expect(b.colour).toBe("DIAMOND WHITE");
     expect(one(w, `SELECT colour FROM vehicles`).colour).toBe("WHITE");
-    // Saying so is the administrator's (or ordering desk's) job, not the uploader's.
+    // Saying so is the EDP Manager's or the administrator's job, not the sales team's.
     const map = { kind: "COLOUR", model: "BOL MAXX PUP HD", alias: "WHITE", colour: "Diamond White" };
-    expect((await w.api("POST", "/api/master/names", map, s)).status).toBe(403);
+    expect((await w.api("POST", "/api/master/names", map, d.users.se1.session)).status).toBe(403);
     expect((await w.api("POST", "/api/master/names", { ...map, colour: "Pearl White" }, d.users.admin.session)).status).toBe(400); // not a colour of this model
     const mapped = await w.api("POST", "/api/master/names", map, d.users.admin.session);
     expect(mapped.status).toBe(200);
@@ -346,7 +346,7 @@ describe("allocation rules set from the screen", () => {
     expect(list.map((x: any) => [x.booking_no, x.queue_position])).toEqual([[second.booking_no, 1], [third.booking_no, 2], [first.booking_no, 3], [fourth.booking_no, 4]]);
 
     // "Move ahead of the third booking": the request shows the approver what it will do, and it lands just before that booking.
-    const ex = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: fourth.id, payload: { before_booking_id: third.id }, reason: "Fleet customer, agreed by the Dealer Principal" }, d.users.se2.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: fourth.id, payload: { before_booking_id: third.id }, reason: "Fleet customer, agreed by the Dealer Principal" }, d.users.agm.session);
     expect(JSON.parse(ex.body.payload_json)).toMatchObject({ from_position: 4, to_position: 2, waiting: 4 });
     await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
     expect(await queue()).toEqual([second.booking_no, fourth.booking_no, third.booking_no, first.booking_no]);
@@ -433,7 +433,7 @@ describe("allocation rules set from the screen", () => {
     expect(alert.body).toContain("Asha Admin changed: queue order");
     // One announcement for each role that receives alarms: the Business Head / CEO and the Dealer Principal.
     const announced = () => w.db.q<any>(`SELECT target_role, body FROM alerts WHERE kind = 'RULES_CHANGED' ORDER BY created_at, target_role`).map((a) => `${a.target_role}: ${a.body.split(".")[0]}`);
-    expect(announced()).toEqual(["BUSINESS_HEAD: Asha Admin changed: queue order", "DEALER_PRINCIPAL: Asha Admin changed: queue order"]);
+    expect(announced()).toEqual(["CEO_VP: Asha Admin changed: queue order", "DEALER_PRINCIPAL: Asha Admin changed: queue order"]);
     const audit = one(w, `SELECT detail_json FROM audit_log WHERE action = 'ALLOCATION_RULES_CHANGED'`);
     expect(JSON.parse(audit.detail_json)).toMatchObject({ before: { queue_order: ["BOOKING_DATE"] }, after: { queue_order: ["BOOKING_AMOUNT", "BOOKING_DATE"] } });
     // The Business Head runs the business day to day and may set the rules as well. It is announced just the same,
@@ -442,7 +442,7 @@ describe("allocation rules set from the screen", () => {
     const byHead = await w.api("PUT", "/api/settings", { car_order: ["OLDEST_INVOICE", "AT_DEALERSHIP"] }, d.users.head.session);
     expect(byHead.status).toBe(200);
     expect(byHead.body.rules_changed).toEqual(["car_order"]);
-    expect(announced().slice(2)).toEqual(["BUSINESS_HEAD: Bikram Head changed: car order", "DEALER_PRINCIPAL: Bikram Head changed: car order"]);
+    expect(announced().slice(2)).toEqual(["CEO_VP: Bikram Head changed: car order", "DEALER_PRINCIPAL: Bikram Head changed: car order"]);
     expect(w.db.q(`SELECT u.name FROM audit_log l JOIN users u ON u.id = l.actor WHERE l.action = 'ALLOCATION_RULES_CHANGED' ORDER BY l.at`).map((r: any) => r.name)).toEqual(["Asha Admin", "Bikram Head"]);
     const run = await w.api("POST", "/api/recon/run", {}, d.users.head.session);
     expect(run.body.summary.items.by_category.RULES_CHANGED).toBe(2);

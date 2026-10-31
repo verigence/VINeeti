@@ -67,7 +67,7 @@ describe("test mode (before a number is connected)", () => {
 
 describe("connecting a dealership's number", () => {
   it("only an administrator can change the connection", async () => {
-    expect((await w.api("PUT", "/api/wa/config", LIVE, a.users.head.session)).status).toBe(403);
+    expect((await w.api("PUT", "/api/wa/config", LIVE, a.users.sm.session)).status).toBe(403);
     expect((await w.api("PUT", "/api/wa/config", LIVE, a.users.sm.session)).status).toBe(403);
     expect((await w.api("GET", "/api/wa/config", undefined, a.users.se1.session)).status).toBe(403);
   });
@@ -269,7 +269,7 @@ describe("message wording and Meta approval", () => {
     expect((await w.api("PUT", "/api/wa/templates/STOCK_RECEIVED", { body: "Dear {{customer_name}}, pay {{amount}} now." }, s)).body.error.message).toContain("amount");
     expect((await w.api("PUT", "/api/wa/templates/STOCK_RECEIVED", { body: "{{customer_name}} your car is here." }, s)).status).toBe(400);
     expect((await w.api("PUT", "/api/wa/templates/STOCK_RECEIVED", { template_name: "Stock Received" }, s)).status).toBe(400);
-    expect((await w.api("PUT", "/api/wa/templates/STOCK_RECEIVED", { body: "x" }, a.users.head.session)).status).toBe(403);
+    expect((await w.api("PUT", "/api/wa/templates/STOCK_RECEIVED", { body: "x" }, a.users.sm.session)).status).toBe(403);
     // The password-code message keeps WhatsApp's own wording; its template name and language are the dealership's to set.
     const fixed = await w.api("PUT", "/api/wa/templates/PASSWORD_OTP", { body: "Your code is {{code}}. Keep it to yourself." }, s);
     expect(fixed.status).toBe(400);

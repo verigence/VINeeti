@@ -9,9 +9,9 @@
     "reminder_days": 3,
     "escalation_days": 5,
     "reallocate_days": 6,
-    "booking_approver_roles": ["SALES_MANAGER", "BUSINESS_HEAD"],
-    "exception_approver_roles": ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
-    "alarm_roles": ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
+    "booking_approver_roles": ["SALES_LEAD", "CEO_VP"],
+    "exception_approver_roles": ["CEO_VP", "DEALER_PRINCIPAL"],
+    "alarm_roles": ["CEO_VP", "DEALER_PRINCIPAL"],
     "data_stale_days": 3
   }
 }

@@ -89,7 +89,7 @@ describe("one dealership cannot reach another", () => {
     const log = (await w.api("GET", "/api/wa/messages", undefined, a.users.auditor.session)).body.messages;
     expect(log.every((m: any) => m.booking_id !== bBooking.id)).toBe(true);
     const users = (await w.api("GET", "/api/users", undefined, a.users.admin.session)).body;
-    expect(users).toHaveLength(11);
+    expect(users).toHaveLength(14);
   });
 
   it("rules changed by one dealership do not change the other's", async () => {
@@ -174,7 +174,7 @@ describe("outlets inside a dealership", () => {
   });
 
   it("a Stock In-charge cannot change stock of an outlet they are not assigned to", async () => {
-    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", role: "STOCK_INCHARGE", password: PASSWORD, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
+    const created = await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000050", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [a.outlets.PATIA] }, a.users.admin.session);
     expect(created.status).toBe(201);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE mobile = '919000000050'`);
     const s = await w.login("northstar-hyundai", "9000000050", PASSWORD);
@@ -198,7 +198,9 @@ describe("personas", () => {
     const head = await perms("head");
     expect(head.has("booking.approve") && head.has("exception.decide")).toBe(true);
     expect(head.has("admin.settings")).toBe(true); // the dealership's rules are management's to set
-    for (const p of ["stock.manage", "upload.stock", "upload.bookings", "booking.payment", "booking.payment_report", "admin.users", "wa.manage"]) expect(head.has(p), p).toBe(false);
+    // The CEO / VP answers for execution and holds everything bar one thing: acting on money.
+    for (const p of ["stock.manage", "upload.stock", "upload.bookings", "booking.payment_report", "admin.users", "wa.manage"]) expect(head.has(p), p).toBe(true);
+    for (const p of ["booking.payment", "booking.deliver"]) expect(head.has(p), p).toBe(false);
     const accounts = await perms("accounts");
     expect(accounts.has("booking.payment")).toBe(true); // ... and Finance verifies it; nobody but the administrator holds both
     expect(accounts.has("booking.payment_report")).toBe(false);
@@ -213,16 +215,16 @@ describe("personas", () => {
   it("who approves is a dealership setting, not fixed in the product", async () => {
     const bk = await submittedBooking(w, a, "se1", VENUE, "PATIA", "Approver Test", "9833300001");
     // The setting is management's: the people it governs cannot rewrite it in their own favour.
-    for (const who of ["sm", "se1", "stock", "accounts", "auditor"]) expect((await w.api("PUT", "/api/settings", { booking_approver_roles: ["SALES_EXEC", "SALES_MANAGER"] }, a.users[who].session)).status, who).toBe(403);
-    expect((await w.api("GET", "/api/settings", undefined, a.users.admin.session)).body.settings.booking_approver_roles).toEqual(["SALES_MANAGER", "BUSINESS_HEAD"]);
-    expect((await w.api("PUT", "/api/settings", { booking_approver_roles: ["BUSINESS_HEAD"] }, a.users.head.session)).status).toBe(200);
+    for (const who of ["sm", "se1", "stock", "accounts", "auditor"]) expect((await w.api("PUT", "/api/settings", { booking_approver_roles: ["SALES_CONSULTANT", "SALES_LEAD"] }, a.users[who].session)).status, who).toBe(403);
+    expect((await w.api("GET", "/api/settings", undefined, a.users.admin.session)).body.settings.booking_approver_roles).toEqual(["SALES_LEAD", "GM_SALES"]);
+    expect((await w.api("PUT", "/api/settings", { booking_approver_roles: ["CEO_VP"] }, a.users.head.session)).status).toBe(200);
     expect((await w.api("POST", `/api/bookings/${bk.id}/approve`, {}, a.users.sm.session)).status).toBe(403);
     expect((await w.api("POST", `/api/bookings/${bk.id}/approve`, {}, a.users.head.session)).status).toBe(200);
     // The change is on record under the name of whoever made it.
     const logged = w.db.q<any>(`SELECT u.name, l.detail_json FROM audit_log l JOIN users u ON u.id = l.actor WHERE l.tenant_id = ? AND l.action = 'SETTINGS_CHANGED' ORDER BY l.rowid DESC LIMIT 1`, a.tenantId)[0];
     expect(logged.name).toBe("Bikram Head");
-    expect(JSON.parse(logged.detail_json).after.booking_approver_roles).toEqual(["BUSINESS_HEAD"]);
-    await w.api("PUT", "/api/settings", { booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD"] }, a.users.admin.session);
+    expect(JSON.parse(logged.detail_json).after.booking_approver_roles).toEqual(["CEO_VP"]);
+    await w.api("PUT", "/api/settings", { booking_approver_roles: ["SALES_LEAD", "CEO_VP"] }, a.users.admin.session);
   });
 
   it("refuses rules that do not make sense", async () => {
@@ -235,7 +237,7 @@ describe("personas", () => {
   it("an administrator cannot lock themselves out, and a deactivated user is signed out at once", async () => {
     const admin = a.users.admin;
     expect((await w.api("PATCH", `/api/users/${admin.id}`, { is_active: false }, admin.session)).status).toBe(403);
-    expect((await w.api("PATCH", `/api/users/${admin.id}`, { role: "SALES_EXEC" }, admin.session)).status).toBe(403);
+    expect((await w.api("PATCH", `/api/users/${admin.id}`, { role: "SALES_CONSULTANT" }, admin.session)).status).toBe(403);
     const victim = a.users.ordering;
     expect((await w.api("GET", "/api/auth/me", undefined, victim.session)).status).toBe(200);
     await w.api("PATCH", `/api/users/${victim.id}`, { is_active: false }, admin.session);

@@ -43,27 +43,27 @@ describe("the employee sheet", () => {
   it("creates everyone on the list with their mobile number as ID, role and outlets; each gets a temporary password shown once", async () => {
     const { w, d } = await start();
     const res = await importSheet(w, d, [
-      ["Ravi Kumar", 9876500001, "Sales Executive", "SM01", "99AB0001", ""],
+      ["Ravi Kumar", 9876500001, "Sales Consultant", "SM01", "99AB0001", ""],
       ["Meena Sahu", "+91 98765 00002", "sales lead", "SM01, SM02", "", "meena@example.com"],
       ["Arun Das", "098765 00003", "CEO", "", "", ""],
       ["Anita Rath", "9876500004", "Finance Team", "ALL", "", ""],
-      ["Charu Nayak", "9876500005", "CRM", "SM02", "", ""],
+      ["Charu Nayak", "9876500005", "EDP_MANAGER", "SM02", "", ""],
       ["Dinesh Patnaik", "9876500006", "DP", "", "", ""],
     ]);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ row_count: 6, unchanged: 0, errors: [], updated: [], otp_available: false });
     expect(res.body.created.map((c: any) => [c.name, c.mobile, c.role_label, c.outlets])).toEqual([
-      ["Ravi Kumar", "919876500001", "Sales Executive", "SM01"],
+      ["Ravi Kumar", "919876500001", "Sales Consultant", "SM01"],
       ["Meena Sahu", "919876500002", "Sales Lead", "SM01, SM02"],
-      ["Arun Das", "919876500003", "Business Head / CEO", "All outlets"],
+      ["Arun Das", "919876500003", "CEO / VP", "All outlets"],
       ["Anita Rath", "919876500004", "Finance", "All outlets"],
-      ["Charu Nayak", "919876500005", "CRM", "SM02"],
+      ["Charu Nayak", "919876500005", "EDP Manager", "SM02"],
       ["Dinesh Patnaik", "919876500006", "Dealer Principal", "All outlets"],
     ]);
     for (const c of res.body.created) expect(c.temporary_password).toMatch(/^[a-z2-9]{10}$/);
     expect(new Set(res.body.created.map((c: any) => c.temporary_password)).size).toBe(6);
-    expect(user(w, "919876500001")).toMatchObject({ role: "SALES_EXEC", all_outlets: 0, outlets: "SM01", dms_code: "99AB0001", must_change_password: 1 });
-    expect(user(w, "919876500002")).toMatchObject({ role: "SALES_MANAGER", email: "meena@example.com" });
+    expect(user(w, "919876500001")).toMatchObject({ role: "SALES_CONSULTANT", all_outlets: 0, outlets: "SM01", dms_code: "99AB0001", must_change_password: 1 });
+    expect(user(w, "919876500002")).toMatchObject({ role: "SALES_LEAD", email: "meena@example.com" });
     expect(user(w, "919876500002").outlets.split(",").sort()).toEqual(["SM01", "SM02"]);
     // The password itself is stored only as a hash.
     expect(JSON.stringify(q(w, `SELECT * FROM users`))).not.toContain(res.body.created[0].temporary_password);
@@ -76,21 +76,21 @@ describe("the employee sheet", () => {
     expect(changed.status).toBe(200);
     const again = await w.login("", "98765 00001", "Ravi@2026");
     const me = (await w.api("GET", "/api/auth/me", undefined, again)).body;
-    expect(me.user).toMatchObject({ name: "Ravi Kumar", role: "SALES_EXEC" });
+    expect(me.user).toMatchObject({ name: "Ravi Kumar", role: "SALES_CONSULTANT" });
     expect(me.outlets.map((o: any) => o.code)).toEqual(["SM01"]);
   });
 
   it("loading the sheet again changes nothing; an edited row updates the person and never their password", async () => {
     const { w, d } = await start();
-    const rows: (string | number)[][] = [["Ravi Kumar", "9876500001", "Sales Executive", "SM01", "", ""], ["Meena Sahu", "9876500002", "Sales Lead", "SM01", "", ""]];
+    const rows: (string | number)[][] = [["Ravi Kumar", "9876500001", "Sales Consultant", "SM01", "", ""], ["Meena Sahu", "9876500002", "Sales Lead", "SM01", "", ""]];
     const first = await importSheet(w, d, rows);
     const hash = user(w, "919876500001").password_hash;
     expect((await importSheet(w, d, rows)).body).toMatchObject({ created: [], updated: [], unchanged: 2, errors: [] });
     // Ravi is promoted and moves to both outlets.
     const next = await importSheet(w, d, [["Ravi Kumar", "9876500001", "Sales Lead", "SM01,SM02", "99AB0001", ""], rows[1]]);
     expect(next.body).toMatchObject({ created: [], unchanged: 1, errors: [] });
-    expect(next.body.updated).toEqual([{ name: "Ravi Kumar", mobile: "919876500001", role_label: "Sales Lead", changes: ["role: Sales Executive to Sales Lead", "outlets: SM01, SM02", "DMS ID: 99AB0001"] }]);
-    expect(user(w, "919876500001")).toMatchObject({ role: "SALES_MANAGER", dms_code: "99AB0001", password_hash: hash });
+    expect(next.body.updated).toEqual([{ name: "Ravi Kumar", mobile: "919876500001", role_label: "Sales Lead", changes: ["role: Sales Consultant to Sales Lead", "outlets: SM01, SM02", "DMS ID: 99AB0001"] }]);
+    expect(user(w, "919876500001")).toMatchObject({ role: "SALES_LEAD", dms_code: "99AB0001", password_hash: hash });
     expect((await w.login("", "9876500001", first.body.created[0].temporary_password)).cookie).toBeTruthy();
     // Nobody is removed or switched off because they are missing from a sheet.
     expect((await importSheet(w, d, [rows[1]])).body).toMatchObject({ unchanged: 1 });
@@ -100,23 +100,23 @@ describe("the employee sheet", () => {
   it("rows that cannot be applied are listed with the reason; the rest of the sheet is still loaded", async () => {
     const { w, d } = await start();
     const res = await importSheet(w, d, [
-      ["Good Person", "9876500010", "Sales Executive", "SM01", "", ""],
-      ["", "9876500011", "Sales Executive", "SM01", "", ""],
-      ["Short Number", "98765", "Sales Executive", "SM01", "", ""],
+      ["Good Person", "9876500010", "Sales Consultant", "SM01", "", ""],
+      ["", "9876500011", "Sales Consultant", "SM01", "", ""],
+      ["Short Number", "98765", "Sales Consultant", "SM01", "", ""],
       ["Odd Role", "9876500012", "Chief Happiness Officer", "SM01", "", ""],
-      ["Wrong Outlet", "9876500013", "Sales Executive", "SM77", "", ""],
-      ["No Outlet", "9876500014", "Sales Executive", "", "", ""],
+      ["Wrong Outlet", "9876500013", "Sales Consultant", "SM77", "", ""],
+      ["No Outlet", "9876500014", "Sales Consultant", "", "", ""],
       ["Same Number", "9876500010", "Finance", "ALL", "", ""],
       ["New Admin", "9876500015", "System Admin", "ALL", "", ""],
       ["Asha Admin", d.users.admin.mobile, "Finance", "ALL", "", ""],
-      ["(example) Ravi Kumar", "9876543210", "Sales Executive", "AD01", "", ""],
+      ["(example) Ravi Kumar", "9876543210", "Sales Consultant", "AD01", "", ""],
     ]);
     expect(res.status).toBe(200);
     expect(res.body.created.map((c: any) => c.name)).toEqual(["Good Person"]);
     expect(res.body.errors.map((e: any) => [e.row, e.key, e.message])).toEqual([
       [3, "9876500011", "Name is blank"],
       [4, "Short Number", 'Mobile number "98765" is not valid'],
-      [5, "Odd Role", 'Role "Chief Happiness Officer" is not recognised. Use one of: System Admin, Dealer Principal, Business Head / CEO, Vice President, Sales Lead, Sales Executive, Finance, CRM, Stock In-charge, Ordering Desk, Auditor'],
+      [5, "Odd Role", 'Role "Chief Happiness Officer" is not recognised. Use one of: System Admin, Dealer Principal, CEO / VP, GM Sales, AGM Sales, Sales Lead, Sales Consultant, EDP Manager, Finance, Auditor'],
       [6, "Wrong Outlet", "Outlet SM77 is not set up. Outlets here: SM01, SM02"],
       [7, "No Outlet", "Give the outlet codes this person works at, or ALL"],
       [8, "Same Number", "This mobile number appears more than once in the sheet"],
@@ -128,7 +128,7 @@ describe("the employee sheet", () => {
     const wrong = await w.send("/api/users/import?filename=x.xlsx", buildXlsx("Sheet1", [["VIN", "Model"], ["X", "Y"]]), d.users.admin.session);
     expect(wrong.status).toBe(400);
     expect(wrong.body.error.message).toContain("needs the headings Name, Mobile and Role");
-    expect((await importSheet(w, d, [["A", "9876500020", "CRM", "ALL", "", ""]], d.users.head.session)).status).toBe(403);
+    expect((await importSheet(w, d, [["A", "9876500020", "EDP_MANAGER", "ALL", "", ""]], d.users.lead.session)).status).toBe(403);
   });
 
   it("the sheet to fill in lists the sales consultants the DMS names; giving them their DMS ID makes the DMS bookings theirs", async () => {
@@ -149,18 +149,18 @@ describe("the employee sheet", () => {
     const { t } = await template();
     expect(t.header).toEqual(HEAD);
     expect(t.records.map((r) => [r["name"], r["mobile"] ?? "", r["role"], r["outlets"], r["dms id"]])).toEqual([
-      ["CONSULTANT 001", "", "Sales Executive", "SM01", "99ZZ0001"],
-      ["CONSULTANT 002", "", "Sales Executive", "SM02", "99ZZ0002"],
+      ["CONSULTANT 001", "", "Sales Consultant", "SM01", "99ZZ0001"],
+      ["CONSULTANT 002", "", "Sales Consultant", "SM02", "99ZZ0002"],
     ]);
     // The dealership adds the mobile numbers and loads the sheet.
-    const res = await importSheet(w, d, [["CONSULTANT 001", "9876500031", "Sales Executive", "SM01", "99ZZ0001", ""], ["CONSULTANT 002", "9876500032", "Sales Executive", "SM02", "99ZZ0002", ""]]);
+    const res = await importSheet(w, d, [["CONSULTANT 001", "9876500031", "Sales Consultant", "SM01", "99ZZ0001", ""], ["CONSULTANT 002", "9876500032", "Sales Consultant", "SM02", "99ZZ0002", ""]]);
     expect(res.body.created).toHaveLength(2);
     const one = user(w, "919876500031");
     expect(q(w, `SELECT booking_no FROM bookings WHERE sales_exec_id = ? ORDER BY booking_no`, one.id).map((b) => b.booking_no)).toEqual(["OTF27A000001", "OTF27A000003"]);
     // They are users now, so the next sheet to fill in no longer lists them.
     expect((await template()).t.records.map((r) => r["name"])).toEqual(["(example) Ravi Kumar", "(example) Anita Das"]);
     // A DMS ID belongs to one person.
-    const clash = await importSheet(w, d, [["Someone Else", "9876500033", "Sales Executive", "SM01", "99ZZ0001", ""]]);
+    const clash = await importSheet(w, d, [["Someone Else", "9876500033", "Sales Consultant", "SM01", "99ZZ0001", ""]]);
     expect(clash.body.errors.map((e: any) => e.message)).toEqual(["DMS ID 99ZZ0001 is already given to another person"]);
   });
 });
@@ -183,7 +183,7 @@ describe("the administrator resets a password", () => {
     expect((await w.api("POST", "/api/auth/change-password", { current: temp, next: "Lead@2026" }, s)).status).toBe(200);
     expect(q(w, `SELECT action, actor, entity_id FROM audit_log WHERE action = 'PASSWORD_RESET_BY_ADMIN'`)).toEqual([{ action: "PASSWORD_RESET_BY_ADMIN", actor: d.users.admin.id, entity_id: lead.id }]);
     // Only the administrator can do this, and not on their own account (they change their own password from their profile).
-    expect((await w.api("POST", `/api/users/${lead.id}/reset-password`, undefined, d.users.head.session)).status).toBe(403);
+    expect((await w.api("POST", `/api/users/${lead.id}/reset-password`, undefined, d.users.exec.session)).status).toBe(403);
     expect((await w.api("POST", `/api/users/${d.users.admin.id}/reset-password`, undefined, d.users.admin.session)).status).toBe(400);
     expect((await w.api("POST", `/api/users/usr_unknown/reset-password`, undefined, d.users.admin.session)).status).toBe(404);
   });
@@ -255,7 +255,7 @@ describe("setting a password with a one-time code on WhatsApp", () => {
     const { w, d } = await start();
     const sent = mockMeta();
     await w.api("PUT", "/api/wa/config", LIVE, d.users.admin.session);
-    const res = await importSheet(w, d, [["Ravi Kumar", "9876500001", "Sales Executive", "SM01", "", ""]]);
+    const res = await importSheet(w, d, [["Ravi Kumar", "9876500001", "Sales Consultant", "SM01", "", ""]]);
     expect(res.body.otp_available).toBe(true);
     await w.api("POST", "/api/auth/otp/request", { mobile: "9876500001" });
     const ok = await w.api("POST", "/api/auth/otp/reset", { mobile: "9876500001", code: sent[0].code, password: "Ravi@2026" });
@@ -348,7 +348,7 @@ describe("signing in with the mobile number", () => {
     // A number at one dealership: no dealer code needed.
     expect((await w.api("POST", "/api/auth/login", { mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(200);
     // The same person is also a user at the second dealership.
-    expect((await w.api("POST", "/api/users", { name: "Ravi Exec", mobile: a.users.exec.mobile, role: "SALES_EXEC", password: "Other@2026", all_outlets: true }, b.users.admin.session)).status).toBe(201);
+    expect((await w.api("POST", "/api/users", { name: "Ravi Exec", mobile: a.users.exec.mobile, role: "SALES_CONSULTANT", password: "Other@2026", all_outlets: true }, b.users.admin.session)).status).toBe(201);
     expect((await w.api("POST", "/api/auth/login", { mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(401);
     expect((await w.api("POST", "/api/auth/login", { dealer: "sample-mahindra", mobile: a.users.exec.mobile, password: PASSWORD })).status).toBe(200);
     expect((await w.api("POST", "/api/auth/login", { dealer: "other-mahindra", mobile: a.users.exec.mobile, password: "Other@2026" })).status).toBe(200);

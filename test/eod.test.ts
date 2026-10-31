@@ -55,7 +55,7 @@ describe("the end-of-day key", () => {
     expect(JSON.stringify(status)).not.toContain(key);
     expect(status.feed).toMatchObject({ stock_url: "https://app.test/api/eod/sample-mahindra/stock", bookings_url: "https://app.test/api/eod/sample-mahindra/bookings", run_url: "https://app.test/api/eod/sample-mahindra/run" });
     expect(status.feed.key_set_at).toBeTruthy();
-    for (const who of ["head", "dp", "crm", "stock", "finance"]) {
+    for (const who of ["gm", "agm", "lead", "crm", "stock", "finance"]) {
       expect((await w.api("POST", "/api/eod/key", undefined, d.users[who].session)).status, who).toBe(403);
       expect((await w.api("DELETE", "/api/eod/key", undefined, d.users[who].session)).status, who).toBe(403);
     }

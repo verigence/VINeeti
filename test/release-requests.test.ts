@@ -22,7 +22,7 @@ async function held(w: World, d: Dealer, vin = "VINREL00000000001") {
 }
 
 const raise = (w: World, d: Dealer, bookingId: string, p: Record<string, unknown>, reason = "Because of the following") =>
-  w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: p, reason }, d.users.sm.session);
+  w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: p, reason }, d.users.agm.session);
 
 const approve = (w: World, d: Dealer, id: string) => w.api("POST", `/api/exceptions/${id}/approve`, {}, d.users.head.session);
 
@@ -70,7 +70,7 @@ describe("a release has to say why, and prove it", () => {
     const w = makeWorld();
     const d = await makeDealer(w);
     const { b } = await held(w, d);
-    expect((await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: b.id, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, reason: "" }, d.users.sm.session)).status).toBe(400);
+    expect((await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: b.id, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, reason: "" }, d.users.agm.session)).status).toBe(400);
     expect((await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY" }, "Board member's family, agreed with the DP")).status).toBe(400);
     expect((await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, "Board member's family, agreed with the DP")).status).toBe(201);
   });
@@ -242,7 +242,7 @@ describe("finding the car in the first place", () => {
     const w = makeWorld();
     const d = await makeDealer(w);
     const { b } = await held(w, d);
-    const find = async (q: string) => (await w.api("GET", `/api/held-cars?q=${encodeURIComponent(q)}`, undefined, d.users.sm.session)).body as any[];
+    const find = async (q: string) => (await w.api("GET", `/api/held-cars?q=${encodeURIComponent(q)}`, undefined, d.users.agm.session)).body as any[];
     // The chassis is the tail of the VIN in the DMS, so a chassis on its own has to find the car —
     // and punctuation is a break, because it is being read off a printed form.
     expect((await find("0000000001")).map((r) => r.vin)).toEqual(["VINREL00000000001"]);
@@ -259,7 +259,7 @@ describe("finding the car in the first place", () => {
     const d = await makeDealer(w);
     const { b } = await held(w, d);
     const ex = await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, "Asked already");
-    const found = (await w.api("GET", "/api/held-cars?q=Holder", undefined, d.users.sm.session)).body as any[];
+    const found = (await w.api("GET", "/api/held-cars?q=Holder", undefined, d.users.agm.session)).body as any[];
     expect(found[0].pending_request_id).toBe(ex.body.id);
   });
 });
@@ -300,12 +300,13 @@ describe("what the approver is shown", () => {
     const d = await makeDealer(w);
     const { b } = await held(w, d);
     const ex = await raise(w, d, b.id, { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-01" }, "Needed this week");
-    // The Business Head approves exceptions, and by default releases too. Point releases at someone
-    // else and the same person can still decide a window extension but no longer this.
+    // The GM Sales approves exceptions, and by default releases too. Point releases at someone else
+    // and the same person can still decide a window extension but no longer this. (The CEO / VP is not
+    // used here: that role carries every right of its own, so a setting cannot take one away.)
     expect((await w.api("PUT", "/api/settings", { release_approver_roles: ["DEALER_PRINCIPAL"] }, d.users.admin.session)).status).toBe(200);
-    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(403);
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.gm.session)).status).toBe(403);
     expect(one(w, `SELECT status FROM exceptions WHERE id = ?`, ex.body.id).status).toBe("PENDING");
-    expect((await w.api("PUT", "/api/settings", { release_approver_roles: ["BUSINESS_HEAD"] }, d.users.admin.session)).status).toBe(200);
+    expect((await w.api("PUT", "/api/settings", { release_approver_roles: ["CEO_VP"] }, d.users.admin.session)).status).toBe(200);
     expect((await approve(w, d, ex.body.id)).status).toBe(200);
   });
 
@@ -315,7 +316,7 @@ describe("what the approver is shown", () => {
   it("is what a Vice President is for", async () => {
     const w = makeWorld();
     const d = await makeDealer(w);
-    const made = await w.api("POST", "/api/users", { name: "Varsha Prasad", mobile: "9000009999", role: "VP", password: PASSWORD, all_outlets: true, outlet_ids: [] }, d.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Varsha Prasad", mobile: "9000009999", role: "CEO_VP", password: PASSWORD, all_outlets: true, outlet_ids: [] }, d.users.admin.session);
     expect(made.status).toBe(201);
     // Every new user has to set a password before doing anything; the harness does the same for the
     // people it creates, and the point here is the role, not the first sign-in.

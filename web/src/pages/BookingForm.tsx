@@ -59,11 +59,11 @@ function BookingForm({ booking }: { booking?: Booking }) {
   const [bookingDate, setBookingDate] = useState(bookedOn);
   const [amount, setAmount] = useState(booking ? String(booking.booking_amount) : "");
   const [delivery, setDelivery] = useState(booking?.expected_delivery_date ?? "");
-  const [salesExec, setSalesExec] = useState(booking?.sales_exec_id ?? (me.user.role === "SALES_EXEC" ? me.user.id : ""));
+  const [salesExec, setSalesExec] = useState(booking?.sales_exec_id ?? (me.user.role === "SALES_CONSULTANT" ? me.user.id : ""));
   const [bookingNo, setBookingNo] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
 
-  const execs = (directory.data ?? []).filter((u) => u.role === "SALES_EXEC");
+  const execs = (directory.data ?? []).filter((u) => u.role === "SALES_CONSULTANT");
   const outletOptions = myOutlets.map((o) => ({ value: o.id, label: o.name }));
   // A booking may sit at an outlet that has since been closed or that the user no longer works in.
   if (booking && !outletOptions.some((o) => o.value === booking.outlet_id)) outletOptions.unshift({ value: booking.outlet_id, label: booking.outlet ?? "Current outlet" });

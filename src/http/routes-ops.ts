@@ -421,7 +421,7 @@ export function opsRoutes(app: App) {
     if (scope && item.outlet_id && !scope.includes(item.outlet_id)) throw forbidden("This finding belongs to an outlet you do not have access to");
     // Serious findings (a bypassed allocation, a broken queue order, a stock count that does not add up) are
     // closed by the Business Head or the administrator, not by the people whose work they question.
-    if (item.severity === "HIGH" && !["BUSINESS_HEAD", "DEALER_PRINCIPAL", "ADMIN"].includes(c.get("user").role)) throw forbidden("A high-severity finding can be closed only by the Business Head / CEO, the Dealer Principal or the administrator");
+    if (item.severity === "HIGH" && !["CEO_VP", "DEALER_PRINCIPAL", "ADMIN"].includes(c.get("user").role)) throw forbidden("A high-severity finding can be closed only by the Business Head / CEO, the Dealer Principal or the administrator");
     await resolveItem(ctx, c.req.param("id"), note);
     await audit(ctx, "RECON_ITEM_RESOLVED", "recon_item", c.req.param("id"), { note: note.trim() });
     return c.json({ ok: true });

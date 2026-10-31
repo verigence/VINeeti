@@ -213,7 +213,7 @@ async function commitMatch(
     stmts.push(alertStmt(ctx, { targetUser: b.sales_exec_id, outletId: b.outlet_id, kind: "ALLOCATED", title: "Car allocated to your booking", body: detail, entityType: "booking", entityId: b.id }), ...(await salesExecMessage(ctx, b, "Car allocated to your booking", detail)));
   }
   if (needsTransfer) {
-    stmts.push(alertStmt(ctx, { targetRole: "STOCK_INCHARGE", outletId: v.outlet_id, kind: "TRANSFER_NEEDED", title: "Transfer needed", body: `${vehicleLabel(v)} (${v.vin}) is allocated to booking ${b.booking_no} at another outlet.`, entityType: "vehicle", entityId: v.id }));
+    stmts.push(alertStmt(ctx, { targetRole: "EDP_MANAGER", outletId: v.outlet_id, kind: "TRANSFER_NEEDED", title: "Transfer needed", body: `${vehicleLabel(v)} (${v.vin}) is allocated to booking ${b.booking_no} at another outlet.`, entityType: "vehicle", entityId: v.id }));
   }
   stmts.push(...(extra.also ?? []));
   try {

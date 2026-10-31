@@ -14,13 +14,13 @@ import { Stop, main, note } from "./lib/cloudflare.mjs";
 /** One of each, in the order a dealership would introduce them. */
 const TEAM = [
   ["DEALER_PRINCIPAL", "Dealer Principal", "sees the month, the outlets, fairness and what is at risk"],
-  ["BUSINESS_HEAD", "Business Head / CEO", "sees the trend, the money in the yard and the governance"],
-  ["SALES_MANAGER", "Sales Lead", "approves bookings and watches the team's queue"],
-  ["SALES_EXEC", "Sales Executive", "answers the customer: stock check, browse, their own bookings"],
-  ["ACCOUNTS", "Finance", "checks payments against the bank"],
-  ["CRM", "CRM", "contacts customers, loads the DMS files"],
-  ["STOCK_INCHARGE", "Stock In-charge", "receives cars, transfers, loads the stock report"],
-  ["ORDERING", "Ordering Desk", "orders on the manufacturer, keeps the vehicle master"],
+  ["CEO_VP", "Business Head / CEO", "sees the trend, the money in the yard and the governance"],
+  ["SALES_LEAD", "Sales Lead", "approves bookings and watches the team's queue"],
+  ["SALES_CONSULTANT", "Sales Executive", "answers the customer: stock check, browse, their own bookings"],
+  ["FINANCE", "Finance", "checks payments against the bank"],
+  ["EDP_MANAGER", "EDP_MANAGER", "contacts customers, loads the DMS files"],
+  ["EDP_MANAGER", "Stock In-charge", "receives cars, transfers, loads the stock report"],
+  ["EDP_MANAGER", "Ordering Desk", "orders on the manufacturer, keeps the vehicle master"],
 ];
 
 main(async () => {

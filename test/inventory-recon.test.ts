@@ -300,7 +300,7 @@ describe("stock changes through the day", () => {
     const d = await makeDealer(w);
     await addCar(w, d, "VIN0000000000001", CRETA, "PATIA", "RECEIVED");
     const b1 = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Deferring", "9876511111");
-    const ex = await w.api("POST", "/api/exceptions", { type: "DEFER_DELIVERY", booking_id: b1.id, payload: { until: "2026-11-01" }, reason: "Customer wants delivery after Diwali" }, d.users.se1.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "DEFER_DELIVERY", booking_id: b1.id, payload: { until: "2026-11-01" }, reason: "Customer wants delivery after Diwali" }, d.users.agm.session);
     await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
     expect((await booking(w, d, b1.id)).booking).toMatchObject({ status: "APPROVED", on_hold: 1, hold_reason: "CUSTOMER_DEFERRED", hold_until: "2026-11-01", expected_delivery_date: "2026-11-01" });
     w.at("2026-10-31 10:00");
@@ -443,7 +443,7 @@ describe("day-end reconciliation", () => {
     expect((await booking(w, d, late.id)).booking).toMatchObject({ status: "APPROVED", on_hold: 1, hold_reason: "CAR_LEFT_STOCK" });
     expect((await booking(w, d, late.id)).allocation).toBeNull();
     expect(snap.body.allocations).toBe(0);
-    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'CAR_LEFT_STOCK' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'CAR_LEFT_STOCK' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     // On WhatsApp the Business Head has had two alarms by now: yesterday's reconciliation with its high-severity finding
     // (the stale files), and this car. (This dealership has no Dealer Principal user to send them to.)
     expect(w.db.q<any>(`SELECT to_name, json_extract(params_json, '$.title') AS title FROM wa_messages WHERE event_key = 'MANAGEMENT_ALARM' ORDER BY created_at, rowid`)).toEqual([

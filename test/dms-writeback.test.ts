@@ -17,7 +17,7 @@ const bookingId = (w: World, no: string) => w.db.q<{ id: string }>(`SELECT id FR
 
 /** Raises a release request and has the Business Head approve it. */
 async function release(w: World, d: Dealer, no: string, payload: Record<string, unknown>, reason = "Because of the following") {
-  const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: bookingId(w, no), payload, reason }, d.users.lead.session);
+  const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: bookingId(w, no), payload, reason }, d.users.agm.session);
   if (ex.status !== 201) throw new Error(`request not raised: ${JSON.stringify(ex.body)}`);
   const ok = await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
   if (ok.status !== 200) throw new Error(`not approved: ${JSON.stringify(ok.body)}`);
