@@ -141,7 +141,7 @@ function ExceptionApprovals() {
   return (
     <Card
       title="Special requests"
-      note={can("exception.decide") ? "Approving a request applies the change immediately." : "Requests you have raised."}
+      note={can("exception.decide") ? "Approving a request applies the change immediately. Requests from another billing centre are shown here, for that centre\u2019s own GM to decide." : "Requests you have raised."}
       actions={
         <Segments
           label="Which requests"

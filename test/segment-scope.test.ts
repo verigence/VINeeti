@@ -2,7 +2,7 @@
 // raises requests for that kind only. The segment is the manufacturer's own category on the master, so
 // it comes from the stock report; the approver is unchanged and sees every segment.
 import { describe, expect, it } from "vitest";
-import { loadBookings, loadStock, makeMahindraDealer, makeWorld, PASSWORD, type Dealer, type World } from "./harness";
+import { addCar, approvedBooking, CRETA, loadBookings, loadStock, makeDealer, makeMahindraDealer, makeWorld, PASSWORD, type Dealer, type Session, type World } from "./harness";
 
 const q = <T = any>(w: World, sql: string, ...p: unknown[]) => w.db.q<T>(sql, ...p);
 const MAXX = { model: "BOL MAXX PUP HD", variant: "1.7 LX (M0246)", colour: "WHITE" }; // PROSPER: a pick-up
@@ -24,6 +24,14 @@ async function start(): Promise<{ w: World; d: Dealer }> {
   expect(set.status).toBe(200);
   return { w, d };
 }
+/** Creates a person with a role and their outlets, signed in and past the first-password screen. */
+async function addUser(w: World, d: Dealer, name: string, mobile: string, role: string, outletIds: string[]): Promise<Session> {
+  const made = await w.api("POST", "/api/users", { name, mobile, role, password: PASSWORD, all_outlets: false, outlet_ids: outletIds }, d.users.admin.session);
+  if (made.status !== 201) throw new Error(`${name} not created: ${JSON.stringify(made.body)}`);
+  w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE mobile = '91${mobile}'`);
+  return w.login(d.slug, mobile, PASSWORD);
+}
+
 const bookingId = (w: World, no: string) => q(w, `SELECT id FROM bookings WHERE booking_no = ?`, no)[0].id;
 const vehicleId = (w: World, vin: string) => q(w, `SELECT id FROM vehicles WHERE vin = ?`, vin)[0].id;
 
@@ -128,5 +136,36 @@ describe("a model's segment on the master", () => {
       { variant: "1.7 BASE (M0245)", category: "PROSPER" },
       { variant: "1.7 LX (M0246)", category: "PROSPER" },
     ]);
+  });
+});
+
+describe("a request belongs to the billing centre it was raised at", () => {
+  it("is decided by that centre's GM, is read-only to the other centre's GM, and the CEO decides either", async () => {
+    const w = makeWorld("2026-10-10 10:00");
+    const d = await makeDealer(w);
+    // A GM for each billing centre, and an AGM at Patia who raises the request.
+    const gmPatia = await addUser(w, d, "Gita GM Patia", "9000000071", "GM_SALES", [d.outlets.PATIA]);
+    const gmCuttack = await addUser(w, d, "Gopal GM Cuttack", "9000000072", "GM_SALES", [d.outlets.CUTTACK]);
+    const car = await addCar(w, d, "VINPATIA000000099", CRETA, "PATIA", "RECEIVED");
+    const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Patia Holder", "9811100099");
+    expect(car.id).toBeTruthy();
+    const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: b.id, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-30" }, reason: "Needed for a fleet order" }, d.users.agm.session);
+    expect(ex.status).toBe(201);
+
+    // Both GMs see it; only Patia's may answer it.
+    const seen = async (s: any) => ((await w.api("GET", "/api/exceptions", undefined, s)).body as any[]).find((r) => r.id === ex.body.id);
+    const atPatia = await seen(gmPatia);
+    const atCuttack = await seen(gmCuttack);
+    expect(atPatia).toMatchObject({ can_decide: true, outlet: "Patia" });
+    expect(atCuttack).toMatchObject({ can_decide: false, outlet: "Patia" });
+    // What the other centre is shown is the request, not the booking behind it.
+    expect(atCuttack.customer_name).toBe("Patia Holder");
+    expect((await w.api("GET", `/api/bookings/${b.id}`, undefined, gmCuttack)).status).toBe(403);
+
+    // And the refusal is real, not only a hidden button.
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, gmCuttack)).status).toBe(403);
+    expect(w.db.q<{ status: string }>(`SELECT status FROM exceptions WHERE id = ?`, ex.body.id)[0].status).toBe("PENDING");
+    // The CEO / VP works across every centre.
+    expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(200);
   });
 });

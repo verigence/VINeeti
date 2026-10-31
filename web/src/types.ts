@@ -652,7 +652,14 @@ export interface ExceptionRow {
   variant?: string;
   colour?: string;
   outlet_id?: string;
+  /** The billing centre the request was raised at. */
+  outlet?: string;
   vin?: string | null;
+  /**
+   * Whether this person may answer this one. A request belongs to the billing centre it was raised at:
+   * somebody who decides at another centre sees it and cannot act on it.
+   */
+  can_decide?: boolean;
 }
 export interface ExceptionInput {
   type: ExceptionType;
