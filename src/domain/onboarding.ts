@@ -52,8 +52,17 @@ export async function sendSignIn(
   if (!address) return { emailed: false, email_error: "NO_EMAIL" };
   const post = mailer(ctx.env, () => ctx.now);
   if (!post) return { emailed: false, email_error: "MAIL_NOT_CONFIGURED" };
-  const base = { name: w.name, dealership: ctx.tenant.name, mobile: w.mobile, password: w.password, signInUrl: ctx.env.APP_URL || "the VINeeti address your dealership uses" };
-  const message = kind === "WELCOME" ? welcomeMail({ ...base, roleLabel: w.roleLabel }) : resetMail(base);
+  const base = {
+    name: w.name,
+    dealership: ctx.tenant.name,
+    roleLabel: w.roleLabel,
+    mobile: w.mobile,
+    password: w.password,
+    signInUrl: ctx.env.APP_URL || "the VINeeti address your dealership uses",
+    logo: await emailMark(ctx.env, "email-logo.png"),
+    jbr: await emailMark(ctx.env, "email-jbr.png"),
+  };
+  const message = kind === "WELCOME" ? welcomeMail(base) : resetMail(base);
   try {
     await post.send({ ...message, to: address });
     return { emailed: true };
@@ -61,6 +70,25 @@ export async function sendSignIn(
     // The person is still created or reset; only the telling of them failed.
     return { emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE" };
   }
+}
+
+/**
+ * The mark at the top of a message, read from the web app's own files so there is one picture and not
+ * a copy of it in the Worker. It rides inside the message, so nothing is fetched when it is opened and
+ * no "show pictures" bar stands between the person and their password. Unreadable, the message simply
+ * carries the product's name as text instead.
+ */
+const marks = new Map<string, Uint8Array | null>();
+async function emailMark(env: Env, file: string): Promise<Uint8Array | undefined> {
+  if (!marks.has(file)) {
+    try {
+      const res = await env.ASSETS?.fetch(new Request(`https://assets.invalid/brand/${file}`));
+      marks.set(file, res?.ok ? new Uint8Array(await res.arrayBuffer()) : null);
+    } catch {
+      marks.set(file, null);
+    }
+  }
+  return marks.get(file) ?? undefined;
 }
 
 export function temporaryPassword(): string {
