@@ -63,7 +63,7 @@ main(async () => {
   // The version deployed and when, shown on the platform console's System health page. From the
   // pipeline's own commit when run there; from git when run by hand.
   const sha = process.env.GITHUB_SHA ?? gitSha();
-  config.vars = { ...(config.vars ?? {}), APP_VERSION: sha ? sha.slice(0, 12) : "unknown", APP_DEPLOYED_AT: new Date().toISOString() };
+  config.vars = { ...(config.vars ?? {}), APP_VERSION: sha ? sha.slice(0, 12) : "unknown", APP_DEPLOYED_AT: new Date().toISOString(), APP_URL: process.env.VINEETI_URL || workerUrl(worker) };
   writeFileSync(join(ROOT, CONFIG), JSON.stringify(config, null, 2));
 
   step(2, "Building the web app");

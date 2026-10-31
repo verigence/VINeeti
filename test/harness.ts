@@ -236,7 +236,7 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
   let n = 2;
   for (const [key, name, role, scope] of people) {
     const mobile = `${mobilePrefix}${String(n++).padStart(2, "0")}`;
-    const res = await w.api("POST", "/api/users", { name, mobile, role, password: PASSWORD, all_outlets: scope === "ALL", outlet_ids: scope === "ALL" ? [] : scope.map((c) => outlets[c]) }, admin);
+    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, password: PASSWORD, all_outlets: scope === "ALL", outlet_ids: scope === "ALL" ? [] : scope.map((c) => outlets[c]) }, admin);
     if (res.status !== 201) throw new Error(`user ${key} not created: ${JSON.stringify(res.body)}`);
     settle();
     dealer.users[key] = { id: res.body.id, mobile, session: await w.login(slug, mobile, PASSWORD) };
@@ -387,7 +387,7 @@ export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mob
   let n = 2;
   for (const [key, name, role] of people) {
     const mobile = `${mobilePrefix}${String(n++).padStart(2, "0")}`;
-    const res = await w.api("POST", "/api/users", { name, mobile, role, password: PASSWORD, all_outlets: true, outlet_ids: [] }, admin);
+    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, password: PASSWORD, all_outlets: true, outlet_ids: [] }, admin);
     if (res.status !== 201) throw new Error(`user ${key} not created: ${JSON.stringify(res.body)}`);
     settle();
     dealer.users[key] = { id: res.body.id, mobile, session: await w.login(slug, mobile, PASSWORD) };

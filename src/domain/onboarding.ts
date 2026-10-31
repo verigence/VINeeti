@@ -7,6 +7,8 @@
 import type { Ctx, Env, Role, TenantRow } from "../env";
 import { hashPassword, hex, timingSafeEqual } from "../lib/crypto";
 import { all, auditStmt, chunk, first, run, stmt } from "../lib/db";
+import { MailError, mailer } from "../lib/mailer";
+import { resetMail, welcomeMail } from "./mail-templates";
 import { ROLE_LABELS, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { HttpError, bad, iso, newId, norm, normMobile } from "../lib/util";
 import { buildXlsx, readExport, tableWith } from "../lib/xlsx";
@@ -35,6 +37,32 @@ export function roleFromText(raw: unknown): Role | null {
 }
 
 /** A password a person can read out and type on a phone: 10 characters, letters and digits, none that look alike. */
+/**
+ * Sends a person their way in, and says whether it went. Making an account must not fail because the
+ * mail server is down, so a failure comes back as a reason and the temporary password is still shown
+ * on screen, which is what happened before there was any email at all.
+ */
+export async function sendSignIn(
+  ctx: Ctx,
+  kind: "WELCOME" | "RESET",
+  to: string | null | undefined,
+  w: { name: string; roleLabel: string; mobile: string; password: string },
+): Promise<{ emailed: boolean; email_error?: string }> {
+  const address = (to ?? "").trim();
+  if (!address) return { emailed: false, email_error: "NO_EMAIL" };
+  const post = mailer(ctx.env, () => ctx.now);
+  if (!post) return { emailed: false, email_error: "MAIL_NOT_CONFIGURED" };
+  const base = { name: w.name, dealership: ctx.tenant.name, mobile: w.mobile, password: w.password, signInUrl: ctx.env.APP_URL || "the VINeeti address your dealership uses" };
+  const message = kind === "WELCOME" ? welcomeMail({ ...base, roleLabel: w.roleLabel }) : resetMail(base);
+  try {
+    await post.send({ ...message, to: address });
+    return { emailed: true };
+  } catch (e) {
+    // The person is still created or reset; only the telling of them failed.
+    return { emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE" };
+  }
+}
+
 export function temporaryPassword(): string {
   const letters = "abcdefghjkmnpqrstuvwxyz", digits = "23456789";
   const bytes = new Uint8Array(10);
@@ -66,7 +94,7 @@ export async function employeeTemplate(ctx: Ctx): Promise<Uint8Array> {
 
 export interface EmployeeImportResult {
   row_count: number;
-  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string }[];
+  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email: string | null; emailed?: boolean; email_error?: string }[];
   updated: { name: string; mobile: string; role_label: string; changes: string[] }[];
   unchanged: number;
   errors: { row: number; key: string; message: string }[];
@@ -92,6 +120,7 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
   const dmsOwner = new Map(users.filter((u) => u.dms_code).map((u) => [u.dms_code!, u.id]));
   const result: EmployeeImportResult = { row_count: t.records.length, created: [], updated: [], unchanged: 0, errors: [], otp_available: await otpAvailable(ctx.env, ctx.db, ctx.tenantId) };
   const stmts: D1PreparedStatement[] = [];
+  const welcomes: { email: string | null; name: string; roleLabel: string; mobile: string; password: string }[] = [];
   const seen = new Set<string>();
   const at = iso(ctx.now);
   for (const r of t.records) {
@@ -137,7 +166,9 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
         auditStmt(ctx, "USER_CREATED", "user", id, { name, role, all_outlets: all_, outlets: codes, source: "Employee sheet" }),
       );
       if (dms) dmsOwner.set(dms, id);
-      result.created.push({ name, mobile, role, role_label: ROLE_LABELS[role], outlets: outletText, temporary_password: password });
+      result.created.push({ name, mobile, role, role_label: ROLE_LABELS[role], outlets: outletText, temporary_password: password, email });
+      // Sent after the sheet is written, so one unreachable address never costs the rest their accounts.
+      welcomes.push({ email, name, roleLabel: ROLE_LABELS[role], mobile, password });
       continue;
     }
     const had = links.filter((l) => l.user_id === cur.id).map((l) => outletCode.get(l.outlet_id) ?? "").sort().join(",");
@@ -158,12 +189,19 @@ export async function importEmployees(ctx: Ctx, bytes: Uint8Array, filename: str
     result.updated.push({ name, mobile, role_label: ROLE_LABELS[role], changes });
   }
   for (const part of chunk(stmts, 40)) await ctx.db.batch(part);
+  // Everybody is created first, then told. A mail account that is down, or a row with no address,
+  // leaves that person's temporary password on the screen and the rest of the sheet untouched.
+  for (const w of welcomes) {
+    const sent = await sendSignIn(ctx, "WELCOME", w.email, w);
+    const row = result.created.find((c) => c.mobile === w.mobile);
+    if (row) Object.assign(row, sent);
+  }
   return result;
 }
 
 /** The administrator gives a person a new temporary password. It is shown once; the person must replace it at sign-in, and is signed out everywhere. */
-export async function resetPassword(ctx: Ctx, userId: string): Promise<{ temporary_password: string }> {
-  const u = await first<{ id: string; name: string }>(ctx.db, `SELECT id, name FROM users WHERE id = ? AND tenant_id = ?`, userId, ctx.tenantId);
+export async function resetPassword(ctx: Ctx, userId: string): Promise<{ temporary_password: string; emailed: boolean; email_error?: string; email?: string | null }> {
+  const u = await first<{ id: string; name: string; email: string | null; mobile: string; role: Role }>(ctx.db, `SELECT id, name, email, mobile, role FROM users WHERE id = ? AND tenant_id = ?`, userId, ctx.tenantId);
   if (!u) throw new HttpError(404, "User not found", "NOT_FOUND");
   const password = temporaryPassword();
   await ctx.db.batch([
@@ -171,7 +209,8 @@ export async function resetPassword(ctx: Ctx, userId: string): Promise<{ tempora
     stmt(ctx.db, `UPDATE password_otps SET used_at = ? WHERE tenant_id = ? AND user_id = ? AND used_at IS NULL`, iso(ctx.now), ctx.tenantId, u.id),
     auditStmt(ctx, "PASSWORD_RESET_BY_ADMIN", "user", u.id, {}),
   ]);
-  return { temporary_password: password };
+  const sent = await sendSignIn(ctx, "RESET", u.email, { name: u.name, roleLabel: ROLE_LABELS[u.role], mobile: u.mobile, password });
+  return { temporary_password: password, email: u.email, ...sent };
 }
 
 // ---------------------------------------------------------------- one-time code on WhatsApp

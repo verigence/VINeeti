@@ -243,7 +243,7 @@ export const api = {
   directory: () => get<T.DirectoryUser[]>("/api/users/directory"),
   createUser: (u: T.UserInput) => post<{ id: string }>("/api/users", u),
   updateUser: (id: string, u: T.UserInput) => patch<Ok>(`/api/users/${enc(id)}`, u),
-  resetUserPassword: (id: string) => post<{ temporary_password: string }>(`/api/users/${enc(id)}/reset-password`),
+  resetUserPassword: (id: string) => post<{ temporary_password: string; emailed: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
   employeeTemplateUrl: "/api/users/template",
   importEmployees: (file: File) => {
     const form = new FormData();

@@ -784,7 +784,7 @@ export interface Segment {
 
 export interface EmployeeImportResult {
   row_count: number;
-  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string }[];
+  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email?: string | null; emailed?: boolean; email_error?: string }[];
   updated: { name: string; mobile: string; role_label: string; changes: string[] }[];
   unchanged: number;
   errors: UploadError[];

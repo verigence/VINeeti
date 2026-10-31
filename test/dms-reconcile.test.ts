@@ -428,7 +428,7 @@ describe("what a file may and may not do", () => {
     await loadStock(w, d.users.admin.session, [{ vin: "MA1THAR0000000001", car: "THAR_WHITE", loc: "SM01" }, { vin: "MA1THAR0000000002", car: "THAR_WHITE", loc: "SM02" }]);
     const outlets = (await w.api("GET", "/api/outlets", undefined, d.users.admin.session)).body as { id: string; code: string }[];
     const sm01 = outlets.find((o) => o.code === "SM01")!.id;
-    const made = await w.api("POST", "/api/users", { name: "Local Stock", mobile: "9100000050", role: "EDP_MANAGER", password: "Passw0rd!", all_outlets: false, outlet_ids: [sm01] }, d.users.admin.session);
+    const made = await w.api("POST", "/api/users", { name: "Local Stock", mobile: "9100000050", email: "9100000050@test.example", role: "EDP_MANAGER", password: "Passw0rd!", all_outlets: false, outlet_ids: [sm01] }, d.users.admin.session);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE id = '${made.body.id}'`);
     const local = await w.login(d.slug, "9100000050", "Passw0rd!");
     w.at("2026-10-07 09:00");

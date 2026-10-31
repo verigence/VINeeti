@@ -20,6 +20,18 @@ export interface Env {
   /** Optional: SHA-256 fingerprint(s) of the Android app's signing certificate, comma-separated, so the app may open the site full screen. */
   ANDROID_CERT_SHA256?: string;
   /**
+   * The mail account the deployment sends from: the dealership group's own, the same one the HR
+   * service uses. The app password is a Worker secret. Unset, nothing is emailed and a temporary
+   * password is shown on screen instead, as before.
+   */
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_USER?: string;
+  SMTP_PASSWORD?: string;
+  SMTP_FROM?: string;
+  /** Where people sign in, for the links in those messages. Written by the deployment. */
+  APP_URL?: string;
+  /**
    * The Verigence platform. Documents uploaded by a sales consultant are read by Document Intelligence
    * there rather than here: it holds the extraction schemas for a booking form and a payment receipt,
    * and it keeps the files. Left unset, document upload is simply not offered and everything else in

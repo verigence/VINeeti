@@ -82,7 +82,7 @@ describe("signing in", () => {
 
 describe("passwords", () => {
   it("a new user can do nothing until they replace the password the administrator gave them", async () => {
-    const created = await w.api("POST", "/api/users", { name: "New Joiner", mobile: "9000000077", role: "SALES_CONSULTANT", password: PASSWORD, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session);
+    const created = await w.api("POST", "/api/users", { name: "New Joiner", mobile: "9000000077", email: "9000000077@test.example", role: "SALES_CONSULTANT", password: PASSWORD, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session);
     expect(created.status).toBe(201);
     const old = { cookie: (await w.login(d.slug, "9000000077", PASSWORD)).cookie };
     const me = await w.api("GET", "/api/auth/me", undefined, old);
