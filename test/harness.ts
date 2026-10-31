@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../src/index";
 import type { Env } from "../src/env";
 import { clock } from "../src/http/app";
+import { hashPassword } from "../src/lib/crypto";
 import { runScheduled } from "../src/scheduled";
 
 const MIGRATIONS = fileURLToPath(import.meta.resolve("../migrations/"));
@@ -212,8 +213,15 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
   if (created.status !== 201) throw new Error(`tenant not created: ${JSON.stringify(created.body)}`);
   // New accounts must replace their first password before doing anything else (covered in auth.test.ts).
   // The fixtures skip that step so each test can start straight at the work.
-  const settle = () => w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE tenant_id = '${created.body.tenant_id}'`);
-  settle();
+  // Given an id, also puts the shared test password on that one account, salted on its own: the server
+  // makes and emails every temporary password now, which the fixtures neither see nor need to test.
+  const settle = async (id?: string) =>
+    w.db.raw.exec(
+      id
+        ? `UPDATE users SET must_change_password = 0, password_hash = '${await hashPassword(PASSWORD)}' WHERE id = '${id}'`
+        : `UPDATE users SET must_change_password = 0 WHERE tenant_id = '${created.body.tenant_id}'`,
+    );
+  await settle();
   const admin = await w.login(slug, `${mobilePrefix}01`, PASSWORD);
   const outletRows = (await w.api("GET", "/api/outlets", undefined, admin)).body as { id: string; code: string }[];
   const outlets = Object.fromEntries(outletRows.map((o) => [o.code, o.id]));
@@ -236,9 +244,9 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
   let n = 2;
   for (const [key, name, role, scope] of people) {
     const mobile = `${mobilePrefix}${String(n++).padStart(2, "0")}`;
-    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, password: PASSWORD, all_outlets: scope === "ALL", outlet_ids: scope === "ALL" ? [] : scope.map((c) => outlets[c]) }, admin);
+    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, all_outlets: scope === "ALL", outlet_ids: scope === "ALL" ? [] : scope.map((c) => outlets[c]) }, admin);
     if (res.status !== 201) throw new Error(`user ${key} not created: ${JSON.stringify(res.body)}`);
-    settle();
+    await settle(res.body.id);
     dealer.users[key] = { id: res.body.id, mobile, session: await w.login(slug, mobile, PASSWORD) };
   }
   return dealer;
@@ -368,8 +376,15 @@ export const liveBookings = () => fixture("live_bookings.sample.xlsx");
 export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mobilePrefix = "91000000"): Promise<Dealer> {
   const created = await w.api("POST", "/api/platform/tenants", { slug, name: "Sample Motors", oem: "Mahindra", outlets: [{ code: "SM01", name: "CUTTACK", city: "Cuttack" }], admin: { name: "Asha Admin", mobile: `${mobilePrefix}01`, password: PASSWORD } }, undefined, PLATFORM);
   if (created.status !== 201) throw new Error(`tenant not created: ${JSON.stringify(created.body)}`);
-  const settle = () => w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE tenant_id = '${created.body.tenant_id}'`);
-  settle();
+  // Given an id, also puts the shared test password on that one account, salted on its own: the server
+  // makes and emails every temporary password now, which the fixtures neither see nor need to test.
+  const settle = async (id?: string) =>
+    w.db.raw.exec(
+      id
+        ? `UPDATE users SET must_change_password = 0, password_hash = '${await hashPassword(PASSWORD)}' WHERE id = '${id}'`
+        : `UPDATE users SET must_change_password = 0 WHERE tenant_id = '${created.body.tenant_id}'`,
+    );
+  await settle();
   const admin = await w.login(slug, `${mobilePrefix}01`, PASSWORD);
   const dealer: Dealer = { slug, tenantId: created.body.tenant_id, outlets: {}, users: { admin: { id: created.body.admin_user_id, mobile: `${mobilePrefix}01`, session: admin } } };
   const people: [string, string, string][] = [
@@ -387,9 +402,9 @@ export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mob
   let n = 2;
   for (const [key, name, role] of people) {
     const mobile = `${mobilePrefix}${String(n++).padStart(2, "0")}`;
-    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, password: PASSWORD, all_outlets: true, outlet_ids: [] }, admin);
+    const res = await w.api("POST", "/api/users", { name, mobile, email: `${mobile}@test.example`, role, all_outlets: true, outlet_ids: [] }, admin);
     if (res.status !== 201) throw new Error(`user ${key} not created: ${JSON.stringify(res.body)}`);
-    settle();
+    await settle(res.body.id);
     dealer.users[key] = { id: res.body.id, mobile, session: await w.login(slug, mobile, PASSWORD) };
   }
   return dealer;

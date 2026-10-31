@@ -3,17 +3,22 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { alertStmt, all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatrix, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
-import { employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn } from "../domain/onboarding";
+import { emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn, sendSignInAfter, temporaryPassword } from "../domain/onboarding";
 import { previewRules } from "../domain/preview";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
 import { bad, conflict, forbidden, HttpError, iso, newId, norm, normMobile, notFound } from "../lib/util";
 import { ensureWaDefaults } from "../whatsapp/outbox";
-import { authenticate, buildCtx, clock, describeUser, getCookie, jsonBody, need, outletScope, sessionCookie, type App } from "./app";
+import { authenticate, buildCtx, clock, describeUser, getCookie, jsonBody, need, outletScope, sessionCookie, type App, type C } from "./app";
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
+
+/** Hands work to the runtime to finish after the answer has gone back. */
+function after(c: C, p: Promise<unknown>) {
+  c.executionCtx.waitUntil(p.catch(() => undefined));
+}
 
 function checkPassword(pw: unknown): string {
   const s = String(pw ?? "");
@@ -289,7 +294,7 @@ export function authRoutes(app: App) {
       filename = c.req.query("filename") ?? undefined;
     }
     c.header("Cache-Control", "private, no-store");
-    return c.json(await importEmployees(c.get("ctx"), bytes, filename, c.get("user").id));
+    return c.json(await importEmployees(c.get("ctx"), bytes, filename, c.get("user").id, (p) => after(c, p)));
   });
 
   /** A new temporary password for one person, shown this once. */
@@ -297,7 +302,7 @@ export function authRoutes(app: App) {
     need(c, "admin.users");
     if (c.req.param("id") === c.get("user").id) throw bad("Change your own password from your profile");
     c.header("Cache-Control", "private, no-store");
-    return c.json(await resetPassword(c.get("ctx"), c.req.param("id")));
+    return c.json(await resetPassword(c.get("ctx"), c.req.param("id"), (p) => after(c, p)));
   });
 
   /** Roles and controls: what each persona may do under the dealership's current settings. */
@@ -317,7 +322,10 @@ export function authRoutes(app: App) {
     const email = (b.email ?? "").trim();
     if (!email || !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email)) throw bad("A valid email address is required: the temporary password is sent to it");
     if (!b.role || !ROLES.includes(b.role)) throw bad("Role is not valid");
-    const password = checkPassword(b.password);
+    // Nobody chooses this. The system makes one, emails it to the person, and shows it to the
+    // administrator only when it could not be sent: a password an administrator typed is a password
+    // an administrator knows, and the point of sending it is that only the person ever reads it.
+    const password = temporaryPassword();
     if (await first(ctx.db, `SELECT id FROM users WHERE tenant_id = ? AND mobile = ?`, ctx.tenantId, mobile)) throw conflict("A user with this mobile number already exists");
     const allOutlets = b.all_outlets ?? TENANT_WIDE_ROLES.includes(b.role);
     if (!allOutlets && !(b.outlet_ids ?? []).length) throw bad("Choose at least one outlet for this user");
@@ -327,17 +335,61 @@ export function authRoutes(app: App) {
     const segments = b.segments?.length ? await setSegments(ctx, id, b.segments) : [];
     if (dmsCode) await linkBookingsTo(ctx, id, dmsCode);
     await audit(ctx, "USER_CREATED", "user", id, { name: b.name.trim(), role: b.role, all_outlets: allOutlets, outlet_ids: b.outlet_ids ?? [], segments });
-    // Told by email; if that cannot be done the password is still shown once, as it was before.
-    const sent = await sendSignIn(ctx, "WELCOME", email, { name: b.name.trim(), roleLabel: ROLE_LABELS[b.role], mobile, password });
     c.header("Cache-Control", "private, no-store");
-    return c.json({ id, email, ...sent }, 201);
+    const told = { name: b.name.trim(), roleLabel: ROLE_LABELS[b.role], mobile, password };
+    // With a mail account the message follows the answer, so the screen comes back at once; a failure
+    // becomes an alert for whoever made the account. With no mail account there is nothing to wait for
+    // and the password is shown once, exactly as it was before email existed.
+    if (emailPossible(ctx.env)) {
+      sendSignInAfter(ctx, (p) => after(c, p), "WELCOME", email, told, id);
+      return c.json({ id, email, emailing: true }, 201);
+    }
+    const sent = await sendSignIn(ctx, "WELCOME", email, told);
+    return c.json({ id, email, temporary_password: password, ...sent }, 201);
+  });
+
+  /**
+   * Removes a person who should not have been added. Only one who has done nothing: the moment
+   * somebody has a booking, a request, a file or an entry against their name, deleting them would
+   * leave the dealership's own record unreadable, so they are switched off instead and the trail
+   * stays whole. A mistake made five minutes ago can simply go.
+   */
+  app.delete("/api/users/:id", async (c) => {
+    need(c, "admin.users");
+    const ctx = c.get("ctx");
+    if (c.req.param("id") === c.get("user").id) throw bad("You cannot remove your own account");
+    const u = await first<{ id: string; name: string; mobile: string; role: Role }>(ctx.db, `SELECT id, name, mobile, role FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
+    if (!u) throw notFound("User");
+    const history = await first<{ n: number }>(
+      ctx.db,
+      `SELECT (SELECT COUNT(*) FROM bookings WHERE tenant_id = ?1 AND (sales_exec_id = ?2 OR created_by = ?2 OR approved_by = ?2))
+            + (SELECT COUNT(*) FROM allocations WHERE tenant_id = ?1 AND allocated_by = ?2)
+            + (SELECT COUNT(*) FROM exceptions WHERE tenant_id = ?1 AND (requested_by = ?2 OR decided_by = ?2))
+            + (SELECT COUNT(*) FROM uploads WHERE tenant_id = ?1 AND uploaded_by = ?2)
+            + (SELECT COUNT(*) FROM recon_items WHERE tenant_id = ?1 AND resolved_by = ?2)
+            + (SELECT COUNT(*) FROM audit_log WHERE tenant_id = ?1 AND actor = ?2) AS n`,
+      ctx.tenantId, u.id,
+    );
+    if ((history?.n ?? 0) > 0) {
+      throw conflict(`${u.name} has already worked in the system, so the record of what they did has to keep their name. Switch the account off instead: they can no longer sign in, and their history stays.`);
+    }
+    await ctx.db.batch([
+      stmt(ctx.db, `DELETE FROM user_outlets WHERE user_id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
+      stmt(ctx.db, `DELETE FROM user_segments WHERE user_id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
+      stmt(ctx.db, `DELETE FROM password_otps WHERE user_id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
+      stmt(ctx.db, `UPDATE bookings SET sales_exec_id = NULL WHERE tenant_id = ? AND sales_exec_id = ?`, ctx.tenantId, u.id),
+      stmt(ctx.db, `DELETE FROM users WHERE id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
+      // The removal itself is recorded, so a name that disappears can still be accounted for.
+      auditStmt(ctx, "USER_DELETED", "user", u.id, { name: u.name, mobile: u.mobile, role: u.role }),
+    ]);
+    return c.json({ ok: true, removed: u.name });
   });
 
   app.patch("/api/users/:id", async (c) => {
     need(c, "admin.users");
     const ctx = c.get("ctx");
     const me = c.get("user");
-    const b = await jsonBody<{ name?: string; email?: string; role?: Role; password?: string; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
+    const b = await jsonBody<{ name?: string; email?: string; role?: Role; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
     const u = await first<any>(ctx.db, `SELECT * FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!u) throw notFound("User");
     const dmsCode = b.dms_code === undefined ? u.dms_code : await checkDmsCode(ctx, b.dms_code, u.id);
@@ -346,21 +398,17 @@ export function authRoutes(app: App) {
     const role = b.role ?? u.role;
     const allOutlets = b.all_outlets === undefined ? Boolean(u.all_outlets) : b.all_outlets;
     let bump = 0;
-    let hash = u.password_hash;
-    if (b.password) {
-      hash = await hashPassword(checkPassword(b.password));
-      bump = 1; // signs the user out everywhere
-    }
+    // A password is never typed in on somebody's behalf: Reset password makes one and emails it.
     if (b.is_active === false) bump = 1;
     await run(
       ctx.db,
       `UPDATE users SET name = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
-      b.name?.trim() || u.name, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, hash, b.password ? 1 : u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
+      b.name?.trim() || u.name, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
     );
     if (dmsCode && dmsCode !== u.dms_code) await linkBookingsTo(ctx, u.id, dmsCode);
     if (b.outlet_ids || b.all_outlets !== undefined) await setOutlets(ctx, u.id, allOutlets ? [] : b.outlet_ids ?? []);
     if (b.segments !== undefined) await setSegments(ctx, u.id, b.segments);
-    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b, password: b.password ? "(changed)" : undefined });
+    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b });
     return c.json({ ok: true });
   });
 

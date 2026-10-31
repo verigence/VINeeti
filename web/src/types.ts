@@ -767,7 +767,6 @@ export interface UserInput {
   mobile?: string;
   email?: string;
   role?: Role;
-  password?: string;
   all_outlets?: boolean;
   outlet_ids?: string[];
   is_active?: boolean;
@@ -784,7 +783,7 @@ export interface Segment {
 
 export interface EmployeeImportResult {
   row_count: number;
-  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email?: string | null; emailed?: boolean; email_error?: string }[];
+  created: { name: string; mobile: string; role: Role; role_label: string; outlets: string; temporary_password: string; email?: string | null; emailed?: boolean; emailing?: boolean; email_error?: string }[];
   updated: { name: string; mobile: string; role_label: string; changes: string[] }[];
   unchanged: number;
   errors: UploadError[];

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { makeDealer, makeWorld, PASSWORD, type Dealer, type World } from "./harness";
+import { CRETA, makeDealer, makeWorld, PASSWORD, submittedBooking, type Dealer, type World } from "./harness";
 
 let w: World;
 let d: Dealer;
@@ -82,9 +82,13 @@ describe("signing in", () => {
 
 describe("passwords", () => {
   it("a new user can do nothing until they replace the password the administrator gave them", async () => {
-    const created = await w.api("POST", "/api/users", { name: "New Joiner", mobile: "9000000077", email: "9000000077@test.example", role: "SALES_CONSULTANT", password: PASSWORD, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session);
+    const created = await w.api("POST", "/api/users", { name: "New Joiner", mobile: "9000000077", email: "9000000077@test.example", role: "SALES_CONSULTANT", outlet_ids: [d.outlets.PATIA] }, d.users.admin.session);
     expect(created.status).toBe(201);
-    const old = { cookie: (await w.login(d.slug, "9000000077", PASSWORD)).cookie };
+    // The administrator does not choose it: the server makes one and, with no mail account on this
+    // deployment, hands it back this once instead of emailing it.
+    const given: string = created.body.temporary_password;
+    expect(given).toMatch(/^[a-z2-9]{10}$/);
+    const old = { cookie: (await w.login(d.slug, "9000000077", given)).cookie };
     const me = await w.api("GET", "/api/auth/me", undefined, old);
     expect(me.body.user.mustChangePassword).toBe(true);
     for (const path of ["/api/bookings", "/api/stock/summary", "/api/vehicles"]) {
@@ -92,16 +96,16 @@ describe("passwords", () => {
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("PASSWORD_CHANGE_REQUIRED");
     }
-    expect((await w.api("POST", "/api/auth/change-password", { current: PASSWORD, next: "short1" }, old)).status).toBe(400);
-    expect((await w.api("POST", "/api/auth/change-password", { current: PASSWORD, next: "allletters" }, old)).status).toBe(400);
+    expect((await w.api("POST", "/api/auth/change-password", { current: given, next: "short1" }, old)).status).toBe(400);
+    expect((await w.api("POST", "/api/auth/change-password", { current: given, next: "allletters" }, old)).status).toBe(400);
     expect((await w.api("POST", "/api/auth/change-password", { current: "wrong", next: "NewPassw0rd" }, old)).status).toBe(400);
-    const res = await w.api("POST", "/api/auth/change-password", { current: PASSWORD, next: "NewPassw0rd" }, old);
+    const res = await w.api("POST", "/api/auth/change-password", { current: given, next: "NewPassw0rd" }, old);
     expect(res.status).toBe(200);
     expect((await w.api("GET", "/api/auth/me", undefined, old)).status).toBe(401);
     const fresh = { cookie: res.headers.get("Set-Cookie")!.split(";")[0] };
     expect((await w.api("GET", "/api/auth/me", undefined, fresh)).body.user.mustChangePassword).toBe(false);
     expect((await w.api("GET", "/api/bookings", undefined, fresh)).status).toBe(200);
-    expect((await w.api("POST", "/api/auth/login", { dealer: d.slug, mobile: "9000000077", password: PASSWORD })).status).toBe(401);
+    expect((await w.api("POST", "/api/auth/login", { dealer: d.slug, mobile: "9000000077", password: given })).status).toBe(401);
   });
 
   it("stores passwords only as salted hashes", () => {
@@ -113,9 +117,14 @@ describe("passwords", () => {
   it("an administrator's password reset signs the user out everywhere", async () => {
     const u = d.users.accounts;
     const old = { cookie: u.session.cookie };
-    await w.api("PATCH", `/api/users/${u.id}`, { password: "Reset1234" }, d.users.admin.session);
+    // The one way an administrator gives somebody a password: the server makes it, and nobody types it.
+    const reset = await w.api("POST", `/api/users/${u.id}/reset-password`, undefined, d.users.admin.session);
+    expect(reset.status).toBe(200);
+    expect((await w.api("PATCH", `/api/users/${u.id}`, { password: "Chosen1234" }, d.users.admin.session)).status).toBe(200);
     expect((await w.api("GET", "/api/auth/me", undefined, old)).status).toBe(401);
-    const s = await w.login(d.slug, u.mobile, "Reset1234");
+    // A password named in an update is ignored rather than honoured.
+    expect((await w.api("POST", "/api/auth/login", { dealer: d.slug, mobile: u.mobile, password: "Chosen1234" })).status).toBe(401);
+    const s = await w.login(d.slug, u.mobile, reset.body.temporary_password);
     expect((await w.api("GET", "/api/auth/me", undefined, s)).body.user.mustChangePassword).toBe(true);
   });
 });
@@ -134,5 +143,36 @@ describe("request guards", () => {
     const res = await w.api("POST", "/api/bookings", "{not json", d.users.se1.session, { "Content-Type": "application/json" });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toBe("The request body is not valid JSON");
+  });
+});
+
+describe("removing a user", () => {
+  it("removes an account nobody has used, keeps one that has worked, and lets nobody else do either", async () => {
+    const w2 = makeWorld("2026-10-13 10:00");
+    const d2 = await makeDealer(w2);
+
+    // Added by mistake five minutes ago: there is nothing of theirs to keep, so it goes for good.
+    const made = await w2.api("POST", "/api/users", { name: "Wrong Number", mobile: "9000000066", email: "wrong@test.example", role: "SALES_CONSULTANT", outlet_ids: [d2.outlets.PATIA], segments: [] }, d2.users.admin.session);
+    expect(made.status).toBe(201);
+    const gone = await w2.api("DELETE", `/api/users/${made.body.id}`, undefined, d2.users.admin.session);
+    expect(gone.status).toBe(200);
+    expect(gone.body.removed).toBe("Wrong Number");
+    expect(w2.db.q(`SELECT id FROM users WHERE id = ?`, made.body.id)).toEqual([]);
+    expect(w2.db.q(`SELECT user_id FROM user_outlets WHERE user_id = ?`, made.body.id)).toEqual([]);
+    // The removal itself is on the record, so a name that disappears can still be accounted for.
+    expect(w2.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'USER_DELETED' AND entity_id = ?`, made.body.id)[0].n).toBe(1);
+
+    // Somebody who has worked: the dealership's own record needs their name, so the account is kept.
+    await submittedBooking(w2, d2, "se1", CRETA, "PATIA", "Vikram Rao", "9811111111");
+    const kept = await w2.api("DELETE", `/api/users/${d2.users.se1.id}`, undefined, d2.users.admin.session);
+    expect(kept.status).toBe(409);
+    expect(kept.body.error.message).toContain("Switch the account off instead");
+    expect(w2.db.q(`SELECT id FROM users WHERE id = ?`, d2.users.se1.id).length).toBe(1);
+
+    // Not a manager's to do, and not one's own to do either.
+    expect((await w2.api("DELETE", `/api/users/${d2.users.se2.id}`, undefined, d2.users.sm.session)).status).toBe(403);
+    const self = await w2.api("DELETE", `/api/users/${d2.users.admin.id}`, undefined, d2.users.admin.session);
+    expect(self.status).toBe(400);
+    expect(self.body.error.message).toContain("your own account");
   });
 });

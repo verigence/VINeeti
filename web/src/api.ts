@@ -241,9 +241,10 @@ export const api = {
   updateOutlet: (id: string, o: { name?: string; city?: string; address?: string; is_active?: boolean }) => patch<Ok>(`/api/outlets/${enc(id)}`, o),
   users: () => get<T.UserRow[]>("/api/users"),
   directory: () => get<T.DirectoryUser[]>("/api/users/directory"),
-  createUser: (u: T.UserInput) => post<{ id: string }>("/api/users", u),
+  createUser: (u: T.UserInput) => post<{ id: string; email: string; emailing?: boolean; emailed?: boolean; temporary_password?: string; email_error?: string }>("/api/users", u),
+  deleteUser: (id: string) => del<{ ok: true; removed: string }>(`/api/users/${enc(id)}`),
   updateUser: (id: string, u: T.UserInput) => patch<Ok>(`/api/users/${enc(id)}`, u),
-  resetUserPassword: (id: string) => post<{ temporary_password: string; emailed: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
+  resetUserPassword: (id: string) => post<{ temporary_password: string; emailed?: boolean; emailing?: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
   employeeTemplateUrl: "/api/users/template",
   importEmployees: (file: File) => {
     const form = new FormData();
