@@ -16,6 +16,10 @@
 #                            the password is changed. SUPERADMIN_NAME optional.
 #   ANDROID_CERT_SHA256    — optional; the Android app's signing certificate
 #                            fingerprint, printed by the Android build workflow
+#   SMTP_USER              — optional; the group's mail account and its app password,
+#   SMTP_PASSWORD            the same pair the HR service uses. Set them and the temporary
+#                            passwords are emailed; leave them out and they are shown on
+#                            screen. SMTP_HOST, SMTP_PORT and SMTP_FROM are optional too.
 #
 # The first run creates the D1 database "verigence-vineeti" and the application's
 # own secrets (SESSION_SECRET, DATA_KEY, PLATFORM_ADMIN_TOKEN); later runs apply
@@ -132,6 +136,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+          # The mail account the temporary passwords go out from. Without these two nothing is emailed
+          # and the password is shown on screen instead, which is how it worked before.
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SUPERADMIN_MOBILE: ${{ secrets.SUPERADMIN_MOBILE }}
           SUPERADMIN_PASSWORD: ${{ secrets.SUPERADMIN_PASSWORD }}
           SUPERADMIN_NAME: ${{ secrets.SUPERADMIN_NAME }}
