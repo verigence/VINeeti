@@ -40,38 +40,62 @@ export type Permission =
  * from the dealership's settings. A role acts only within the outlets it is given.
  */
 const VIEW_ALL: Permission[] = ["stock.view", "booking.view", "booking.view_all", "dashboards.view"];
+
+/** Everything there is. The Dealer Principal has it bar one thing; nobody else comes close. */
+const EVERYTHING: Permission[] = [
+  ...VIEW_ALL, "stock.manage", "stock.value", "upload.stock", "upload.bookings", "booking.create", "booking.approve", "booking.cancel", "booking.contact",
+  "booking.payment_report", "booking.payment", "booking.deliver", "booking.ready", "exception.request", "exception.decide", "release.decide", "allocation.run",
+  "orders.manage", "owner.view", "owner.review", "recon.view", "recon.manage", "wa.view", "wa.resend", "wa.manage", "master.manage", "admin.users",
+  "admin.settings", "audit.view",
+];
+
+/**
+ * What the System Admin is meant to settle down to: configure the place and read it, never act on a
+ * deal. While the dealership is finding its feet the role keeps everything (below), and switching to
+ * this is a one-word change here. It is deliberately not a setting: a setting would let the System
+ * Admin give their own privileges back.
+ */
+export const SYSTEM_ADMIN_SETTLED: Permission[] = [
+  ...VIEW_ALL, "stock.value", "recon.view", "wa.view", "wa.manage", "master.manage", "admin.users", "admin.settings", "audit.view",
+];
+
+/**
+ * What each role can do. Who approves bookings, exceptions and releases comes from the dealership's
+ * settings, so those three are added in `permissionsFor`. A role acts only within the outlets, and the
+ * vehicle segments, the person is given.
+ */
 const MATRIX: Record<Role, Permission[]> = {
-  // Sets the system up: users, outlets, settings, WhatsApp. Can also do the day's data work.
-  ADMIN: [
-    ...VIEW_ALL, "stock.manage", "stock.value", "upload.stock", "upload.bookings", "booking.create", "booking.cancel", "booking.contact", "booking.payment_report", "booking.payment",
-    "booking.deliver", "booking.ready", "exception.request", "allocation.run", "orders.manage", "owner.view", "recon.view", "recon.manage", "wa.view", "wa.manage",
-    "admin.users", "admin.settings", "audit.view", "master.manage",
+  // Sets the place up. Everything for now, while the dealership settles; SYSTEM_ADMIN_SETTLED above is
+  // where it is going, and that is a one-word change.
+  ADMIN: EVERYTHING,
+  // The owner. Everything except loading the DMS files, which is the EDP Manager's daily job.
+  DEALER_PRINCIPAL: EVERYTHING.filter((p) => p !== "upload.stock" && p !== "upload.bookings"),
+  // Answerable for execution, so: everything, except acting on money. Payments are read-only here —
+  // verifying a receipt and recording a delivery stay with Finance, which is what makes the figures
+  // the CEO reads worth reading.
+  CEO_VP: EVERYTHING.filter((p) => p !== "booking.payment" && p !== "booking.deliver"),
+  // Runs sales for a location, a vehicle segment, or both. Approves what the AGM raises; never raises
+  // it, and never changes the rules they work under.
+  GM_SALES: [
+    ...VIEW_ALL, "stock.value", "booking.create", "booking.approve", "booking.cancel", "booking.ready", "allocation.run", "recon.view",
   ],
-  // The owner: fairness, ageing and results across every outlet; reviews what was done out of turn.
-  DEALER_PRINCIPAL: [...VIEW_ALL, "stock.value", "owner.view", "owner.review", "booking.cancel", "exception.request", "recon.view", "wa.view", "admin.settings", "audit.view"],
-  // Runs the business day to day: receives the alarms, decides exceptions, owns the allocation rules.
-  BUSINESS_HEAD: [
-    ...VIEW_ALL, "stock.value", "owner.view", "owner.review", "booking.cancel", "booking.ready", "exception.request", "allocation.run", "orders.manage", "recon.view", "recon.manage", "wa.view",
-    "admin.settings", "audit.view",
+  // The segment owner: the one who asks for a car to be allocated or taken back. Cannot approve their
+  // own request, and does not see what a car cost.
+  AGM_SALES: [...VIEW_ALL, "booking.create", "booking.cancel", "booking.ready", "booking.payment_report", "exception.request", "recon.view"],
+  // Leads a team: their outlets' bookings, and approves them.
+  SALES_LEAD: [...VIEW_ALL, "booking.create", "booking.cancel", "booking.contact", "booking.ready", "booking.payment_report", "recon.view", "wa.view"],
+  // Answers the customer on stock and delivery, books, and follows their own bookings.
+  SALES_CONSULTANT: ["stock.view", "booking.view", "booking.create", "booking.payment_report", "dashboards.view"],
+  // The systems person: the DMS files, the differences they throw up, the vehicle master, orders, the
+  // stock corrections no file can make, and the message log.
+  EDP_MANAGER: [
+    ...VIEW_ALL, "stock.manage", "upload.stock", "upload.bookings", "booking.contact", "allocation.run", "orders.manage", "recon.view", "recon.manage",
+    "wa.view", "wa.resend", "master.manage",
   ],
-  // Vice President: oversight above the day's running. Sees everything, changes almost nothing, and
-  // is the one who decides whether a car may be taken back from the customer holding it — the single
-  // way a named car reaches a named booking now that allocation by hand is closed.
-  VP: [...VIEW_ALL, "stock.value", "owner.view", "owner.review", "exception.request", "recon.view", "audit.view"],
-  // Sales Lead: the team's bookings at their outlets.
-  SALES_MANAGER: [...VIEW_ALL, "booking.create", "booking.cancel", "booking.ready", "booking.payment_report", "exception.request", "allocation.run", "recon.view", "wa.view"],
-  // Sales Executive: stock and delivery answers, and their own bookings.
-  SALES_EXEC: ["stock.view", "booking.view", "booking.create", "booking.payment_report", "exception.request", "dashboards.view"],
-  // Finance: verifies that payments have been received, records invoicing and delivery, sees stock value.
-  ACCOUNTS: [...VIEW_ALL, "stock.value", "booking.payment", "booking.deliver", "owner.view", "exception.request", "recon.view", "recon.manage"],
-  // CRM: the customer's side: messages and replies, contact details, holds, delayed deliveries; loads the DMS files.
-  CRM: [...VIEW_ALL, "upload.stock", "upload.bookings", "booking.contact", "booking.ready", "exception.request", "recon.view", "wa.view", "wa.resend"],
-  // Stock in-charge: receives cars and loads the DMS files.
-  STOCK_INCHARGE: [...VIEW_ALL, "stock.manage", "upload.stock", "upload.bookings", "booking.deliver", "exception.request", "allocation.run", "recon.view", "recon.manage"],
-  // Ordering desk: what to order from the manufacturer, and the vehicle master.
-  ORDERING: [...VIEW_ALL, "orders.manage", "master.manage"],
-  // Auditor: reads everything, changes nothing.
-  AUDITOR: [...VIEW_ALL, "stock.value", "owner.view", "recon.view", "wa.view", "audit.view"],
+  // Verifies that a payment has been received, records the invoice and the delivery.
+  FINANCE: [...VIEW_ALL, "stock.value", "booking.payment", "booking.deliver", "recon.view"],
+  // Reads, and changes nothing at all.
+  AUDITOR: [...VIEW_ALL, "stock.value", "recon.view", "wa.view", "audit.view"],
 };
 
 export function permissionsFor(role: Role, settings: TenantSettings): Permission[] {
@@ -94,34 +118,31 @@ export function canSeeOutlet(user: SessionUser, outletId: string): boolean {
 }
 
 /** Roles that default to seeing every outlet of the dealership. */
-export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "BUSINESS_HEAD", "VP", "ORDERING", "AUDITOR"];
+export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "EDP_MANAGER", "FINANCE", "AUDITOR"];
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "System Admin",
   DEALER_PRINCIPAL: "Dealer Principal",
-  BUSINESS_HEAD: "Business Head / CEO",
-  VP: "Vice President",
-  SALES_MANAGER: "Sales Lead",
-  SALES_EXEC: "Sales Executive",
-  ACCOUNTS: "Finance",
-  CRM: "CRM",
-  STOCK_INCHARGE: "Stock In-charge",
-  ORDERING: "Ordering Desk",
+  CEO_VP: "CEO / VP",
+  GM_SALES: "GM Sales",
+  AGM_SALES: "AGM Sales",
+  SALES_LEAD: "Sales Lead",
+  SALES_CONSULTANT: "Sales Consultant",
+  EDP_MANAGER: "EDP Manager",
+  FINANCE: "Finance",
   AUDITOR: "Auditor",
 };
 
-/** One line on what each persona is for, shown where roles are chosen. */
 export const ROLE_PURPOSE: Record<Role, string> = {
-  ADMIN: "Sets up users, outlets, settings and WhatsApp.",
-  DEALER_PRINCIPAL: "Owner's view across all outlets: fairness, out-of-turn allocations, ageing and results. Decides exceptions.",
-  BUSINESS_HEAD: "Runs the business day to day: receives the alarms, decides exceptions, sets the allocation rules.",
-  VP: "Oversight above the day's running: sees every outlet, reviews what was done out of turn, and decides whether a car may be taken back from the customer holding it.",
-  SALES_MANAGER: "Leads a sales team: sees the team's bookings at their outlets and approves them.",
-  SALES_EXEC: "Answers the customer on stock and delivery, books, and follows their own bookings.",
-  ACCOUNTS: "Verifies that payments have been received; records invoicing and delivery; sees stock value.",
-  CRM: "Customer contact: messages and replies, delayed deliveries, holds. Loads the DMS files.",
-  STOCK_INCHARGE: "Receives cars, moves them between outlets, loads the DMS files.",
-  ORDERING: "Places orders on the manufacturer from the order queue; maintains the vehicle master.",
+  ADMIN: "Sets the system up: users, outlets, settings, WhatsApp. Holds every right while the dealership settles.",
+  DEALER_PRINCIPAL: "The owner: every screen and every outlet. Does not load the DMS files.",
+  CEO_VP: "Answerable for execution: every screen, approves what is raised. Payments are read-only.",
+  GM_SALES: "Runs sales for a location, a vehicle segment or both. Approves allocation and deallocation requests.",
+  AGM_SALES: "The segment owner: raises allocation and deallocation requests, and approves nothing.",
+  SALES_LEAD: "Leads a team: the team's bookings at their outlets, and approves them.",
+  SALES_CONSULTANT: "Answers the customer on stock and delivery, books, and follows their own bookings.",
+  EDP_MANAGER: "Loads the DMS files and settles the differences; keeps the vehicle master, orders and stock corrections.",
+  FINANCE: "Verifies that payments have been received; records invoicing and delivery.",
   AUDITOR: "Reads everything, changes nothing.",
 };
 
@@ -141,8 +162,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "booking.contact": "Correct customer contact details",
   "booking.deliver": "Mark delivered",
   "booking.ready": "Release a booking from hold",
-  "exception.request": "Raise an exception request",
-  "exception.decide": "Approve or reject exceptions",
+  "exception.request": "Raise an allocation or deallocation request",
+  "exception.decide": "Approve or reject those requests",
   "release.decide": "Approve taking a car back from a customer",
   "allocation.run": "Run allocation now",
   "orders.manage": "Manage orders on the manufacturer",
@@ -160,7 +181,6 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "audit.view": "See the audit trail",
 };
 
-/** The permissions of every role under the dealership's current settings: the "roles and controls" table. */
 export function roleMatrix(settings: TenantSettings) {
   return (Object.keys(MATRIX) as Role[]).map((role) => ({ role, label: ROLE_LABELS[role], purpose: ROLE_PURPOSE[role], permissions: permissionsFor(role, settings), tenant_wide: TENANT_WIDE_ROLES.includes(role), receives_alarms: settings.alarm_roles.includes(role) }));
 }

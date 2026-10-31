@@ -65,7 +65,7 @@ describe("what the super admin can do", () => {
     expect(made.status).toBe(201);
     const d = await makeMahindraDealer(w);
     const list = (await w.api("GET", "/api/platform/tenants", undefined, s)).body;
-    expect(list.map((t: any) => [t.slug, t.is_active, t.users])).toEqual([["new-motors", true, 1], [d.slug, true, 9]]);
+    expect(list.map((t: any) => [t.slug, t.is_active, t.users])).toEqual([["new-motors", true, 1], [d.slug, true, 11]]);
     expect(list[1]).toMatchObject({ name: "Sample Motors", oem: "Mahindra", outlets: 1, cars_in_stock: 0, open_bookings: 0, last_file_at: null });
     // Switching a dealership off stops its people signing in, and ends the sessions they have.
     expect((await w.api("GET", "/api/auth/me", undefined, d.users.exec.session)).status).toBe(200);

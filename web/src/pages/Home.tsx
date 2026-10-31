@@ -30,7 +30,7 @@ export function HomePage() {
   const payments = useLoad(() => (verifies || reports ? api.payments() : Promise.resolve(null)), "home:payments");
   const failed = useLoad(() => (followsMessages ? api.waMessages({ status: "FAILED" }) : Promise.resolve(null)), "home:wa-failed");
   // The two people who answer for the month: the Dealer Principal and the Business Head / CEO.
-  const isCeo = me.user.role === "BUSINESS_HEAD";
+  const isCeo = me.user.role === "CEO_VP";
   const runsTheBusiness = can("owner.view") && !verifies && (isCeo || me.user.role === "DEALER_PRINCIPAL");
   const month = useLoad(() => (runsTheBusiness ? api.monthPace() : Promise.resolve(null)), "home:month");
   const o = overview.data ?? null;

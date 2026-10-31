@@ -194,7 +194,7 @@ describe("whether the business is keeping up", () => {
     const ex = await w.api(
       "POST", "/api/exceptions",
       { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-30" }, reason: "Wanted for a demonstration" },
-      d.users.lead.session,
+      d.users.agm.session,
     );
     expect(ex.status).toBe(201);
 
@@ -215,7 +215,7 @@ describe("whether the business is keeping up", () => {
     ]);
     expect(g.pending).toHaveLength(1);
     expect(g.pending[0]).toMatchObject({ booking_no: "OTF27A000001", customer_name: "HOLDING IT", what: "Priority changed by management", status: "PENDING" });
-    expect(g.pending[0].requested_by).toBe("Sunita Lead");
+    expect(g.pending[0].requested_by).toBe("Arun AGM");
   });
 
   it("shows a decision once it is made, with who made it", async () => {
@@ -227,7 +227,7 @@ describe("whether the business is keeping up", () => {
     const ex = await w.api(
       "POST", "/api/exceptions",
       { type: "RELEASE_ALLOCATION", booking_id: bookingId, payload: { release_reason: "MANAGEMENT_PRIORITY", until: "2026-11-30" }, reason: "Wanted for a demonstration" },
-      d.users.lead.session,
+      d.users.agm.session,
     );
     expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(200);
 

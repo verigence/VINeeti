@@ -219,15 +219,18 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
   const outlets = Object.fromEntries(outletRows.map((o) => [o.code, o.id]));
   const dealer: Dealer = { slug, tenantId: created.body.tenant_id, outlets, users: { admin: { id: created.body.admin_user_id, mobile: `${mobilePrefix}01`, session: admin } } };
   const people: [string, string, string, string[] | "ALL"][] = [
-    ["head", "Bikram Head", "BUSINESS_HEAD", "ALL"],
-    ["sm", "Sunita Manager", "SALES_MANAGER", ["PATIA"]],
-    ["sm2", "Manoj Manager", "SALES_MANAGER", ["CUTTACK"]],
-    ["se1", "Ravi Exec", "SALES_EXEC", ["PATIA"]],
-    ["se2", "Priya Exec", "SALES_EXEC", ["PATIA"]],
-    ["se3", "Deepak Exec", "SALES_EXEC", ["CUTTACK"]],
-    ["stock", "Gopal Stock", "STOCK_INCHARGE", ["PATIA", "CUTTACK"]],
-    ["accounts", "Anita Accounts", "ACCOUNTS", ["PATIA", "CUTTACK"]],
-    ["ordering", "Omkar Ordering", "ORDERING", "ALL"],
+    ["head", "Bikram Head", "CEO_VP", "ALL"],
+    ["gm", "Girish GM", "GM_SALES", "ALL"],
+    ["agm", "Arun AGM", "AGM_SALES", "ALL"],
+    ["agm2", "Asha AGM", "AGM_SALES", ["CUTTACK"]],
+    ["sm", "Sunita Manager", "SALES_LEAD", ["PATIA"]],
+    ["sm2", "Manoj Manager", "SALES_LEAD", ["CUTTACK"]],
+    ["se1", "Ravi Exec", "SALES_CONSULTANT", ["PATIA"]],
+    ["se2", "Priya Exec", "SALES_CONSULTANT", ["PATIA"]],
+    ["se3", "Deepak Exec", "SALES_CONSULTANT", ["CUTTACK"]],
+    ["stock", "Gopal Stock", "EDP_MANAGER", ["PATIA", "CUTTACK"]],
+    ["accounts", "Anita Accounts", "FINANCE", ["PATIA", "CUTTACK"]],
+    ["ordering", "Omkar Ordering", "EDP_MANAGER", "ALL"],
     ["auditor", "Alok Auditor", "AUDITOR", "ALL"],
   ];
   let n = 2;
@@ -371,12 +374,14 @@ export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mob
   const dealer: Dealer = { slug, tenantId: created.body.tenant_id, outlets: {}, users: { admin: { id: created.body.admin_user_id, mobile: `${mobilePrefix}01`, session: admin } } };
   const people: [string, string, string][] = [
     ["dp", "Dinesh Principal", "DEALER_PRINCIPAL"],
-    ["head", "Bikram Head", "BUSINESS_HEAD"],
-    ["lead", "Sunita Lead", "SALES_MANAGER"],
-    ["exec", "Ravi Exec", "SALES_EXEC"],
-    ["finance", "Anita Finance", "ACCOUNTS"],
-    ["crm", "Charu CRM", "CRM"],
-    ["stock", "Gopal Stock", "STOCK_INCHARGE"],
+    ["head", "Bikram Head", "CEO_VP"],
+    ["gm", "Girish GM", "GM_SALES"],
+    ["agm", "Arun AGM", "AGM_SALES"],
+    ["lead", "Sunita Lead", "SALES_LEAD"],
+    ["exec", "Ravi Exec", "SALES_CONSULTANT"],
+    ["finance", "Anita Finance", "FINANCE"],
+    ["crm", "Charu CRM", "EDP_MANAGER"],
+    ["stock", "Gopal Stock", "EDP_MANAGER"],
     ["auditor", "Alok Auditor", "AUDITOR"],
   ];
   let n = 2;

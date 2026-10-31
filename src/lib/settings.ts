@@ -99,23 +99,23 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   queue_order: ["BOOKING_DATE"],
   car_order: ["AT_DEALERSHIP", "OWN_OUTLET", "EARLIEST_ARRIVAL", "OLDEST_INVOICE"],
   allocate_in_transit: true,
-  booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD"],
-  exception_approver_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
-  release_approver_roles: ["VP", "BUSINESS_HEAD"],
+  booking_approver_roles: ["SALES_LEAD", "GM_SALES"],
+  exception_approver_roles: ["GM_SALES", "CEO_VP", "DEALER_PRINCIPAL"],
+  release_approver_roles: ["GM_SALES", "CEO_VP"],
   allocation_control_from: null,
   day_end_time: "21:00",
   in_transit_eta_text: "10-15 days",
   approval_sla_hours: 24,
   dms_dealer_name: "",
   data_stale_days: 3,
-  alarm_roles: ["BUSINESS_HEAD", "DEALER_PRINCIPAL"],
+  alarm_roles: ["CEO_VP", "DEALER_PRINCIPAL"],
   payment_verify_hours: 24,
   funding_rate_pct: null,
   transit_days: null,
   monthly_retail_target: null,
 };
 
-const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CRM", "BUSINESS_HEAD", "VP", "SALES_MANAGER", "SALES_EXEC", "STOCK_INCHARGE", "ORDERING", "ACCOUNTS", "AUDITOR"];
+const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "EDP_MANAGER", "CEO_VP", "CEO_VP", "SALES_LEAD", "SALES_CONSULTANT", "EDP_MANAGER", "EDP_MANAGER", "FINANCE", "AUDITOR"];
 const DOC_KINDS: DocumentKind[] = ["DOCKET", "KYC", "PAN_AADHAAR", "PAYMENT_PROOF"];
 const SCOPES: OutletScope[] = ["SAME_OUTLET_FIRST", "SAME_OUTLET_NEARBY", "SAME_OUTLET_ONLY", "ANY_OUTLET"];
 

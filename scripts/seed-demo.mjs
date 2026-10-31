@@ -75,13 +75,13 @@ const consultant = (await get("/api/bookings?view=waiting", admin)).find((b) => 
 const detail = consultant ? await get(`/api/bookings/${consultant.id}`, admin) : null;
 const people = [
   ["Dealer Principal", "Dinesh Patnaik", "9000000002", "DEALER_PRINCIPAL", null],
-  ["Business Head / CEO", "Bikram Das", "9000000003", "BUSINESS_HEAD", null],
-  ["Sales Lead", "Sunita Dash", "9000000004", "SALES_MANAGER", Object.keys(outlets).slice(0, 2)],
-  ["Sales Executive", detail?.booking?.sc_name ?? "Ravi Sahoo", "9000000005", "SALES_EXEC", detail ? [Object.keys(outlets).find((c) => outlets[c] === detail.booking.outlet_id)] : Object.keys(outlets).slice(0, 1), detail?.booking?.sc_code],
-  ["Finance", "Anita Rath", "9000000006", "ACCOUNTS", null],
-  ["CRM", "Charu Nayak", "9000000007", "CRM", null],
-  ["Stock In-charge", "Gopal Sethi", "9000000008", "STOCK_INCHARGE", null],
-  ["Ordering Desk", "Omkar Jena", "9000000009", "ORDERING", null],
+  ["Business Head / CEO", "Bikram Das", "9000000003", "CEO_VP", null],
+  ["Sales Lead", "Sunita Dash", "9000000004", "SALES_LEAD", Object.keys(outlets).slice(0, 2)],
+  ["Sales Executive", detail?.booking?.sc_name ?? "Ravi Sahoo", "9000000005", "SALES_CONSULTANT", detail ? [Object.keys(outlets).find((c) => outlets[c] === detail.booking.outlet_id)] : Object.keys(outlets).slice(0, 1), detail?.booking?.sc_code],
+  ["Finance", "Anita Rath", "9000000006", "FINANCE", null],
+  ["EDP_MANAGER", "Charu Nayak", "9000000007", "EDP_MANAGER", null],
+  ["Stock In-charge", "Gopal Sethi", "9000000008", "EDP_MANAGER", null],
+  ["Ordering Desk", "Omkar Jena", "9000000009", "EDP_MANAGER", null],
   ["Auditor", "Alok Mishra", "9000000010", "AUDITOR", null],
 ];
 const session = {};

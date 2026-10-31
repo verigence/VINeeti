@@ -25,7 +25,7 @@ const integrity = (w: World) => ({
 const CLEAN = { allocatedWithoutCar: 0, carHeldByClosedBooking: 0, allocationsWithoutRecord: 0, allocationsWithoutMessage: 0 };
 /** A stock in-charge who works at Patia only. */
 async function patiaOnly(w: World, d: Dealer): Promise<Session> {
-  const id = (await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000060", role: "STOCK_INCHARGE", password: PASSWORD, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session)).body.id;
+  const id = (await w.api("POST", "/api/users", { name: "Patia Stock", mobile: "9000000060", role: "EDP_MANAGER", password: PASSWORD, all_outlets: false, outlet_ids: [d.outlets.PATIA] }, d.users.admin.session)).body.id;
   w.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE id = '${id}'`);
   return w.login(d.slug, "9000000060", PASSWORD);
 }
@@ -127,11 +127,11 @@ describe("uploads cannot be used to get round outlet access or approval", () => 
   it("only the people who load the DMS files can load them, and whoever loads a booking cannot approve it", async () => {
     const w = makeWorld("2026-10-13 10:00");
     const d = await makeDealer(w);
-    await w.api("PUT", "/api/settings", { import_bookings_as_approved: false, booking_approver_roles: ["SALES_MANAGER", "BUSINESS_HEAD", "ADMIN"] }, d.users.admin.session);
+    await w.api("PUT", "/api/settings", { import_bookings_as_approved: false, booking_approver_roles: ["SALES_LEAD", "CEO_VP", "ADMIN"] }, d.users.admin.session);
     const sheet = bookingFile([order("OTF27A000001", "12-Oct-2026 10:00 AM", { customer: "LOADED CUSTOMER", mobile: "9811100001" })]);
     const report = stockFile([car("VINLOAD0000000001")]);
-    // Not the sales team, whose bookings they are; not Finance, the ordering desk, the auditor or the Business Head either.
-    for (const who of ["sm", "se1", "head", "accounts", "ordering", "auditor"]) {
+    // Not the sales team, whose bookings they are; not the GM, the AGM, Finance or the auditor either.
+    for (const who of ["sm", "se1", "gm", "agm", "accounts", "auditor"]) {
       expect((await w.send("/api/uploads/bookings?filename=sheet.csv", sheet, d.users[who].session)).status, who).toBe(403);
       expect((await w.send("/api/uploads/stock?filename=stock.csv", report, d.users[who].session)).status, who).toBe(403);
     }
@@ -166,7 +166,7 @@ describe("uploads cannot be used to get round outlet access or approval", () => 
     // The junior customer is not sent a message as if the system had allocated the car.
     expect(w.db.q(`SELECT id FROM wa_messages WHERE event_key LIKE 'ALLOC_%'`)).toHaveLength(0);
     // Management is told at once, and it stays on the day-end list and the owner's list until one of them has looked at it.
-    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'OUT_OF_TURN' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'OUT_OF_TURN' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(one(w, `SELECT body FROM alerts WHERE kind = 'OUT_OF_TURN' LIMIT 1`).body).toContain("OTF27A000002 (ahead of OTF27A000001)");
     expect(w.db.q(`SELECT to_name FROM wa_messages WHERE event_key = 'MANAGEMENT_ALARM'`)).toEqual([{ to_name: "Bikram Head" }]);
     const run = await w.api("POST", "/api/recon/run", {}, d.users.head.session);
@@ -258,7 +258,7 @@ describe("approvals are checked again at the moment they are given", () => {
     const d = await makeDealer(w);
     await addCar(w, d, "VINSTALE000000001", CRETA, "PATIA", "RECEIVED");
     const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Cust", "9811100001");
-    const ex = await w.api("POST", "/api/exceptions", { type: "DEFER_DELIVERY", booking_id: b.id, payload: { until: "2026-12-01" }, reason: "asked for December" }, d.users.se1.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "DEFER_DELIVERY", booking_id: b.id, payload: { until: "2026-12-01" }, reason: "asked for December" }, d.users.agm.session);
     await w.api("POST", `/api/bookings/${b.id}/invoice`, undefined, d.users.accounts.session);
     const res = await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
     expect(res.status).toBe(409);
@@ -278,7 +278,7 @@ describe("approvals are checked again at the moment they are given", () => {
     const d = await makeDealer(w);
     const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Cust", "9811100001");
     const wanted = await addCar(w, d, "VINMANUAL00000002", CRETA, "PATIA", "RECEIVED");
-    const res = await w.api("POST", "/api/exceptions", { type: "MANUAL_ALLOCATION", booking_id: b.id, vehicle_id: wanted.id, reason: "Customer wants the car in the yard" }, d.users.sm.session);
+    const res = await w.api("POST", "/api/exceptions", { type: "MANUAL_ALLOCATION", booking_id: b.id, vehicle_id: wanted.id, reason: "Customer wants the car in the yard" }, d.users.agm.session);
     expect(res.status).toBe(400);
   });
 
@@ -289,7 +289,7 @@ describe("approvals are checked again at the moment they are given", () => {
     const first = await approvedBooking(w, d, "se1", CRETA, "PATIA", "First", "9811100001");
     const second = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Second", "9811100002");
     expect((await booking(w, d, first.id)).allocation.vin).toBe("VINMANUAL00000001");
-    const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: first.id, payload: { release_reason: "REALLOCATED_TO_BOOKING", to_booking_id: second.id }, reason: "Second customer is paying cash today" }, d.users.sm.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "RELEASE_ALLOCATION", booking_id: first.id, payload: { release_reason: "REALLOCATED_TO_BOOKING", to_booking_id: second.id }, reason: "Second customer is paying cash today" }, d.users.agm.session);
     expect(ex.status).toBe(201);
     // Before the approver gets to it, the second booking is given a car of its own by the queue.
     const other = await addCar(w, d, "VINMANUAL00000003", CRETA, "PATIA", "RECEIVED");
@@ -319,7 +319,7 @@ describe("approvals are checked again at the moment they are given", () => {
     await w.tick();
     const reminders = () => w.db.q(`SELECT id FROM wa_messages WHERE event_key = 'PAYMENT_REMINDER'`).length;
     expect(reminders()).toBe(1);
-    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 1 }, reason: "one more day" }, d.users.se1.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 1 }, reason: "one more day" }, d.users.agm.session);
     await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
     await w.tick();
     expect(reminders()).toBe(1); // the new reminder date (the 17th) has already come; the customer was reminded
@@ -333,7 +333,7 @@ describe("a request cut off half way leaves nothing half done", () => {
     const d = await makeDealer(w);
     await addCar(w, d, "VINTWICE000000001", CRETA, "PATIA", "RECEIVED");
     const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Cust", "9811100001");
-    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 3 }, reason: "loan" }, d.users.sm.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 3 }, reason: "loan" }, d.users.agm.session);
     const f = failNextBatch(w, /UPDATE exceptions SET status/);
     expect((await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session)).status).toBe(500);
     f.restore();
@@ -529,10 +529,10 @@ describe("two people acting at the same moment", () => {
     const d = await makeDealer(w);
     await addCar(w, d, "VINDOUBLE00000001", CRETA, "PATIA", "RECEIVED");
     const b = await approvedBooking(w, d, "se1", CRETA, "PATIA", "Cust", "9811100001");
-    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 3 }, reason: "loan" }, d.users.sm.session);
+    const ex = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: b.id, payload: { days: 3 }, reason: "loan" }, d.users.agm.session);
     let second: { status: number } | undefined;
     const o = overlap(w, /UPDATE exceptions SET status/, async () => void (second = await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.admin.session)));
-    await w.api("PUT", "/api/settings", { exception_approver_roles: ["BUSINESS_HEAD", "ADMIN"] }, d.users.admin.session);
+    await w.api("PUT", "/api/settings", { exception_approver_roles: ["CEO_VP", "ADMIN"] }, d.users.admin.session);
     const first = await w.api("POST", `/api/exceptions/${ex.body.id}/approve`, {}, d.users.head.session);
     o.restore();
     expect(o.state.fired).toBe(true);
@@ -581,7 +581,7 @@ describe("two people acting at the same moment", () => {
     const b2 = await approvedBooking(w, d, "se2", CRETA, "PATIA", "Second", "9811100002");
     for (const vin of ["VINDOUBLE00000010", "VINDOUBLE00000011"]) w.db.raw.exec(`INSERT INTO vehicles (id, tenant_id, outlet_id, vin, model, variant, colour, status, source, created_at, updated_at) VALUES ('veh_${vin}', '${d.tenantId}', '${d.outlets.PATIA}', '${vin}', 'CRETA', '${V}', 'ABYSS BLACK', 'RECEIVED', 'MANUAL', '2026-10-13T04:30:00.000Z', '2026-10-13T04:30:00.000Z')`);
     const o = overlap(w, /INSERT INTO allocations/, () => w.api("POST", "/api/allocations/run", {}, d.users.head.session));
-    await w.api("POST", "/api/allocations/run", {}, d.users.sm.session);
+    await w.api("POST", "/api/allocations/run", {}, d.users.gm.session);
     o.restore();
     expect(o.state.fired).toBe(true);
     expect(w.db.q(`SELECT id FROM allocations WHERE status = 'ACTIVE'`)).toHaveLength(2);
@@ -628,7 +628,7 @@ describe("two people acting at the same moment", () => {
     // dealership has no Dealer Principal user), and one alarm in the app for each of the two alarm roles.
     expect(w.db.q(`SELECT id FROM audit_log WHERE action = 'PAYMENT_ESCALATED'`)).toHaveLength(1);
     expect(w.db.q(`SELECT to_name FROM wa_messages WHERE event_key = 'PAYMENT_ESCALATION'`)).toEqual([{ to_name: "Bikram Head" }]);
-    expect(w.db.q(`SELECT target_role, is_alarm FROM alerts WHERE kind = 'ESCALATION' ORDER BY target_role`)).toEqual([{ target_role: "BUSINESS_HEAD", is_alarm: 1 }, { target_role: "DEALER_PRINCIPAL", is_alarm: 1 }]);
+    expect(w.db.q(`SELECT target_role, is_alarm FROM alerts WHERE kind = 'ESCALATION' ORDER BY target_role`)).toEqual([{ target_role: "CEO_VP", is_alarm: 1 }, { target_role: "DEALER_PRINCIPAL", is_alarm: 1 }]);
     expect(w.db.q(`SELECT id FROM wa_messages WHERE event_key = 'MANAGEMENT_ALARM'`)).toHaveLength(0); // the escalation message is the WhatsApp for this alarm
   });
 
@@ -673,8 +673,8 @@ describe("two people acting at the same moment", () => {
     o.restore();
     expect(o.state.fired).toBe(true);
     expect(w.db.q(`SELECT id FROM audit_log WHERE action = 'ALLOCATION_RELEASED'`)).toHaveLength(1);
-    expect(w.db.q(`SELECT id FROM alerts WHERE kind = 'REALLOCATED' AND target_role = 'BUSINESS_HEAD'`)).toHaveLength(1);
-    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'REALLOCATED' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["BUSINESS_HEAD", "DEALER_PRINCIPAL"]);
+    expect(w.db.q(`SELECT id FROM alerts WHERE kind = 'REALLOCATED' AND target_role = 'CEO_VP'`)).toHaveLength(1);
+    expect(w.db.q(`SELECT target_role FROM alerts WHERE kind = 'REALLOCATED' AND is_alarm = 1 ORDER BY target_role`).map((a: any) => a.target_role)).toEqual(["CEO_VP", "DEALER_PRINCIPAL"]);
     expect(w.db.q(`SELECT to_name FROM wa_messages WHERE event_key = 'MANAGEMENT_ALARM'`)).toEqual([{ to_name: "Bikram Head" }]);
     expect((await booking(w, d, b2.id)).allocation.type).toBe("REALLOCATED");
     expect((await booking(w, d, b1.id)).booking.on_hold).toBe(1);

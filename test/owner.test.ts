@@ -96,7 +96,7 @@ describe("the Dealer Principal's view", () => {
     const u = d.users;
     // Approved beforehand: THAR THREE is moved ahead of THAR TWO by a request the Sales Lead raises and the Dealer Principal approves.
     const three = booking(w, "OTF27A000003"), two = booking(w, "OTF27A000002");
-    const req = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: three.id, reason: "Customer's daughter's wedding on 20 October", payload: { before_booking_id: two.id } }, u.lead.session);
+    const req = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: three.id, reason: "Customer's daughter's wedding on 20 October", payload: { before_booking_id: two.id } }, u.agm.session);
     expect(req.status).toBe(201);
     expect((await w.api("POST", `/api/exceptions/${req.body.id}/approve`, { remarks: "Seen the invitation" }, u.dp.session)).status).toBe(200);
     // Not approved by anyone: in the DMS, the SCORPIO-N reserved for SCORPIO ONE is allotted to SCORPIO TWO.
@@ -122,7 +122,7 @@ describe("the Dealer Principal's view", () => {
     expect((await w.api("POST", `/api/out-of-turn/${row("OTF27A000003").allocation_id}/review`, { note: "ok" }, u.dp.session)).status).toBe(409);
     expect((await w.api("POST", `/api/out-of-turn/${row("OTF27A000012").allocation_id}/review`, { note: "" }, u.head.session)).status).toBe(400);
     expect((await w.api("POST", `/api/out-of-turn/${row("OTF27A000012").allocation_id}/review`, { note: "Sales Lead allotted it in the DMS for a walk-in exchange customer. Warned; SCORPIO ONE called and given the next car." }, u.head.session)).status).toBe(200);
-    const after = (await w.api("GET", "/api/dashboards/out-of-turn", undefined, u.auditor.session)).body as any[];
+    const after = (await w.api("GET", "/api/dashboards/out-of-turn", undefined, u.dp.session)).body as any[];
     expect(after.find((r) => r.given_to === "OTF27A000012")).toMatchObject({ state: "REVIEWED", reviewed_by_name: "Bikram Head" });
     expect((await w.api("GET", "/api/dashboards/owner", undefined, u.dp.session)).body.out_of_turn).toMatchObject({ this_month: 2, under_review: 0 });
     expect((await w.api("POST", `/api/out-of-turn/${row("OTF27A000012").allocation_id}/review`, { note: "again" }, u.dp.session)).status).toBe(409);
@@ -165,7 +165,7 @@ describe("the Dealer Principal's view", () => {
     w.at("2026-10-10 10:00");
     await loadStock(w, u.stock.session, STOCK.filter((l) => l.vin !== "MA1THAR0000000001"));
     expect(booking(w, "OTF27A000001")).toMatchObject({ status: "DELIVERED" });
-    const m = Object.fromEntries(((await w.api("GET", "/api/dashboards/measures", undefined, u.finance.session)).body.measures as any[]).map((x) => [x.key, x]));
+    const m = Object.fromEntries(((await w.api("GET", "/api/dashboards/measures", undefined, u.dp.session)).body.measures as any[]).map((x) => [x.key, x]));
     expect(m.yard_to_invoice).toMatchObject({ value: 6, unit: "days" }); // GRN 2 October, invoice 8 October
     expect(m.yard_to_delivery).toMatchObject({ value: 8, unit: "days" }); // GRN 2 October, gone from the report of 10 October
   });

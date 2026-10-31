@@ -36,14 +36,13 @@ export interface Env {
 export type Role =
   | "ADMIN"
   | "DEALER_PRINCIPAL"
-  | "BUSINESS_HEAD"
-  | "VP"
-  | "SALES_MANAGER"
-  | "SALES_EXEC"
-  | "STOCK_INCHARGE"
-  | "ORDERING"
-  | "ACCOUNTS"
-  | "CRM"
+  | "CEO_VP"
+  | "GM_SALES"
+  | "AGM_SALES"
+  | "SALES_LEAD"
+  | "SALES_CONSULTANT"
+  | "EDP_MANAGER"
+  | "FINANCE"
   | "AUDITOR";
 
 export interface TenantRow {

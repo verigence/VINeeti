@@ -387,7 +387,7 @@ export function authRoutes(app: App) {
         ? [
             auditStmt(ctx, "ALLOCATION_RULES_CHANGED", "tenant", ctx.tenantId, { changed: changed.map((k) => labels[k]), before: Object.fromEntries(changed.map((k) => [k, ctx.settings[k]])), after: Object.fromEntries(changed.map((k) => [k, next[k]])) }),
             // Everyone who receives alarms is told who changed the rules and what, whoever made the change.
-            ...[...new Set<Role>(["BUSINESS_HEAD", "DEALER_PRINCIPAL", ...next.alarm_roles])].map((role) => alertStmt(ctx, { targetRole: role, kind: "RULES_CHANGED", title: "Allocation rules changed", body: `${c.get("user").name} changed: ${changed.map((k) => labels[k]).join(", ")}. The new rules apply to allocations made from now on; cars already allocated are not affected.`, entityType: "tenant", entityId: ctx.tenantId })),
+            ...[...new Set<Role>(["CEO_VP", "DEALER_PRINCIPAL", ...next.alarm_roles])].map((role) => alertStmt(ctx, { targetRole: role, kind: "RULES_CHANGED", title: "Allocation rules changed", body: `${c.get("user").name} changed: ${changed.map((k) => labels[k]).join(", ")}. The new rules apply to allocations made from now on; cars already allocated are not affected.`, entityType: "tenant", entityId: ctx.tenantId })),
           ]
         : []),
     ]);

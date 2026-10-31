@@ -112,7 +112,7 @@ describe("the System health page", () => {
     expect(h.tenants).toHaveLength(1);
     expect(h.tenants[0]).toMatchObject({ slug: d.slug, is_active: true, stale: false, uploads_running: 0, locked_users: 0 });
     expect(h.tenants[0].stock).toEqual({ report_date: null, loaded_at: null, age_days: null });
-    expect(h.database.tables.find((t: any) => t.table === "users").rows).toBe(9);
+    expect(h.database.tables.find((t: any) => t.table === "users").rows).toBe(11);
     expect(h.worker.boot_id).toMatch(/^iso_/);
     expect(typeof h.basis).toBe("string");
     // Counts only: no name, mobile number or booking of the dealership is in the answer.

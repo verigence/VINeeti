@@ -19,7 +19,7 @@ import { TeamLeadBoard } from "./TeamLead";
 
 export function BoardPage() {
   const { me } = useSession();
-  if (me.user.role === "BUSINESS_HEAD") return <CeoBoard />;
+  if (me.user.role === "CEO_VP") return <CeoBoard />;
   if (me.user.role === "DEALER_PRINCIPAL") return <DealerPrincipalBoard />;
   return <TeamLeadBoard />;
 }

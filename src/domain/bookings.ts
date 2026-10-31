@@ -113,7 +113,7 @@ export async function createBooking(ctx: Ctx, input: BookingInput, user: Session
   if (await first(ctx.db, `SELECT id FROM bookings WHERE tenant_id = ? AND booking_no = ?`, ctx.tenantId, bookingNo)) throw conflict(`Booking number ${bookingNo} already exists`);
   const id = newId("bkg");
   const at = iso(ctx.now);
-  const salesExec = input.sales_exec_id || (user.role === "SALES_EXEC" ? user.id : null);
+  const salesExec = input.sales_exec_id || (user.role === "SALES_CONSULTANT" ? user.id : null);
   if (salesExec && !(await first(ctx.db, `SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1`, salesExec, ctx.tenantId))) throw bad("Sales executive not found");
   await ctx.db.batch([
     stmt(
@@ -297,7 +297,7 @@ export async function reportPayment(ctx: Ctx, id: string, input: { amount?: unkn
     await ctx.db.batch([
       auditStmt(ctx, "PAYMENT_REPORTED", "booking", id, { amount, reference, note }, { sql: `SELECT 1 FROM bookings WHERE id = ? AND tenant_id = ? AND status = 'ALLOCATED' AND payment_reported_at IS NULL AND payment_received_at IS NULL`, params: [id, ctx.tenantId] }),
       stmt(ctx.db, `UPDATE bookings SET payment_reported_at = ?, payment_reported_by = ?, payment_amount = ?, payment_ref = ?, payment_note = ?, payment_overdue_alarm_at = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?`, at, ctx.actor, amount, reference, note, at, id, ctx.tenantId),
-      alertStmt(ctx, { targetRole: "ACCOUNTS", outletId: b.outlet_id, kind: "PAYMENT_TO_VERIFY", title: "Payment to verify", body: `Booking ${b.booking_no} (${b.customer_name}): payment reported${amount ? ` of ${amount.toLocaleString("en-IN")}` : ""}, reference ${reference}. Verify that it has been received.`, entityType: "booking", entityId: id }),
+      alertStmt(ctx, { targetRole: "FINANCE", outletId: b.outlet_id, kind: "PAYMENT_TO_VERIFY", title: "Payment to verify", body: `Booking ${b.booking_no} (${b.customer_name}): payment reported${amount ? ` of ${amount.toLocaleString("en-IN")}` : ""}, reference ${reference}. Verify that it has been received.`, entityType: "booking", entityId: id }),
     ]);
   } catch (e) {
     if (isGuardFailure(e)) throw conflict("This booking was changed by someone else a moment ago. Refresh and try again.");

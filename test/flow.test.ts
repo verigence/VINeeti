@@ -204,7 +204,7 @@ describe("steps 3-5: booking submission, approval and automatic allocation", () 
     expect((await booking(w, d, ids.B1)).allocation.window).toBeNull(); // verification is what closes the payment window
     expect((await pay("payment-received", undefined, "accounts")).status).toBe(409);
     expect((await w.api("POST", `/api/bookings/${ids.B1}/invoice`, undefined, acc)).body.status).toBe("INVOICED");
-    expect((await w.api("POST", `/api/bookings/${ids.B1}/deliver`, undefined, d.users.stock.session)).body.status).toBe("DELIVERED");
+    expect((await w.api("POST", `/api/bookings/${ids.B1}/deliver`, undefined, d.users.accounts.session)).body.status).toBe("DELIVERED");
     expect(w.db.q(`SELECT status FROM vehicles WHERE id = ?`, cars.V1)[0].status).toBe("DELIVERED");
     expect(w.db.q(`SELECT status FROM allocations WHERE vehicle_id = ?`, cars.V1)[0].status).toBe("FULFILLED");
   });
@@ -267,7 +267,7 @@ describe("steps 6-9: stock received, day 3 reminder, day 5 escalation, day 6 re-
     expect(sent[0].rendered_text).toContain("for 5 days");
     expect(sent[0].rendered_text).toContain("re-allocated to a new customer on 21 Oct 2026");
     const alerts = await w.api("GET", "/api/alerts", undefined, d.users.head.session);
-    expect(alerts.body.filter((a: any) => a.kind === "ESCALATION" && a.entity_id === ids.B2)).toMatchObject([{ is_alarm: true, target_role: "BUSINESS_HEAD" }]);
+    expect(alerts.body.filter((a: any) => a.kind === "ESCALATION" && a.entity_id === ids.B2)).toMatchObject([{ is_alarm: true, target_role: "CEO_VP" }]);
     // The escalation is management's; a sales executive does not see it.
     const seAlerts = await w.api("GET", "/api/alerts", undefined, d.users.se2.session);
     expect(seAlerts.body.some((a: any) => a.kind === "ESCALATION")).toBe(false);
@@ -365,7 +365,7 @@ describe("step 10: change in priority and skip allocation need approval", () => 
   });
 
   it("a priority change does nothing until the approver approves it", async () => {
-    const req = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: ids.B6, payload: { before_booking_id: ids.B5 }, reason: "Wedding in the family on 5 Nov" }, d.users.se3.session);
+    const req = await w.api("POST", "/api/exceptions", { type: "PRIORITY_CHANGE", booking_id: ids.B6, payload: { before_booking_id: ids.B5 }, reason: "Wedding in the family on 5 Nov" }, d.users.agm.session);
     expect(req.status).toBe(201);
     expect(req.body.status).toBe("PENDING");
     ids.EX1 = req.body.id;
@@ -380,7 +380,7 @@ describe("step 10: change in priority and skip allocation need approval", () => 
     const pending = await w.api("GET", "/api/exceptions?status=PENDING", undefined, d.users.head.session);
     expect(pending.body.map((e: any) => e.id)).toContain(ids.EX1);
     expect(pending.body.find((e: any) => e.id === ids.EX1).before_booking_no).toBe(nos.B5);
-    expect((await booking(w, d, ids.B6)).exceptions[0]).toMatchObject({ before_booking_no: nos.B5, requested_by_name: "Deepak Exec" });
+    expect((await booking(w, d, ids.B6)).exceptions[0]).toMatchObject({ before_booking_no: nos.B5, requested_by_name: "Arun AGM" });
     const waiting = () => w.api("GET", "/api/alerts", undefined, d.users.head.session).then((r) => r.body.find((x: any) => x.kind === "EXCEPTION_APPROVAL" && x.entity_id === ids.EX1));
     expect((await waiting()).read_at).toBeNull();
     ids.waitingAlert = (await waiting()).id;
@@ -402,7 +402,7 @@ describe("step 10: change in priority and skip allocation need approval", () => 
   });
 
   it("skip allocation, once approved, parks the booking and passes its car to the next customer", async () => {
-    const req = await w.api("POST", "/api/exceptions", { type: "SKIP_ALLOCATION", booking_id: ids.B4, payload: {}, reason: "Customer travelling abroad" }, d.users.se3.session);
+    const req = await w.api("POST", "/api/exceptions", { type: "SKIP_ALLOCATION", booking_id: ids.B4, payload: {}, reason: "Customer travelling abroad" }, d.users.agm.session);
     expect(req.status).toBe(201);
     expect((await booking(w, d, ids.B4)).booking.status).toBe("ALLOCATED");
     const res = await w.api("POST", `/api/exceptions/${req.body.id}/approve`, {}, d.users.head.session);
@@ -413,17 +413,17 @@ describe("step 10: change in priority and skip allocation need approval", () => 
   });
 
   it("a rejection needs a reason and changes nothing", async () => {
-    const req = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: ids.B5, payload: { days: 4 }, reason: "Loan sanction delayed" }, d.users.se3.session);
+    const req = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: ids.B5, payload: { days: 4 }, reason: "Loan sanction delayed" }, d.users.agm.session);
     expect(req.status).toBe(201);
     expect((await w.api("POST", `/api/exceptions/${req.body.id}/reject`, {}, d.users.head.session)).status).toBe(400);
     const res = await w.api("POST", `/api/exceptions/${req.body.id}/reject`, { remarks: "Not justified" }, d.users.head.session);
     expect(res.body.status).toBe("REJECTED");
-    const told = (await w.api("GET", "/api/alerts", undefined, d.users.se3.session)).body.find((x: any) => x.kind === "EXCEPTION_DECIDED" && x.title.includes("not approved"));
+    const told = (await w.api("GET", "/api/alerts", undefined, d.users.agm.session)).body.find((x: any) => x.kind === "EXCEPTION_DECIDED" && x.title.includes("not approved"));
     expect(told.body).toContain("Not justified");
     // Marking it read is personal: another user cannot mark it.
     await w.api("POST", `/api/alerts/${told.id}/read`, undefined, d.users.se1.session);
     expect(w.db.q(`SELECT read_at FROM alerts WHERE id = ?`, told.id)[0].read_at).toBeNull();
-    await w.api("POST", `/api/alerts/${told.id}/read`, undefined, d.users.se3.session);
+    await w.api("POST", `/api/alerts/${told.id}/read`, undefined, d.users.agm.session);
     expect(w.db.q(`SELECT read_at FROM alerts WHERE id = ?`, told.id)[0].read_at).toBeTruthy();
     expect(w.db.q(`SELECT window_extension_days FROM allocations WHERE booking_id = ? AND status = 'ACTIVE'`, ids.B5)[0].window_extension_days).toBe(0);
     // A decided request cannot be decided again.
@@ -443,7 +443,7 @@ describe("step 10: change in priority and skip allocation need approval", () => 
     await w.api("POST", `/api/vehicles/${cars.V3}/receive`, undefined, d.users.stock.session);
     const before = (await booking(w, d, ids.B5)).allocation.window;
     expect(before).toMatchObject({ reminder_on: "2026-11-01", release_on: "2026-11-04" });
-    const req = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: ids.B5, payload: { days: 4 }, reason: "Loan disbursement confirmed for 6 Nov" }, d.users.sm2.session);
+    const req = await w.api("POST", "/api/exceptions", { type: "WINDOW_EXTENSION", booking_id: ids.B5, payload: { days: 4 }, reason: "Loan disbursement confirmed for 6 Nov" }, d.users.agm.session);
     await w.api("POST", `/api/exceptions/${req.body.id}/approve`, {}, d.users.head.session);
     const after = (await booking(w, d, ids.B5)).allocation.window;
     expect(after).toMatchObject({ reminder_on: "2026-11-05", escalation_on: "2026-11-07", release_on: "2026-11-08" });

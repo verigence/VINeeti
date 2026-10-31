@@ -143,7 +143,7 @@ export function stockRoutes(app: App) {
     const showValue = can(user, ctx.settings, "stock.value");
     const today = Date.parse(`${new Intl.DateTimeFormat("en-CA", { timeZone: ctx.tenant.timezone }).format(ctx.now)}T00:00:00Z`);
     for (const r of rows as any[]) {
-      if (r.booking_id && (user.role === "SALES_EXEC" || (scope && !scope.includes(r.booking_outlet_id)))) {
+      if (r.booking_id && (user.role === "SALES_CONSULTANT" || (scope && !scope.includes(r.booking_outlet_id)))) {
         r.customer_name = "Allocated";
         r.booking_no = null;
         r.booking_id = null;
@@ -169,11 +169,11 @@ export function stockRoutes(app: App) {
     const user = c.get("user");
     const scope = outletScope(c);
     for (const a of allocations) {
-      if (user.role === "SALES_EXEC" || (scope && !scope.includes(a.booking_outlet_id))) (a.booking_id = null), (a.booking_no = null);
+      if (user.role === "SALES_CONSULTANT" || (scope && !scope.includes(a.booking_outlet_id))) (a.booking_id = null), (a.booking_no = null);
     }
     const master = v.variant_id ? await first<Record<string, unknown>>(ctx.db, `SELECT category, trim_level AS trim, transmission, fuel, drive, seater FROM vehicle_variants WHERE id = ? AND tenant_id = ?`, v.variant_id, ctx.tenantId) : null;
     const showValue = can(user, ctx.settings, "stock.value");
-    const hideOrder = user.role === "SALES_EXEC" || Boolean(scope && !scope.includes(v.outlet_id));
+    const hideOrder = user.role === "SALES_CONSULTANT" || Boolean(scope && !scope.includes(v.outlet_id));
     const dms = v as unknown as Record<string, unknown>;
     return c.json({
       vehicle: { ...v, ...(master ?? {}), outlet: outlet?.name, net_dealer_price: showValue ? dms.net_dealer_price : undefined, dms_customer_name: hideOrder ? undefined : dms.dms_customer_name, dms_issues: safeJson(String(dms.dms_issues_json ?? "[]"), []), dms_issues_json: undefined },

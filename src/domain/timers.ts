@@ -123,7 +123,7 @@ export async function advancePaymentWindow(ctx: Ctx, w: OpenWindow, result: Wind
     const hold = ctx.settings.hold_after_timeout ? { reason: "PAYMENT_TIMEOUT", until: null } : undefined;
     const also = [
       ...(await alarmStmts(ctx, { kind: "REALLOCATED", outletId: w.outlet_id, title: "Car released after payment timeout", body: `${vehicleLabel(w)} (${w.vin}) was released from booking ${w.booking_no} (${w.customer_name}) after ${sch.day} days without payment.`, entityType: "booking", entityId: w.booking_id })),
-      alertStmt(ctx, { targetRole: "SALES_MANAGER", outletId: w.outlet_id, kind: "REALLOCATED", title: "Car released after payment timeout", body: `Booking ${w.booking_no} (${w.customer_name}) lost its allocated ${vehicleLabel(w)}. ${hold ? "The booking is on hold until the customer is ready." : "The booking has rejoined the queue."}`, entityType: "booking", entityId: w.booking_id }),
+      alertStmt(ctx, { targetRole: "SALES_LEAD", outletId: w.outlet_id, kind: "REALLOCATED", title: "Car released after payment timeout", body: `Booking ${w.booking_no} (${w.customer_name}) lost its allocated ${vehicleLabel(w)}. ${hold ? "The booking is on hold until the customer is ready." : "The booking has rejoined the queue."}`, entityType: "booking", entityId: w.booking_id }),
     ];
     if (w.sales_exec_id) {
       const detail = `Booking ${w.booking_no} (${w.customer_name}) did not complete payment in ${sch.day} days, so ${vehicleLabel(w)} (${w.vin}) has been released. ${hold ? "Ask your manager to mark the customer ready when payment is arranged." : "The booking has rejoined the queue."}`;
