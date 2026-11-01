@@ -77,3 +77,43 @@ describe("starting a dealership afresh", () => {
     expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug = ?`, d.slug)[0].n).toBeGreaterThan(0);
   });
 });
+
+describe("starting afresh with a different customer", () => {
+  it("can clear the people too, keeping the System Admin", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    const su = await console_(w);
+    const id = w.db.q<{ id: string }>(`SELECT id FROM tenants WHERE slug = ?`, d.slug)[0].id;
+    const name = w.db.q<{ name: string }>(`SELECT name FROM tenants WHERE id = ?`, id)[0].name;
+    expect(count(w, "users", id)).toBeGreaterThan(1);
+
+    const res = await w.api("POST", `/api/platform/tenants/${d.slug}/reset`, { confirm: name, people: true }, su);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+
+    // Only the administrators are left, and they can still get in to set the place up again.
+    const left = w.db.q<{ role: string }>(`SELECT role FROM users WHERE tenant_id = ?`, id);
+    expect(left.length).toBeGreaterThan(0);
+    for (const u of left) expect(u.role).toBe("ADMIN");
+    expect(count(w, "user_outlets", id)).toBe(0);
+    expect((await w.api("POST", "/api/auth/login", { dealer: d.slug, mobile: d.users.admin.mobile, password: PASSWORD })).status).toBe(200);
+    // And the outlets are untouched, as on any reset.
+    expect(count(w, "outlets", id)).toBe(2);
+  });
+});
+
+describe("WhatsApp, until a dealership has it", () => {
+  it("is not offered at all: no permission, and the screens behind it refuse", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    // The fixtures switch it on. Off is the default, and off means gone rather than hidden.
+    await w.api("PUT", "/api/settings", { whatsapp_enabled: false }, d.users.admin.session);
+    const me = await w.api("GET", "/api/auth/me", undefined, d.users.admin.session);
+    for (const p of ["wa.view", "wa.manage", "wa.resend"]) expect(me.body.user.permissions, p).not.toContain(p);
+    // A saved link to the screen is refused too, not merely absent from the menu.
+    expect((await w.api("GET", "/api/wa/messages", undefined, d.users.admin.session)).status).toBe(403);
+    expect((await w.api("GET", "/api/wa/config", undefined, d.users.admin.session)).status).toBe(403);
+    // Switched back on, it returns as it was.
+    await w.api("PUT", "/api/settings", { whatsapp_enabled: true }, d.users.admin.session);
+    expect((await w.api("GET", "/api/wa/messages", undefined, d.users.admin.session)).status).toBe(200);
+  });
+});

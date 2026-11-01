@@ -435,6 +435,7 @@ function TicketsSection() {
  */
 function ResetDialog({ tenant, onClose, onDone }: { tenant: Tenant; onClose: () => void; onDone: () => void }) {
   const [confirm, setConfirm] = useState("");
+  const [people, setPeople] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ total: number; removed: Record<string, number> } | null>(null);
@@ -444,7 +445,7 @@ function ResetDialog({ tenant, onClose, onDone }: { tenant: Tenant; onClose: () 
     setBusy(true);
     setError(null);
     try {
-      setDone((await call("POST", `/api/platform/tenants/${tenant.slug}/reset`, { confirm })) as { total: number; removed: Record<string, number> });
+      setDone((await call("POST", `/api/platform/tenants/${tenant.slug}/reset`, { confirm, people })) as { total: number; removed: Record<string, number> });
     } catch (e) {
       setError(String((e as Error).message));
     } finally {
@@ -485,11 +486,18 @@ function ResetDialog({ tenant, onClose, onDone }: { tenant: Tenant; onClose: () 
     >
       <div className="form-stack">
         <Notice tone="warn" title="This cannot be undone. ">
-          Every booking, car, allocation, request, payment, uploaded file, message, alert, ticket and audit entry at {tenant.name} is removed.
+          Every booking, car, allocation, request, payment, uploaded file, message, alert, ticket and audit entry at {tenant.name} is removed.{people ? " Everybody but the System Admin is removed too." : ""}
         </Notice>
         <p className="muted">
           What stays: the dealership and its settings, its outlets, its people and their access, the vehicle master — models, variants and colours — and the WhatsApp setup. Everybody can still sign in afterwards with the same password.
         </p>
+        <label className="check">
+          <input type="checkbox" checked={people} onChange={(e) => setPeople(e.target.checked)} />
+          <span>
+            Also remove the people, keeping the System Admin
+            <small className="muted"> — tick this when a different customer is taking the dealership on. Leave it for the same customer starting their year again: their staff keep their sign-ins.</small>
+          </span>
+        </label>
         <Field label={`Type "${tenant.name}" to confirm`}>
           <input value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" spellCheck={false} placeholder={tenant.name} />
         </Field>

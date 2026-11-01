@@ -106,6 +106,10 @@ export function permissionsFor(role: Role, settings: TenantSettings): Permission
   // allocation by hand no longer exists, so this is the one door left to a named car. It gets its
   // own, narrower list of approvers.
   if (settings.release_approver_roles.includes(role)) set.add("release.decide");
+  // A dealership without WhatsApp has nothing to see, resend or set up, so nobody is given the right
+  // to. Taking it away here rather than hiding a menu entry means the screens disappear and the routes
+  // behind them refuse too: one switch, and no way round it from a saved link.
+  if (!settings.whatsapp_enabled) for (const p of ["wa.view", "wa.manage", "wa.resend"] as Permission[]) set.delete(p);
   return [...set];
 }
 

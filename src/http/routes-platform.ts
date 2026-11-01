@@ -256,16 +256,16 @@ export function platformRoutes(app: App) {
     const admin = await working(c);
     const t = await first<{ id: string; slug: string; name: string }>(c.env.DB, `SELECT id, slug, name FROM tenants WHERE slug = ?`, String(c.req.param("slug")).toLowerCase());
     if (!t) throw notFound("Dealership");
-    const b = await jsonBody<{ confirm?: string }>(c).catch(() => ({}) as { confirm?: string });
+    const b = await jsonBody<{ confirm?: string; people?: boolean }>(c).catch(() => ({}) as { confirm?: string; people?: boolean });
     if (String(b.confirm ?? "").trim().toLowerCase() !== t.name.trim().toLowerCase()) {
       throw bad(`Type the dealership's name exactly — ${t.name} — to confirm. Nothing has been removed.`);
     }
     const now = clock.now();
-    const result = await resetTenant(c.env, t.id);
+    const result = await resetTenant(c.env, t.id, { people: b.people === true });
     // Written after the wipe, because the dealership's own trail is one of the things emptied.
     await c.env.DB.batch([
-      stmt(c.env.DB, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) VALUES (?,?,?,?,?,?,?,?)`, newId("aud"), t.id, "PLATFORM", "DEALERSHIP_RESET", "tenant", t.id, JSON.stringify({ by: admin.mobile, removed: result.removed, total: result.total }), iso(now)),
-      auditStmt(c.env, admin.id, "TENANT_RESET", t.id, { slug: t.slug, name: t.name, removed: result.removed, total: result.total }, now),
+      stmt(c.env.DB, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) VALUES (?,?,?,?,?,?,?,?)`, newId("aud"), t.id, "PLATFORM", "DEALERSHIP_RESET", "tenant", t.id, JSON.stringify({ by: admin.mobile, people_removed: b.people === true, removed: result.removed, total: result.total }), iso(now)),
+      auditStmt(c.env, admin.id, "TENANT_RESET", t.id, { slug: t.slug, name: t.name, people_removed: b.people === true, removed: result.removed, total: result.total }, now),
     ]);
     c.header("Cache-Control", "private, no-store");
     return c.json({ dealer: t.slug, name: t.name, ...result, kept: KEPT });

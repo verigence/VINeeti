@@ -58,8 +58,17 @@ export interface ResetResult {
   total: number;
 }
 
+/**
+ * Also clears the staff list, keeping the System Admins. Off unless asked for, because the same
+ * dealership starting its year again wants its people; a different customer taking over the same
+ * dealership does not, and would otherwise be handing out sign-ins to strangers.
+ */
+export interface ResetOptions {
+  people?: boolean;
+}
+
 /** Counts every table first, then empties them. The counts are the only record of what was there. */
-export async function resetTenant(env: Env, tenantId: string): Promise<ResetResult> {
+export async function resetTenant(env: Env, tenantId: string, opts: ResetOptions = {}): Promise<ResetResult> {
   const removed: Record<string, number> = {};
   for (const table of CLEARED) {
     const rows = await all<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM ${table} WHERE tenant_id = ?`, tenantId);
@@ -81,6 +90,17 @@ export async function resetTenant(env: Env, tenantId: string): Promise<ResetResu
     // Put back whatever happened, including after a failure part way through: a dealership left with
     // its history writable would be a worse outcome than a reset that did not finish.
     for (const g of guards) await run(env.DB, g.sql).catch(() => undefined);
+  }
+  if (opts.people) {
+    // After the rest: their bookings and requests are already gone, so nothing points at them but the
+    // two lists of what they could reach. The administrators stay — somebody has to be able to sign in.
+    const gone = await all<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM users WHERE tenant_id = ? AND role <> 'ADMIN'`, tenantId);
+    removed.users = gone[0]?.n ?? 0;
+    if (removed.users) {
+      await run(env.DB, `DELETE FROM user_outlets WHERE tenant_id = ? AND user_id IN (SELECT id FROM users WHERE tenant_id = ? AND role <> 'ADMIN')`, tenantId, tenantId);
+      await run(env.DB, `DELETE FROM user_segments WHERE tenant_id = ? AND user_id IN (SELECT id FROM users WHERE tenant_id = ? AND role <> 'ADMIN')`, tenantId, tenantId);
+      await run(env.DB, `DELETE FROM users WHERE tenant_id = ? AND role <> 'ADMIN'`, tenantId);
+    }
   }
   return { removed, total: Object.values(removed).reduce((a, b) => a + b, 0) };
 }
