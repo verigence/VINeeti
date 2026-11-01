@@ -252,6 +252,56 @@ export function platformRoutes(app: App) {
     return c.json(await platformHealth(c.env, clock.now()));
   });
 
+  // ------------------------------------------------------------ support tickets, across every dealership
+  /** Every ticket raised on this deployment, newest first: the open ones are the work. */
+  app.get("/api/platform/tickets", async (c) => {
+    await working(c);
+    const status = c.req.query("status");
+    const where = status === "OPEN" || status === "CLOSED" ? `WHERE t.status = '${status}'` : "";
+    const rows = await all<any>(
+      c.env.DB,
+      `SELECT t.id, t.tenant_id, n.name AS dealership, n.slug, t.raiser_name, t.raiser_role, t.raiser_email, t.subject, t.body, t.status,
+              t.attachment_name, t.attachment_size, t.emailed, t.email_error, t.created_at, t.closed_at, t.closing_note
+         FROM support_tickets t JOIN tenants n ON n.id = t.tenant_id ${where} ORDER BY t.created_at DESC LIMIT 300`,
+    );
+    const counts = await all<{ status: string; n: number }>(c.env.DB, `SELECT status, COUNT(*) AS n FROM support_tickets GROUP BY status`);
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ tickets: rows, counts: Object.fromEntries(counts.map((r) => [r.status, r.n])) });
+  });
+
+  /** The file somebody attached, whichever dealership they raised it at. */
+  app.get("/api/platform/tickets/:id/attachment", async (c) => {
+    await working(c);
+    const t = await first<{ attachment_key: string | null; attachment_name: string | null; attachment_type: string | null }>(
+      c.env.DB,
+      `SELECT attachment_key, attachment_name, attachment_type FROM support_tickets WHERE id = ?`,
+      c.req.param("id"),
+    );
+    if (!t?.attachment_key) throw new HttpError(404, "Attachment not found", "NOT_FOUND");
+    const file = await c.env.FILES?.get(t.attachment_key);
+    if (!file) throw new HttpError(404, "Attachment not found", "NOT_FOUND");
+    c.header("Content-Type", t.attachment_type || "application/octet-stream");
+    c.header("Content-Disposition", `attachment; filename="${(t.attachment_name ?? "attachment").replace(/[^A-Za-z0-9._-]/g, "_")}"`);
+    c.header("Cache-Control", "private, no-store");
+    return c.body(file.body as ReadableStream);
+  });
+
+  /** Closes a ticket, or opens it again. A note can be left, and is shown to whoever raised it. */
+  app.post("/api/platform/tickets/:id/status", async (c) => {
+    const admin = await working(c);
+    const b = await jsonBody<{ status?: string; note?: string }>(c);
+    const status = b.status === "OPEN" ? "OPEN" : "CLOSED";
+    const note = String(b.note ?? "").trim().slice(0, 2000) || null;
+    const t = await first<{ id: string }>(c.env.DB, `SELECT id FROM support_tickets WHERE id = ?`, c.req.param("id"));
+    if (!t) throw new HttpError(404, "Ticket not found", "NOT_FOUND");
+    const at = iso(clock.now());
+    await c.env.DB.batch([
+      stmt(c.env.DB, `UPDATE support_tickets SET status = ?, closed_at = ?, closed_by = ?, closing_note = COALESCE(?, closing_note) WHERE id = ?`, status, status === "CLOSED" ? at : null, status === "CLOSED" ? admin.id : null, note, t.id),
+      auditStmt(c.env, admin.id, status === "CLOSED" ? "TICKET_CLOSED" : "TICKET_REOPENED", t.id, { note }, clock.now()),
+    ]);
+    return c.json({ ok: true, status });
+  });
+
   /** What has been done on this deployment, newest first. */
   app.get("/api/platform/audit", async (c) => {
     await working(c);

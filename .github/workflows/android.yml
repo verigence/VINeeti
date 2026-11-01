@@ -66,7 +66,7 @@ jobs:
           else
             KEYSTORE_PASSWORD="$(openssl rand -base64 24)"; KEY_ALIAS="vineeti"; KEY_PASSWORD="$KEYSTORE_PASSWORD"
             keytool -genkeypair -v -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -alias "$KEY_ALIAS" \
-              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Verigence VINeeti, O=JBR Consulting, C=IN" >/dev/null
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VINeeti, O=JBR Consulting, C=IN" >/dev/null
             echo "::add-mask::$KEYSTORE_PASSWORD"
             printf 'ANDROID_KEYSTORE_PASSWORD=%s\nANDROID_KEY_ALIAS=%s\nANDROID_KEY_PASSWORD=%s\n' "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > "$RUNNER_TEMP/keystore-secrets.txt"
             echo "No ANDROID_KEYSTORE_BASE64 secret: a new signing key was created. Download the android-keystore artifact and add the secrets before the next build."

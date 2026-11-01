@@ -111,6 +111,26 @@ export async function ensureDatabase(name, location, { create = true } = {}) {
   return { id: made.uuid, created: true };
 }
 
+/**
+ * The bucket a support ticket's attachment goes into, created if it is not there yet. Creating one is
+ * safe to repeat: an existing bucket is left exactly as it is, and nothing is ever deleted here.
+ */
+export async function ensureBucket(name, { create = true } = {}) {
+  const find = async () => {
+    const { code, out, err } = await wrangler(["r2", "bucket", "list"], { capture: true, quiet: true, allowFailure: true });
+    if (code !== 0) {
+      process.stderr.write(`${out}${err}`);
+      throw new Stop('Could not read the list of R2 buckets (see above). The API token needs the permission "Workers R2 Storage: Edit" on this account.');
+    }
+    // `r2 bucket list` prints a table, not JSON, so the name is looked for as a whole word.
+    return new RegExp(`(^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "m").test(out);
+  };
+  if (await find()) return { created: false };
+  if (!create) return null;
+  await wrangler(["r2", "bucket", "create", name]);
+  return { created: true };
+}
+
 /** Names of the secrets the Worker already has; null when the Worker has not been deployed yet. */
 export async function workerSecrets(worker) {
   const { code, out, err } = await wrangler(["secret", "list", "--name", worker, "--format", "json"], { capture: true, quiet: true, allowFailure: true });

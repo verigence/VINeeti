@@ -25,6 +25,8 @@ export interface Welcome {
   logo?: Uint8Array;
   /** The maker's mark for the foot of the message. Optional in the same way. */
   jbr?: Uint8Array;
+  /** What this person's role is for, in the dealership's words. Only the introduction uses it. */
+  rolePurpose?: string;
 }
 
 const NAVY = "#002858";
@@ -33,6 +35,10 @@ const INK = "#1b2733";
 const MUTED = "#5b6672";
 const LINE = "#e9eff3";
 const LOGO_CID = "vineeti-logo";
+/** The introduction is the one message a person is written to rather than notified by. */
+const FOUNDER = { name: "Vikas Singh", title: "Founder, JBR Consulting" };
+/** Every other message is the system doing an administrator's bidding, and says so. */
+const ADMIN = { name: "System Admin", title: "VINeeti" };
 const JBR_CID = "jbr-logo";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -49,6 +55,12 @@ interface Layout {
   rows?: [string, string, boolean?][];
   /** Whether to say the password must be replaced. A message carrying no password should not. */
   secret?: boolean;
+  /** Short lines set off with a mark, for saying what the system is for. */
+  points?: string[];
+  /** Somebody's own words, set apart from the system's so the two are not confused. */
+  quote?: { title: string; text: string };
+  /** Who the message is from, written above the footer. */
+  signature?: { name: string; title: string };
 }
 
 const signInRows = (w: Welcome): [string, string, boolean?][] => [
@@ -59,13 +71,23 @@ const signInRows = (w: Welcome): [string, string, boolean?][] => [
 ];
 
 /** The message as a page: a header with the mark, the matter, the password, and what to do next. */
-function page({ heading, lead, w, closing, rows, secret = true }: Layout): string {
+function page({ heading, lead, w, closing, rows, secret = true, points, quote, signature }: Layout): string {
   const logo = w.logo
-    ? `<img src="cid:${LOGO_CID}" width="220" alt="Verigence VINeeti" style="display:block;border:0;outline:none;text-decoration:none;width:220px;max-width:100%;height:auto;">`
-    : `<div style="font:700 22px/1.2 Helvetica,Arial,sans-serif;color:${NAVY};">Verigence VINeeti</div>`;
+    ? `<img src="cid:${LOGO_CID}" width="220" alt="VINeeti" style="display:block;border:0;outline:none;text-decoration:none;width:220px;max-width:100%;height:auto;">`
+    : `<div style="font:700 22px/1.2 Helvetica,Arial,sans-serif;color:${NAVY};">VINeeti</div>`;
   const maker = w.jbr
     ? `<img src="cid:${JBR_CID}" width="180" alt="JBR Consulting" style="display:block;border:0;outline:none;text-decoration:none;width:180px;max-width:100%;height:auto;">`
     : `<div style="font:700 15px/1.3 Helvetica,Arial,sans-serif;color:${NAVY};letter-spacing:2px;">J B R &nbsp;C O N S U L T I N G</div>`;
+  // A list, as a table: every mail client agrees on tables, and several still mangle <ul> margins.
+  const bullets = (lines: string[]) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${lines
+      .map(
+        (line) => `<tr>
+           <td valign="top" style="width:18px;padding:0 0 10px;font:700 15px/1.6 Helvetica,Arial,sans-serif;color:${TEAL};">&bull;</td>
+           <td valign="top" style="padding:0 0 10px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${line}</td>
+         </tr>`,
+      )
+      .join("")}</table>`;
   const row = (label: string, value: string, mono = false) =>
     `<tr>
        <td style="padding:6px 16px 6px 0;font:400 13px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};white-space:nowrap;">${esc(label)}</td>
@@ -85,6 +107,7 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
           <h1 style="margin:0 0 12px;font:600 20px/1.3 Helvetica,Arial,sans-serif;color:${NAVY};">${esc(heading)}</h1>
           <p style="margin:0 0 16px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">Dear ${esc(w.name)},</p>
           <p style="margin:0 0 20px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${esc(lead)}</p>
+          ${points?.length ? bullets(points.map(esc)) + '<div style="height:4px;"></div>' : ""}
         </td></tr>
         <tr><td style="padding:0 28px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f7fafb;border:1px solid ${LINE};border-radius:8px;">
@@ -95,8 +118,18 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
             </td></tr>
           </table>
         </td></tr>
+        ${
+          quote
+            ? `<tr><td style="padding:20px 28px 0;">
+                 <p style="margin:0 0 8px;font:700 11px/1.4 Helvetica,Arial,sans-serif;color:${MUTED};letter-spacing:1.2px;text-transform:uppercase;">${esc(quote.title)}</p>
+                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid ${TEAL};">
+                   <tr><td style="padding:2px 0 2px 14px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};white-space:pre-wrap;">${esc(quote.text)}</td></tr>
+                 </table>
+               </td></tr>`
+            : ""
+        }
         <tr><td align="center" style="padding:24px 28px 8px;">
-          <a href="${esc(w.signInUrl)}" style="display:inline-block;padding:12px 28px;background:${NAVY};color:#ffffff;font:600 15px/1 Helvetica,Arial,sans-serif;text-decoration:none;border-radius:6px;">Sign in to VINeeti</a>
+          <a href="${esc(w.signInUrl)}" style="display:inline-block;padding:12px 28px;background:${NAVY};color:#ffffff;font:600 15px/1 Helvetica,Arial,sans-serif;text-decoration:none;border-radius:6px;">${esc(w.mobile ? "Sign in to VINeeti" : "Open the platform console")}</a>
         </td></tr>
         <tr><td align="center" style="padding:0 28px 20px;">
           <p style="margin:0;font:400 12px/1.6 Helvetica,Arial,sans-serif;color:${MUTED};word-break:break-all;">${esc(w.signInUrl)}</p>
@@ -105,9 +138,18 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
           ${secret ? `<p style="margin:0 0 12px;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.</p>` : ""}
           <p style="margin:0;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${esc(closing)}</p>
         </td></tr>
+        ${
+          signature
+            ? `<tr><td style="padding:0 28px 24px;">
+                 <p style="margin:0;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">Regards,</p>
+                 <p style="margin:4px 0 0;font:600 15px/1.5 Helvetica,Arial,sans-serif;color:${NAVY};">${esc(signature.name)}</p>
+                 <p style="margin:0;font:400 13px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};">${esc(signature.title)}</p>
+               </td></tr>`
+            : ""
+        }
         <tr><td style="padding:0 28px;"><div style="height:1px;background:${LINE};"></div></td></tr>
         <tr><td align="center" style="padding:16px 28px 4px;">
-          <p style="margin:0;font:600 13px/1.5 Helvetica,Arial,sans-serif;color:${NAVY};">Verigence VINeeti &middot; Fair Allocation. Smarter Inventory.</p>
+          <p style="margin:0;font:600 13px/1.5 Helvetica,Arial,sans-serif;color:${NAVY};">VINeeti &middot; Fair Allocation. Smarter Inventory.</p>
         </td></tr>
         <!-- Whose product this is, given its own band at the foot rather than a line of small print. -->
         <tr><td align="center" style="padding:4px 28px 0;">
@@ -121,7 +163,7 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
         </td></tr>
         <tr><td align="center" style="padding:12px 28px 4px;">${maker}</td></tr>
         <tr><td align="center" style="padding:0 28px 24px;">
-          <p style="margin:0;font:400 12px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};">This message was sent by the system; nobody can reply to it.</p>
+          <p style="margin:0;font:400 12px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};">This is an automated message. Please do not reply to it.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -129,16 +171,18 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
 </body></html>`;
 }
 
-function text(heading: string, lead: string, w: Welcome, closing: string, rows?: [string, string, boolean?][], secret = true): string {
+function text(heading: string, lead: string, w: Welcome, closing: string, rows?: [string, string, boolean?][], secret = true, points?: string[], signature?: { name: string; title: string }): string {
   return (
     `${heading}\n\n` +
     `Dear ${w.name},\n\n` +
     `${lead}\n\n` +
+    (points?.length ? points.map((p) => `- ${p}\n`).join("") + "\n" : "") +
     (rows ?? signInRows(w)).map(([label, value]) => `${label}: ${value}\n`).join("") +
     `\nSign in at ${w.signInUrl}\n\n` +
     (secret ? `You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.\n\n` : "") +
     `${closing}\n\n` +
-    `--\nVerigence VINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis message was sent by the system; nobody can reply to it.`
+    (signature ? `Regards,\n${signature.name}\n${signature.title}\n\n` : "") +
+    `--\nVINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis is an automated message. Please do not reply to it.`
   );
 }
 
@@ -150,14 +194,14 @@ function withLogo(w: Welcome): Pick<Message, "images"> {
 }
 
 export function welcomeMail(w: Welcome): Message {
-  const heading = `Welcome to Verigence VINeeti`;
+  const heading = `Welcome to VINeeti`;
   const lead = `An account has been created for you at ${w.dealership}. Here is what you need to sign in for the first time.`;
   const closing = `If you were not expecting this, tell your System Admin and do not sign in.`;
   return {
     to: "",
-    subject: `Your ${w.dealership} sign-in for Verigence VINeeti`,
-    body: text(heading, lead, w, closing),
-    html: page({ heading, lead, w, closing }),
+    subject: `Your ${w.dealership} sign-in for VINeeti`,
+    body: text(heading, lead, w, closing, undefined, true, undefined, ADMIN),
+    html: page({ heading, lead, w, closing, signature: ADMIN }),
     ...withLogo(w),
   };
 }
@@ -169,8 +213,8 @@ export function resetMail(w: Welcome): Message {
   return {
     to: "",
     subject: `A new password for your ${w.dealership} sign-in`,
-    body: text(heading, lead, w, closing),
-    html: page({ heading, lead, w, closing }),
+    body: text(heading, lead, w, closing, undefined, true, undefined, ADMIN),
+    html: page({ heading, lead, w, closing, signature: ADMIN }),
     ...withLogo(w),
   };
 }
@@ -180,9 +224,9 @@ export function resetMail(w: Welcome): Message {
  * real messages — same layout, same inline logos, same MIME — so if this arrives, a welcome will too.
  */
 export function testMail(w: Welcome & { account: string; at: string }): Message {
-  const heading = `VINeeti can send email`;
-  const lead = `This is a test, sent from the Settings screen to check that messages from Verigence VINeeti reach you. Nothing has changed and nobody else was written to.`;
-  const closing = `If you can read this, the welcome and password messages will arrive the same way.`;
+  const heading = `Test message from VINeeti`;
+  const lead = `This is a test message, sent to confirm that email from VINeeti reaches you. No other recipient was included and nothing has been changed.`;
+  const closing = `If this message has reached you, the sign-in and password messages will reach their recipients in the same way.`;
   const rows: [string, string, boolean?][] = [
     ["Dealership", w.dealership],
     ["Sent from", w.account],
@@ -190,9 +234,80 @@ export function testMail(w: Welcome & { account: string; at: string }): Message 
   ];
   return {
     to: "",
-    subject: `Test message from Verigence VINeeti`,
+    subject: `Test message from VINeeti`,
     body: text(heading, lead, w, closing, rows, false),
     html: page({ heading, lead, w, closing, rows, secret: false }),
+    ...withLogo(w),
+  };
+}
+
+/**
+ * The introduction, sent once the person has replaced the temporary password and is properly in. It is
+ * deliberately not the message that carries the password: that one has a job to do and a secret in it,
+ * and nobody reads an explanation of a system they cannot get into yet. This one arrives when they can.
+ */
+export function introMail(w: Welcome): Message {
+  const heading = `Welcome to VINeeti`;
+  const lead = `Your password has been set and your account at ${w.dealership} is now active. VINeeti is the system ${w.dealership} uses to manage vehicle stock, customer bookings and vehicle allocation.`;
+  const closing = `Thank you for choosing VINeeti. If you need any help, or if something does not appear correct, please contact your System Admin.`;
+  const points = [
+    `Stock: every vehicle in stock and in transit at your billing centre, with its current status.`,
+    `Bookings: each customer booking with its model, variant and colour, and the stage it has reached.`,
+    `Allocation: vehicles are allocated to bookings using the priority rules the dealership has set.`,
+    `Approvals: allocation, deallocation and approval are recorded against the person and the time.`,
+    `Reconciliation: the DMS stock, booking and payment files are loaded daily and any differences are reported.`,
+  ];
+  const rows: [string, string, boolean?][] = [
+    ["Dealership", w.dealership],
+    ["Your role", w.roleLabel],
+    ["Sign in with", prettyMobile(w.mobile)],
+  ];
+  if (w.rolePurpose) rows.push(["Your access", w.rolePurpose]);
+  return {
+    to: "",
+    subject: `Welcome to VINeeti \u2013 ${w.dealership}`,
+    from: FOUNDER,
+    body: text(heading, lead, w, closing, rows, false, points, FOUNDER),
+    html: page({ heading, lead, w, closing, rows, secret: false, points, signature: FOUNDER }),
+    ...withLogo(w),
+  };
+}
+
+/**
+ * What support is sent when somebody raises a ticket. It carries the whole ticket, so whoever reads it
+ * on a phone can judge it without signing in, and the attachment is named rather than attached: the
+ * file stays where only a checked request can reach it.
+ */
+export function ticketMail(t: {
+  dealership: string;
+  raiser: string;
+  role: string;
+  raiserEmail: string | null;
+  subject: string;
+  body: string;
+  attachment: string | null;
+  at: string;
+  consoleUrl: string;
+  logo?: Uint8Array;
+  jbr?: Uint8Array;
+}): Message {
+  const heading = `Support ticket from ${t.dealership}`;
+  const lead = `${t.raiser} (${t.role}) has raised a support ticket at ${t.dealership}.`;
+  const closing = `Open the platform console to reply to it, download anything attached, and close it when it is done.`;
+  const w: Welcome = { name: "Support", dealership: t.dealership, roleLabel: t.role, mobile: "", password: "", signInUrl: t.consoleUrl, logo: t.logo, jbr: t.jbr };
+  const rows: [string, string, boolean?][] = [
+    ["Dealership", t.dealership],
+    ["Raised by", `${t.raiser} (${t.role})`],
+    ["Their email", t.raiserEmail || "not on their account"],
+    ["Subject", t.subject],
+    ["Attachment", t.attachment || "none"],
+    ["Raised at", t.at],
+  ];
+  return {
+    to: "",
+    subject: `[VINeeti] ${t.dealership}: ${t.subject}`.slice(0, 180),
+    body: `${heading}\n\n${lead}\n\n` + rows.map(([l, v]) => `${l}: ${v}\n`).join("") + `\nWhat they wrote:\n\n${t.body}\n\n${closing}\n\n--\nVINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis is an automated message. Please do not reply to it.`,
+    html: page({ heading, lead, w, closing, rows, secret: false, quote: { title: "What they wrote", text: t.body } }),
     ...withLogo(w),
   };
 }

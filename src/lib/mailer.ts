@@ -51,6 +51,12 @@ export interface Message {
   html?: string;
   /** Pictures that ride inside the message, by the id the HTML refers to as `cid:`. */
   images?: Record<string, Uint8Array>;
+  /**
+   * Who it is shown as being from. The address cannot change — a mail account may only send as itself,
+   * and Gmail refuses anything else — so this is the name beside it, for the one message that comes
+   * from a person rather than from the system.
+   */
+  from?: { name: string; title: string };
 }
 
 export interface Mailer {
@@ -242,7 +248,8 @@ export class SmtpMailer implements Mailer {
       await expect([250, 251], "recipient");
       await say("DATA");
       await expect([354], "data");
-      await withDeadline(writer.write(enc.encode(mime(`${a.fromName} <${a.from}>`, m, this.now()) + CRLF + "." + CRLF)), left(), "data");
+      const shownAs = m.from ? `${m.from.name}, ${m.from.title.split(",")[0]} \u2013 ${a.fromName}` : a.fromName;
+      await withDeadline(writer.write(enc.encode(mime(`${shownAs} <${a.from}>`, m, this.now()) + CRLF + "." + CRLF)), left(), "data");
       await expect([250], "data");
       stage = "quit";
       await say("QUIT");
@@ -270,7 +277,7 @@ export function mailer(env: Env, now: () => Date = () => new Date()): Mailer | n
       user,
       password,
       from: (env.SMTP_FROM ?? "").trim() || user,
-      fromName: (env.APP_NAME ?? "Verigence VINeeti").trim(),
+      fromName: (env.APP_NAME ?? "VINeeti").trim(),
     },
     now,
   );

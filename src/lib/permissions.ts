@@ -146,6 +146,24 @@ export const ROLE_PURPOSE: Record<Role, string> = {
   AUDITOR: "Reads everything, changes nothing.",
 };
 
+/**
+ * The same thing as ROLE_PURPOSE, said to the person whose role it is. The matrix above is written for
+ * an administrator comparing roles, where "approves nothing" and "changes nothing" are the useful facts;
+ * addressed to somebody on their first day it reads like a demotion, so the introduction email uses this.
+ */
+export const ROLE_TO_YOU: Record<Role, string> = {
+  ADMIN: "You administer VINeeti for the dealership: users, outlets and system settings.",
+  DEALER_PRINCIPAL: "You have access to all screens and all outlets, including the owner's dashboards.",
+  CEO_VP: "You have access to all screens and approve the requests raised to you. Payment records are read-only.",
+  GM_SALES: "You approve allocation and deallocation requests raised at your billing centre.",
+  AGM_SALES: "You raise allocation and deallocation requests for your segment. A GM or the CEO approves them.",
+  SALES_LEAD: "You manage your team's bookings at your outlets and approve them.",
+  SALES_CONSULTANT: "You check stock and delivery for customers, create bookings and track your own bookings.",
+  EDP_MANAGER: "You upload the daily DMS files and resolve the differences, and you maintain the vehicle master and orders.",
+  FINANCE: "You verify that payments have been received, and record invoicing and delivery.",
+  AUDITOR: "You have read-only access to all records.",
+};
+
 export const PERMISSION_LABELS: Record<Permission, string> = {
   "stock.view": "See stock and availability",
   "stock.manage": "Receive, transfer, block cars",

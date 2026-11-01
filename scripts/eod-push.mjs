@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The end-of-day feed, for a scheduled job at the dealership (Windows Task Scheduler, cron): sends the
-// day's booking sheet and stock report to Verigence VINeeti with the dealership's end-of-day key, then
+// day's booking sheet and stock report to VINeeti with the dealership's end-of-day key, then
 // asks for the day-end reconciliation. Needs Node 20 or later and nothing else.
 //
 //   EOD_KEY=vne_... node eod-push.mjs --url https://<address> --dealer <dealer-code> --dir "D:\DMS exports"

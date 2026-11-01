@@ -1571,3 +1571,16 @@ export interface DailyDeltaResponse {
   source: DataStatus;
   basis: string;
 }
+
+/** A support ticket as the person who raised it sees it. */
+export interface SupportTicket {
+  id: string;
+  subject: string;
+  body: string;
+  status: "OPEN" | "CLOSED";
+  attachment_name: string | null;
+  attachment_size: number | null;
+  created_at: string;
+  closed_at: string | null;
+  closing_note: string | null;
+}

@@ -3,6 +3,10 @@ import type { TenantSettings } from "./lib/settings";
 export interface Env {
   DB: D1Database;
   ASSETS?: Fetcher;
+  /** Attachments on support tickets. Absent on an older deployment, where a ticket is raised without one. */
+  FILES?: R2Bucket;
+  /** Where a raised ticket is sent. Unset, the product's own support address is used. */
+  SUPPORT_EMAIL?: string;
   APP_NAME?: string;
   WA_GRAPH_VERSION?: string;
   /** Set by the deployment (scripts/deploy.mjs): the commit deployed and when. Shown on the platform console's System health page. */

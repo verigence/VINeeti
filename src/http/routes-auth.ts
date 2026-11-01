@@ -3,8 +3,9 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { alertStmt, all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatrix, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
-import { emailMark, emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn, sendSignInAfter, sendSignInOrAlert, temporaryPassword } from "../domain/onboarding";
+import { emailMark, emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendIntro, sendSignIn, sendSignInAfter, sendSignInOrAlert, temporaryPassword } from "../domain/onboarding";
 import { testMail } from "../domain/mail-templates";
+import { ATTACHMENT_LIMIT, checkAttachment, myTickets, notifySupport, raiseTicket, supportAddress, type Attachment } from "../domain/support";
 import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
 import { oemAdapter } from "../oem";
@@ -168,7 +169,7 @@ export function authRoutes(app: App) {
       // The manufacturer's vehicle segments, for the Users screen and for saying which a person works with.
       segments: oemAdapter(ctx.tenant.oem)?.segments ?? [],
       receives_alarms: ctx.settings.alarm_roles.includes(c.get("user").role),
-      app_name: c.env.APP_NAME ?? "Verigence VINeeti",
+      app_name: c.env.APP_NAME ?? "VINeeti",
     });
   });
 
@@ -182,6 +183,10 @@ export function authRoutes(app: App) {
     if (next === body.current) throw bad("The new password must be different");
     await run(ctx.db, `UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1 WHERE id = ? AND tenant_id = ?`, await hashPassword(next), user.id, ctx.tenantId);
     await audit(ctx, "PASSWORD_CHANGED", "user", user.id);
+    // The temporary one has just been replaced, which is the moment this person is properly in: the
+    // introduction to the system goes now rather than with the password, because nobody reads an
+    // explanation of something they cannot open yet. Only the first time, not on every later change.
+    if (user.mustChangePassword) after(c, sendIntro(ctx, user.id));
     const token = await signSession({ tid: ctx.tenantId, uid: user.id, tv: row.token_version + 1, exp: Math.floor(ctx.now.getTime() / 1000) + 43200 }, c.env.SESSION_SECRET);
     c.header("Set-Cookie", sessionCookie(c.req.raw, token));
     return c.json({ ok: true });
@@ -463,6 +468,61 @@ export function authRoutes(app: App) {
     }
     await audit(ctx, reason ? "MAIL_TEST_FAILED" : "MAIL_TEST_SENT", "tenant", ctx.tenantId, { to, account: account || null, ...(reason ? { error: reason, stage, detail } : {}) });
     return c.json({ configured: true, sent: !reason, reason, stage, detail, to, ...where });
+  });
+
+  // ------------------------------------------------------------ support tickets
+  /**
+   * Anybody signed in may raise one: a person who cannot get a screen to work is exactly the person who
+   * needs to be heard, whatever their role, so this is behind no permission. Support is told afterwards,
+   * so a mail server never holds up the answer.
+   */
+  app.post("/api/support/tickets", async (c) => {
+    const ctx = c.get("ctx");
+    const user = c.get("user");
+    if (Number(c.req.header("Content-Length") ?? "0") > ATTACHMENT_LIMIT + 512 * 1024) throw bad(`The attachment is larger than ${Math.round(ATTACHMENT_LIMIT / (1024 * 1024))} MB`);
+    let subject = "", body = "", attachment: Attachment | null = null;
+    if ((c.req.header("Content-Type") ?? "").includes("multipart/form-data")) {
+      const form = await c.req.formData().catch(() => null);
+      if (!form) throw bad("The ticket could not be read");
+      subject = String(form.get("subject") ?? "");
+      body = String(form.get("body") ?? "");
+      const file = form.get("file") as unknown;
+      if (file && typeof file !== "string") {
+        const f = file as File;
+        checkAttachment({ name: f.name, type: f.type, size: f.size });
+        attachment = { name: f.name, type: (f.type || "application/octet-stream").split(";")[0], bytes: new Uint8Array(await f.arrayBuffer()) };
+      }
+    } else {
+      const b = await jsonBody<{ subject?: string; body?: string }>(c);
+      subject = String(b.subject ?? "");
+      body = String(b.body ?? "");
+    }
+    const made = await raiseTicket(ctx, user, { subject, body }, attachment);
+    after(c, notifySupport(ctx, made.id));
+    return c.json({ ...made, support_email: supportAddress(ctx.env) }, 201);
+  });
+
+  /** The tickets this person raised, and what has become of them. */
+  app.get("/api/support/tickets", async (c) => {
+    const ctx = c.get("ctx");
+    return c.json({ tickets: await myTickets(ctx, c.get("user").id), support_email: supportAddress(ctx.env), attachment_limit: ATTACHMENT_LIMIT });
+  });
+
+  /** The file somebody attached. Theirs to fetch; the platform console has its own route for the rest. */
+  app.get("/api/support/tickets/:id/attachment", async (c) => {
+    const ctx = c.get("ctx");
+    const t = await first<{ attachment_key: string | null; attachment_name: string | null; attachment_type: string | null }>(
+      ctx.db,
+      `SELECT attachment_key, attachment_name, attachment_type FROM support_tickets WHERE id = ? AND tenant_id = ? AND raised_by = ?`,
+      c.req.param("id"), ctx.tenantId, c.get("user").id,
+    );
+    if (!t?.attachment_key) throw notFound("Attachment");
+    const file = await ctx.env.FILES?.get(t.attachment_key);
+    if (!file) throw notFound("Attachment");
+    c.header("Content-Type", t.attachment_type || "application/octet-stream");
+    c.header("Content-Disposition", `attachment; filename="${(t.attachment_name ?? "attachment").replace(/[^A-Za-z0-9._-]/g, "_")}"`);
+    c.header("Cache-Control", "private, no-store");
+    return c.body(file.body as ReadableStream);
   });
 
   // ------------------------------------------------------------ dealership settings
