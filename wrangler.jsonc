@@ -10,15 +10,16 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/.well-known/*"]
   },
-  // Each dealership reaches VINeeti at its own address. A Custom Domain makes the Worker the origin
-  // for that exact hostname: Cloudflare creates the DNS record and the certificate, so there is nothing
-  // to set up by hand and nothing to renew. One line per dealership, and the first level of the domain
-  // only — a deeper name such as aditya.vineeti.jbrconsulting.in is not covered by the free certificate.
+  // Each dealership reaches VINeeti at its own address, grouped by manufacturer:
+  // <dealership>.<oem>.jbrconsulting.in. A Custom Domain makes the Worker the origin for that exact
+  // hostname, so Cloudflare creates the DNS record and the certificate and there is nothing to set up
+  // by hand or renew. The depth is fine: a Custom Domain gets a certificate for its own hostname,
+  // including a multi-level one, where Universal SSL would only have covered the first level.
   //
-  // The workers.dev address keeps working alongside these.
+  // One line per dealership. The workers.dev address keeps working alongside these.
   "routes": [
     {
-      "pattern": "adityamotors.jbrconsulting.in",
+      "pattern": "adityamotors.mh.jbrconsulting.in",
       "custom_domain": true
     }
   ],
