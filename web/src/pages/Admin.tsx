@@ -255,6 +255,7 @@ function UsersTab() {
         </Async>
       </Card>
       <EmployeeSheetCard onLoaded={() => void users.reload()} />
+      <MailCheckCard />
       {dialog && (
         <UserDialog
           user={dialog.user}
@@ -563,6 +564,53 @@ function ResetPasswordDialog({ user, onClose }: { user: UserRow; onClose: () => 
         {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Whether messages from VINeeti actually arrive. Email is the only way a new user is told how to sign
+ * in, so this has to be answerable without creating somebody to find out — and if it fails, the reason
+ * is the mail server's own, not a guess.
+ */
+function MailCheckCard() {
+  const action = useAction();
+  const [to, setTo] = useState("");
+  const [result, setResult] = useState<Awaited<ReturnType<typeof api.testMail>> | null>(null);
+  const send = async () => {
+    const res = await action.run(() => api.testMail(to.trim() || undefined), { quiet: true });
+    if (res) setResult(res);
+  };
+  const why: Record<string, string> = {
+    MAIL_NOT_CONFIGURED: "This deployment has no mail account set up, so nothing can be sent. Temporary passwords are shown on screen instead.",
+    NO_EMAIL: "Your own account has no email address on it. Add one to your user, then try again.",
+    MAIL_AUTH_FAILED: "The mail account refused the sign-in. The app password is wrong, expired or has been revoked.",
+    MAIL_RECIPIENT_REFUSED: "The mail server refused the address it was asked to write to.",
+    MAIL_UNAVAILABLE: "The mail server could not be reached, or it refused the message part way through.",
+  };
+  return (
+    <Card title="Email" note="Temporary passwords and password resets are sent by email. This checks that they arrive.">
+      <div className="form-stack">
+        {result && (
+          <Notice tone={result.sent ? "ok" : "error"} title={result.sent ? "Sent. " : "Not sent. "}>
+            {result.sent ? `A test message has gone to ${result.to}. If it is not in the inbox within a minute, look in Spam.` : (result.reason && why[result.reason]) || "The message could not be sent."}
+          </Notice>
+        )}
+        {result && (
+          <p className="muted">
+            Mail account: {result.account ? <span className="mono">{result.account}</span> : "none set"} · server <span className="mono">{result.host}:{result.port}</span>
+          </p>
+        )}
+        {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
+        <Field label="Send the test to" hint="Left empty, it goes to the address on your own user. Nobody else is written to either way.">
+          <input value={to} onChange={(e) => setTo(e.target.value)} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" placeholder="you@example.com" spellCheck={false} />
+        </Field>
+        <div className="form-actions">
+          <Button variant="primary" icon="share" busy={action.busy} onClick={() => void send()}>
+            Send a test email
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

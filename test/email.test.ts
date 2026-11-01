@@ -3,7 +3,7 @@
 // as it did before email existed, and that what is written to the person carries what they need.
 import { describe, expect, it } from "vitest";
 import { bodyToHtml } from "../src/lib/mailer";
-import { resetMail, welcomeMail } from "../src/domain/mail-templates";
+import { resetMail, testMail, welcomeMail } from "../src/domain/mail-templates";
 import { makeMahindraDealer, makeWorld } from "./harness";
 
 describe("an account has to have somewhere to send the password", () => {
@@ -105,5 +105,64 @@ describe("a deployment that can send", () => {
     expect(reset.status).toBe(200);
     expect(reset.body.temporary_password).toMatch(/^[a-z2-9]{10}$/);
     expect(reset.body.emailing).toBe(true);
+  });
+});
+
+describe("whether mail works at all is answerable without creating a user", () => {
+  it("says there is no mail account, says when an address is missing, and reports the server's own reason", async () => {
+    const w = makeWorld();
+    const d = await makeMahindraDealer(w);
+
+    // Nothing configured: the honest answer, not an attempt that fails.
+    const none = await w.api("POST", "/api/mail/test", {}, d.users.admin.session);
+    expect(none.status).toBe(200);
+    expect(none.body).toMatchObject({ configured: false, sent: false, reason: "MAIL_NOT_CONFIGURED" });
+    expect(none.body.host).toBe("smtp.gmail.com");
+    expect(none.body.port).toBe(587);
+
+    // Configured, and the only socket a test run has refuses: the reason comes back, not a shrug.
+    // An address is given, because the dealership's first administrator is created without one.
+    w.env.SMTP_USER = "jbrconsulting.it@example";
+    w.env.SMTP_PASSWORD = "app-password";
+    w.env.SMTP_FROM = "no-reply@jbr.example";
+    const failed = await w.api("POST", "/api/mail/test", { to: "amit@aditya.example" }, d.users.admin.session);
+    expect(failed.body).toMatchObject({ configured: true, sent: false, reason: "MAIL_UNAVAILABLE", account: "no-reply@jbr.example" });
+    expect(JSON.stringify(failed.body)).not.toContain("app-password");
+    expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'MAIL_TEST_FAILED'`)[0].n).toBe(1);
+
+    // An address it cannot write to is a different answer again.
+    const away = await w.api("POST", "/api/mail/test", { to: "not-an-address" }, d.users.admin.session);
+    expect(away.status).toBe(400);
+    expect(away.body).toMatchObject({ configured: true, sent: false, reason: "NO_EMAIL" });
+
+    // And it is the administrator's to run, nobody else's.
+    expect((await w.api("POST", "/api/mail/test", {}, d.users.gm.session)).status).toBe(403);
+  });
+
+  it("records what happened to every sign-in message, so a message that never arrived can be told from one never sent", async () => {
+    const w = makeWorld();
+    const d = await makeMahindraDealer(w);
+    // With no mail account the attempt is impossible, and that is written down rather than left blank.
+    const made = await w.api("POST", "/api/users", { name: "Paper Trail", mobile: "9100000055", email: "trail@aditya.example", role: "SALES_LEAD", all_outlets: true }, d.users.admin.session);
+    expect(made.status).toBe(201);
+    const row = w.db.q<{ detail_json: string }>(`SELECT detail_json FROM audit_log WHERE action = 'SIGNIN_EMAIL_FAILED' AND entity_id = ?`, made.body.id);
+    expect(row.length).toBe(1);
+    expect(row[0].detail_json).toContain("MAIL_NOT_CONFIGURED");
+    // No alert for it: the password went to the screen, so there is nothing for anybody to act on.
+    expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM alerts WHERE kind = 'MAIL_FAILED'`)[0].n).toBe(0);
+  });
+
+  it("writes a test message that carries no password and says it is a test", () => {
+    const m = testMail({ name: "Asha Admin", dealership: "Aditya Motors", roleLabel: "System Admin", mobile: "919000000001", password: "", signInUrl: "https://vineeti.example", account: "no-reply@jbr.example", at: "2026-11-01T02:30:00.000Z" });
+    expect(m.subject).toContain("Test message");
+    for (const part of ["Asha Admin", "Aditya Motors", "no-reply@jbr.example"]) {
+      expect(m.body, `text: ${part}`).toContain(part);
+      expect(m.html, `html: ${part}`).toContain(part);
+    }
+    // Nothing about replacing a password, because it carries none.
+    expect(m.body).not.toContain("Temporary password");
+    expect(m.html).not.toContain("Temporary password");
+    expect(m.body).not.toContain("replace this password");
+    expect(m.body).toContain("A PRODUCT BY JBR CONSULTING");
   });
 });

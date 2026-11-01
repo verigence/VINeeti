@@ -3,7 +3,9 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { alertStmt, all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatrix, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
-import { emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn, sendSignInAfter, temporaryPassword } from "../domain/onboarding";
+import { emailMark, emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn, sendSignInAfter, sendSignInOrAlert, temporaryPassword } from "../domain/onboarding";
+import { testMail } from "../domain/mail-templates";
+import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
@@ -344,7 +346,7 @@ export function authRoutes(app: App) {
       sendSignInAfter(ctx, (p) => after(c, p), "WELCOME", email, told, id);
       return c.json({ id, email, emailing: true }, 201);
     }
-    const sent = await sendSignIn(ctx, "WELCOME", email, told);
+    const sent = await sendSignInOrAlert(ctx, "WELCOME", email, told, id);
     return c.json({ id, email, temporary_password: password, ...sent }, 201);
   });
 
@@ -410,6 +412,48 @@ export function authRoutes(app: App) {
     if (b.segments !== undefined) await setSegments(ctx, u.id, b.segments);
     await audit(ctx, "USER_UPDATED", "user", u.id, { ...b });
     return c.json({ ok: true });
+  });
+
+  /**
+   * Sends one test message to the person asking, and waits for the answer. Email is the only way a new
+   * user learns how to sign in, so whether it works has to be answerable without making an account to
+   * find out — and when it does not work, the reason has to be the mail server's own words rather than
+   * a shrug. This is the one place a send is waited for: somebody is sitting there watching for it.
+   */
+  app.post("/api/mail/test", async (c) => {
+    need(c, "admin.settings");
+    const ctx = c.get("ctx");
+    const me = c.get("user");
+    const b = await jsonBody<{ to?: string }>(c);
+    const mine = await first<{ email: string | null }>(ctx.db, `SELECT email FROM users WHERE id = ? AND tenant_id = ?`, me.id, ctx.tenantId);
+    const to = ((b.to ?? "").trim() || (mine?.email ?? "").trim()).trim();
+    const account = (ctx.env.SMTP_FROM ?? "").trim() || (ctx.env.SMTP_USER ?? "").trim();
+    const where = { host: (ctx.env.SMTP_HOST ?? "").trim() || "smtp.gmail.com", port: Number(ctx.env.SMTP_PORT ?? "") || 587, account: account || null };
+    c.header("Cache-Control", "private, no-store");
+    // Three different answers, and the screen says which: no account set up, nowhere to send, or a send.
+    if (!emailPossible(ctx.env)) return c.json({ configured: false, sent: false, reason: "MAIL_NOT_CONFIGURED", to: to || null, ...where });
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(to)) return c.json({ configured: true, sent: false, reason: "NO_EMAIL", to: to || null, ...where }, 400);
+    const post = mailer(ctx.env, () => ctx.now);
+    const message = testMail({
+      name: me.name,
+      dealership: ctx.tenant.name,
+      roleLabel: ROLE_LABELS[me.role],
+      mobile: me.mobile,
+      password: "",
+      signInUrl: ctx.env.APP_URL || "the VINeeti address your dealership uses",
+      account: account || "the configured account",
+      at: ctx.now.toISOString(),
+      logo: await emailMark(ctx.env, "email-logo.png"),
+      jbr: await emailMark(ctx.env, "email-jbr.png"),
+    });
+    let reason: string | null = null;
+    try {
+      await post!.send({ ...message, to });
+    } catch (e) {
+      reason = e instanceof MailError ? e.code : "MAIL_UNAVAILABLE";
+    }
+    await audit(ctx, reason ? "MAIL_TEST_FAILED" : "MAIL_TEST_SENT", "tenant", ctx.tenantId, { to, account: account || null, ...(reason ? { error: reason } : {}) });
+    return c.json({ configured: true, sent: !reason, reason, to, ...where });
   });
 
   // ------------------------------------------------------------ dealership settings
