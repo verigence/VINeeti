@@ -17,6 +17,9 @@
   // including a multi-level one, where Universal SSL would only have covered the first level.
   //
   // One line per dealership. The workers.dev address keeps working alongside these.
+  // Kept on explicitly. Declaring any route turns the workers.dev address off by default, and that
+  // address is the one the dealership is using today: losing it is an outage, not a tidy-up.
+  "workers_dev": true,
   "routes": [
     {
       "pattern": "adityamotors.mh.jbrconsulting.in",
