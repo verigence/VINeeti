@@ -34,8 +34,26 @@ export function withQuery(path: string, query?: Query): string {
   return s ? `${path}?${s}` : path;
 }
 
+/**
+ * Whether this is the app installed on a phone rather than a tab in a browser. An installed app runs
+ * without the browser's own chrome, which is what display-mode reports; iOS answers the older
+ * navigator.standalone instead. It is a label for the sign-in log and decides nothing, so a browser
+ * that reports the wrong thing costs nobody anything.
+ */
+export function installedApp(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    if (window.matchMedia?.("(display-mode: standalone)").matches) return true;
+    if (window.matchMedia?.("(display-mode: fullscreen)").matches) return true;
+    return (window.navigator as { standalone?: boolean }).standalone === true;
+  } catch {
+    return false;
+  }
+}
+
 async function request<R>(method: string, path: string, opts: { query?: Query; json?: unknown; form?: FormData } = {}): Promise<R> {
   const headers: Record<string, string> = { Accept: "application/json" };
+  if (installedApp()) headers["X-VINeeti-Client"] = "APP";
   const init: RequestInit = { method, credentials: "same-origin", headers };
   if (opts.form) init.body = opts.form;
   else if (method !== "GET") {
@@ -270,6 +288,7 @@ export const api = {
 
   // ---- audit trail
   audit: (q: Query) => get<T.AuditRow[]>("/api/audit", q),
+  signIns: (q: Query) => get<T.SignInLog>("/api/sign-ins", q),
 };
 
 export function errorMessage(e: unknown): string {

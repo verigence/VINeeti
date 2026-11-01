@@ -1200,6 +1200,25 @@ export interface WaInbound {
   received_at: string;
 }
 
+export interface SignInRow {
+  id: string;
+  user_id: string | null;
+  mobile: string;
+  name: string | null;
+  role: Role | null;
+  outcome: "IN" | "REFUSED" | "LOCKED";
+  ip: string | null;
+  country: string | null;
+  client: "APP" | "BROWSER";
+  user_agent: string | null;
+  at: string;
+}
+
+export interface SignInLog {
+  keep_days: number;
+  sign_ins: SignInRow[];
+}
+
 export interface AuditRow {
   id: string;
   actor: string;

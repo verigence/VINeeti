@@ -4,6 +4,7 @@ import { all, audit, first, run } from "../lib/db";
 import { can } from "../lib/permissions";
 import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, localParts, normMobile, notFound, parseDate, safeJson, toCsv } from "../lib/util";
 import { ALARM_KINDS } from "../domain/alarms";
+import { KEEP_DAYS, signIns } from "../domain/sign-ins";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
 import { dmsWriteback, syncState, writebackXlsx } from "../domain/dms-writeback";
@@ -344,6 +345,18 @@ export function opsRoutes(app: App) {
     if (q.from) (where.push("a.at >= ?"), p.push(q.from));
     const rows = await all<any>(ctx.db, `SELECT a.*, u.name AS actor_name FROM audit_log a LEFT JOIN users u ON u.id = a.actor WHERE ${where.join(" AND ")} ORDER BY a.at DESC LIMIT ?`, ...p, Math.min(Number(q.limit) || 200, 1000));
     return c.json(rows.map((r) => ({ ...r, detail: safeJson(r.detail_json, {}), detail_json: undefined })));
+  });
+
+  /**
+   * Who has signed in, from where and when — refused attempts included. Same audience as the audit
+   * trail: this says where the dealership's people were, so it is not something a colleague can browse.
+   */
+  app.get("/api/sign-ins", async (c) => {
+    need(c, "audit.view");
+    const ctx = c.get("ctx");
+    if (outletScope(c)) throw forbidden("The sign-in log covers every outlet. Ask the administrator for access to all outlets.");
+    const q = c.req.query();
+    return c.json({ keep_days: KEEP_DAYS, sign_ins: await signIns(c.env, ctx.tenantId, { outcome: q.outcome, userId: q.user_id, limit: Number(q.limit) || 200 }) });
   });
 
   // ------------------------------------------------------------ day-end reconciliation

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { api } from "../api";
-import { Async, Button, Card, DataTable, Empty, Filter, FilterBar, PageHeader, Select, type Column } from "../components/ui";
+import { Async, Button, Card, DataTable, Empty, Filter, FilterBar, PageHeader, Select, Tabs, type Column } from "../components/ui";
 import { fmtDate, fmtDateTime, fmtMobile, fmtMoney, plural, zonedToIso } from "../format";
 import { useLoad } from "../hooks";
 import { actorName, AUDIT_ACTIONS, AUDIT_ENTITIES, auditEntity, auditSentence, codeLabel, fieldLabel, plainText, waEvent } from "../labels";
@@ -72,7 +72,8 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="History" subtitle="Every change, who made it and when. Entries cannot be edited or deleted." />
+      <PageHeader title="History" subtitle="Every change, who made it and when, and who has signed in." />
+      <Tabs tabs={[{ to: "/audit", label: "Changes" }, { to: "/audit/sign-ins", label: "Sign-ins" }]} current="/audit" />
       <FilterBar active={[entityType, actionKey, from].filter(Boolean).length} onClear={() => setQuery({ entity_type: null, action: null, from: null })}>
         <Filter label="Record type">
           <Select value={entityType} onChange={(v) => setQuery({ entity_type: v })} options={ENTITY_OPTIONS} placeholder="Any record" />
