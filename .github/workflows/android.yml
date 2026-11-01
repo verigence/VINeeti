@@ -29,6 +29,11 @@ on:
         required: true
         default: "1"
         type: string
+      publish:
+        description: "Offer this build on the Get the app page"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -103,6 +108,34 @@ jobs:
           name: vineeti-android-${{ inputs.version_name }}
           path: out/*
           if-no-files-found: error
+
+      # The app is not on the Play Store, so people install it from a file. That file goes into the
+      # product's own private bucket, where the Worker hands it out to somebody who has already signed
+      # in — never from a public address, which anybody who guessed it could take a copy from.
+      - name: Offer this build inside the app
+        if: ${{ inputs.publish }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error title=Cloudflare credentials missing::CLOUDFLARE_API_TOKEN is not set, so the build cannot be offered in the app. Add it under Settings, Secrets and variables, Actions."
+            exit 1
+          fi
+          APK="out/vineeti-${{ inputs.version_name }}.apk"
+          KEY="app/vineeti-${{ inputs.version_name }}.apk"
+          SHA=$(sha256sum "$APK" | cut -d" " -f1)
+          SIZE=$(stat -c%s "$APK")
+          npx --yes wrangler@4 r2 object put "verigence-vineeti-files/$KEY" --file "$APK" \
+            --content-type application/vnd.android.package-archive --remote
+          # Written second and on its own, so a half-finished upload never becomes the build on offer.
+          printf '{"version":"%s","version_code":%s,"key":"%s","size":%s,"sha256":"%s","host":"%s","built_at":"%s"}\n' \
+            "${{ inputs.version_name }}" "${{ inputs.version_code }}" "$KEY" "$SIZE" "$SHA" "${{ inputs.host }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > latest.json
+          python3 -c "import json,sys; json.load(open('latest.json'))"
+          npx --yes wrangler@4 r2 object put "verigence-vineeti-files/app/latest.json" --file latest.json \
+            --content-type application/json --remote
+          { echo "- Offered in the app as version ${{ inputs.version_name }} (${{ inputs.version_code }})"; echo "- SHA-256: \`$SHA\`"; } >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the new signing key
         if: steps.key.outputs.new == 'true'
         uses: actions/upload-artifact@v4

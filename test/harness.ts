@@ -114,7 +114,15 @@ export class FakeR2 {
   async get(key: string) {
     const o = this.objects.get(key);
     if (!o) return null;
-    return { key, body: new Blob([o.bytes]).stream(), httpMetadata: { contentType: o.contentType }, arrayBuffer: async () => o.bytes.buffer };
+    // size and text() are part of what R2 hands back, and code that reads a stored record uses them.
+    return {
+      key,
+      size: o.bytes.byteLength,
+      body: new Blob([o.bytes]).stream(),
+      httpMetadata: { contentType: o.contentType },
+      arrayBuffer: async () => o.bytes.buffer,
+      text: async () => new TextDecoder().decode(o.bytes),
+    };
   }
   async delete(key: string) {
     this.objects.delete(key);
