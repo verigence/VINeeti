@@ -72,11 +72,26 @@ export async function createTenant(
   return { tenant_id: tenantId, slug, admin_user_id: userId };
 }
 
+/** The dealership this address belongs to, if the address is one of theirs. */
+export async function tenantForHost(db: D1Database, host: string | null | undefined): Promise<TenantRow | null> {
+  const name = String(host ?? "").trim().toLowerCase().split(":")[0];
+  if (!name) return null;
+  return first<TenantRow>(db, `SELECT * FROM tenants WHERE hostname = ? AND is_active = 1`, name);
+}
+
 /**
- * The dealership a sign-in is for. The mobile number is the person's ID; the dealer code is only needed
- * when the same number is registered at more than one dealership on this deployment.
+ * The dealership a sign-in is for. Its own address settles it outright: somebody at
+ * adityamotors.mh.jbrconsulting.in is signing in to Aditya Motors and nowhere else, whatever is typed.
+ * Failing that, the mobile number is the person's ID and the dealer code is needed only when the same
+ * number is registered at more than one dealership on this deployment.
  */
-async function tenantFor(db: D1Database, dealer: unknown, mobile: string | null): Promise<TenantRow | null> {
+async function tenantFor(db: D1Database, dealer: unknown, mobile: string | null, host?: string | null): Promise<TenantRow | null> {
+  const byHost = await tenantForHost(db, host);
+  if (byHost) {
+    // A dealer code that names somebody else is a mistake worth refusing rather than quietly ignoring.
+    const slug = String(dealer ?? "").trim().toLowerCase();
+    return !slug || slug === byHost.slug ? byHost : null;
+  }
   const slug = String(dealer ?? "").trim().toLowerCase();
   if (slug) return first<TenantRow>(db, `SELECT * FROM tenants WHERE slug = ? AND is_active = 1`, slug);
   if (!mobile) return null;
@@ -94,7 +109,7 @@ export function authRoutes(app: App) {
     // One answer for every failure, including a locked account, so the sign-in page cannot be used to find out which accounts exist.
     const invalid = new HttpError(401, `Dealer code, mobile number or password is not correct. After ${MAX_FAILED} wrong attempts an account is locked for ${LOCK_MINUTES} minutes.`, "INVALID_LOGIN");
     const mobile = normMobile(body.mobile);
-    const tenant = await tenantFor(c.env.DB, body.dealer, mobile);
+    const tenant = await tenantFor(c.env.DB, body.dealer, mobile, new URL(c.req.url).hostname);
     if (!tenant || !mobile) throw invalid;
     const u = await first<{ id: string; password_hash: string; token_version: number; failed_logins: number; locked_until: string | null; is_active: number }>(
       c.env.DB, `SELECT id, password_hash, token_version, failed_logins, locked_until, is_active FROM users WHERE tenant_id = ? AND mobile = ?`, tenant.id, mobile);
@@ -115,13 +130,13 @@ export function authRoutes(app: App) {
   // ------------------------------------------------------------ setting a password with a one-time code on WhatsApp
   /** Whether a dealership's people can set their own password with a WhatsApp code (its WhatsApp number is live). */
   app.get("/api/auth/options", async (c) => {
-    const tenant = await tenantFor(c.env.DB, c.req.query("dealer"), normMobile(c.req.query("mobile")));
+    const tenant = await tenantFor(c.env.DB, c.req.query("dealer"), normMobile(c.req.query("mobile")), new URL(c.req.url).hostname);
     return c.json({ otp: tenant ? await otpAvailable(c.env, c.env.DB, tenant.id) : false });
   });
 
   app.post("/api/auth/otp/request", async (c) => {
     const body = await jsonBody<{ dealer?: string; mobile?: string }>(c);
-    const tenant = await tenantFor(c.env.DB, body.dealer, normMobile(body.mobile));
+    const tenant = await tenantFor(c.env.DB, body.dealer, normMobile(body.mobile), new URL(c.req.url).hostname);
     // The same answer whether or not the number is registered.
     if (tenant) await requestOtp(c.env, tenant, body.mobile, clock.now());
     return c.json({ ok: true, message: "If this mobile number is registered, a 6-digit code has been sent to it on WhatsApp. It is valid for 10 minutes." });
@@ -148,9 +163,19 @@ export function authRoutes(app: App) {
     return c.json({ ok: true });
   });
 
+  /**
+   * What this address is, before anybody has signed in: the dealership it belongs to, if any. Only the
+   * name and code, which whoever opens the address already knows — it is their own dealership's.
+   */
+  app.get("/api/site", async (c) => {
+    const tenant = await tenantForHost(c.env.DB, new URL(c.req.url).hostname);
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ app_name: c.env.APP_NAME ?? "VINeeti", dealership: tenant ? { name: tenant.name, slug: tenant.slug, oem: tenant.oem } : null });
+  });
+
   app.use("/api/*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
-    if (path === "/api/health" || path.startsWith("/api/wa/webhook") || path.startsWith("/api/platform/") || path.startsWith("/api/auth/login") || path.startsWith("/api/auth/logout") || path.startsWith("/api/auth/otp/") || path === "/api/auth/options") return next();
+    if (path === "/api/site" || path === "/api/health" || path.startsWith("/api/wa/webhook") || path.startsWith("/api/platform/") || path.startsWith("/api/auth/login") || path.startsWith("/api/auth/logout") || path.startsWith("/api/auth/otp/") || path === "/api/auth/options") return next();
     if (/^\/api\/eod\/[^/]+\/(stock|bookings|retail|run)$/.test(path)) return next(); // answered by the end-of-day feed routes, registered before this guard
     return authenticate(c, next);
   });
