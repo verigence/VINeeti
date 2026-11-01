@@ -9,6 +9,7 @@ import { AdminPage } from "./pages/Admin";
 import { ApprovalsPage } from "./pages/Approvals";
 import { AuditPage } from "./pages/Audit";
 import { SignInsPage } from "./pages/SignIns";
+import { GetTheAppPage } from "./pages/GetTheApp";
 import { SupportPage } from "./pages/Support";
 import { BookingDetailPage } from "./pages/BookingDetail";
 import { BookingFormPage } from "./pages/BookingForm";
@@ -119,6 +120,7 @@ const ROUTES: Route[] = [
 
   { path: "/audit", allowed: (can) => can("audit.view"), render: () => <AuditPage /> },
   { path: "/audit/sign-ins", allowed: (can) => can("audit.view"), render: () => <SignInsPage /> },
+  { path: "/get-the-app", allowed: () => true, render: () => <GetTheAppPage /> },
   { path: "/support", allowed: () => true, render: () => <SupportPage /> },
 ];
 

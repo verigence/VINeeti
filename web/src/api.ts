@@ -260,7 +260,9 @@ export const api = {
   users: () => get<T.UserRow[]>("/api/users"),
   directory: () => get<T.DirectoryUser[]>("/api/users/directory"),
   createUser: (u: T.UserInput) => post<{ id: string; email: string; emailing?: boolean; emailed?: boolean; temporary_password?: string; email_error?: string }>("/api/users", u),
-  deleteUser: (id: string) => del<{ ok: true; removed: string }>(`/api/users/${enc(id)}`),
+  // Two outcomes behind one button: an account with no history is deleted, one with history is
+  // recorded as having left. The server says which it did and the screen repeats it back.
+  deleteUser: (id: string) => del<{ ok: true; removed?: string; left?: boolean; name?: string; left_on?: string; dms_code_freed?: string | null; message?: string }>(`/api/users/${enc(id)}`),
   updateUser: (id: string, u: T.UserInput) => patch<Ok>(`/api/users/${enc(id)}`, u),
   resetUserPassword: (id: string) => post<{ temporary_password: string; emailed?: boolean; emailing?: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
   testMail: (to?: string) => post<{ configured: boolean; sent: boolean; reason: string | null; stage: string | null; detail: string | null; to: string | null; host: string; port: number; account: string | null }>("/api/mail/test", to ? { to } : {}),
@@ -289,6 +291,7 @@ export const api = {
   // ---- audit trail
   audit: (q: Query) => get<T.AuditRow[]>("/api/audit", q),
   signIns: (q: Query) => get<T.SignInLog>("/api/sign-ins", q),
+  appBuild: () => get<{ build: T.AppBuild | null }>("/api/app"),
 };
 
 export function errorMessage(e: unknown): string {

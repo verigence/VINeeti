@@ -3,7 +3,7 @@ import { api } from "../api";
 import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { Icon } from "../components/icons";
 import { Async, Button, Card, Check, Chip, CopyField, DataTable, Disclosure, Empty, Field, Notice, PageHeader, RadioGroup, Select, Tabs, type Column } from "../components/ui";
-import { fmtMobile, fmtNumber, plural } from "../format";
+import { fmtDate, fmtMobile, fmtNumber, plural } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { plainText } from "../labels";
 import { useSession } from "../session";
@@ -199,7 +199,21 @@ function UsersTab() {
         </>
       ),
     },
-    { header: "Status", status: true, cell: (u) => (u.is_active ? <Chip tone="green">Active</Chip> : <Chip tone="grey">Inactive</Chip>) },
+    {
+      header: "Status",
+      status: true,
+      cell: (u) =>
+        u.is_active ? (
+          <Chip tone="green">Active</Chip>
+        ) : u.left_on ? (
+          <>
+            <Chip tone="grey">Left</Chip>
+            <span className="sub">{fmtDate(u.left_on)}</span>
+          </>
+        ) : (
+          <Chip tone="grey">Switched off</Chip>
+        ),
+    },
     { header: "Mobile (sign-in ID)", cell: (u) => fmtMobile(u.mobile) },
     { header: "Role", cell: (u) => roleLabel(u.role) },
     { header: "Outlets", cell: (u) => (u.all_outlets ? "All outlets" : u.outlet_ids.length ? u.outlet_ids.map((id) => outletName(id)).join(", ") : <span className="danger">None chosen</span>) },
@@ -471,14 +485,16 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
 }
 
 /**
- * Removes an account added by mistake. Only one that has done nothing: as soon as there is a booking,
- * a request or a file against the name, the dealership's own record needs it, and the server refuses
- * and says so. That refusal is the normal answer here, not an error to be worked around.
+ * Somebody leaving, or an account added by mistake. One button for both, because the person doing it
+ * should not have to know which case they are in: an account that has done nothing is deleted, and
+ * one with work against its name is recorded as having left on today's date — the work keeps the
+ * name, the account stops working, and the DMS ID goes back to the desk for whoever takes over. The
+ * server decides which and says what it did.
  */
 function RemoveUserDialog({ user, onClose, onDone }: { user: UserRow; onClose: () => void; onDone: () => void }) {
   const action = useAction();
   const remove = async () => {
-    const res = await action.run(() => api.deleteUser(user.id), { quiet: true, success: `${user.name} removed.` });
+    const res = await action.run(() => api.deleteUser(user.id), { quiet: true, success: (r) => r.message ?? `${user.name} removed.` });
     if (res) onDone();
   };
   return (
@@ -498,9 +514,16 @@ function RemoveUserDialog({ user, onClose, onDone }: { user: UserRow; onClose: (
     >
       <div className="form-stack">
         <p className="muted">
-          The account and its outlets and segments go for good. This can only be done while {user.name} has no history: if they have raised or approved anything, or uploaded a file, the account is kept and switched off instead so the record still reads
-          properly — untick Active on their row to do that.
+          {user.name} will not be able to sign in from now on.
         </p>
+        <p className="muted">
+          If they have already raised, approved or uploaded anything, the account is kept and recorded as having left today, because the record of that work has to keep their name. Otherwise it goes for good, along with its outlets and segments.
+        </p>
+        {user.dms_code ? (
+          <Notice tone="info">
+            Their DMS ID {user.dms_code} goes back to the desk. Give it to whoever takes the role and that person picks up the bookings the manufacturer&rsquo;s system has under it.
+          </Notice>
+        ) : null}
         {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
       </div>
     </Dialog>

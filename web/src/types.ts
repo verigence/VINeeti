@@ -754,6 +754,8 @@ export interface UserRow {
   email: string | null;
   role: Role;
   all_outlets: number;
+  /** The day they left, where they have. Absent on an account merely switched off. */
+  left_on: string | null;
   is_active: number;
   must_change_password: number;
   /** The person's ID in the DMS (SC Mile Id). */
@@ -1198,6 +1200,16 @@ export interface WaInbound {
   message_type: string;
   text: string | null;
   received_at: string;
+}
+
+export interface AppBuild {
+  version: string;
+  version_code: number;
+  key: string;
+  size: number;
+  sha256: string;
+  host: string;
+  built_at: string;
 }
 
 export interface SignInRow {

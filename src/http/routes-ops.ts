@@ -4,6 +4,7 @@ import { all, audit, first, run } from "../lib/db";
 import { can } from "../lib/permissions";
 import { addDays, bad, conflict, forbidden, iso, likeText, localDayBounds, localParts, normMobile, notFound, parseDate, safeJson, toCsv } from "../lib/util";
 import { ALARM_KINDS } from "../domain/alarms";
+import { buildFile, currentBuild } from "../domain/app-build";
 import { KEEP_DAYS, signIns } from "../domain/sign-ins";
 import { ageingByModel, allocationsByDay, defaultSalesPeriod, notPickedUp, salesRanking, stockByDay } from "../domain/analytics";
 import { allocationDashboard, delayedDashboard, measures, monthPace, nearMatches, orderQueueDashboard, outOfTurn, overview, ownerView } from "../domain/dashboards";
@@ -357,6 +358,34 @@ export function opsRoutes(app: App) {
     if (outletScope(c)) throw forbidden("The sign-in log covers every outlet. Ask the administrator for access to all outlets.");
     const q = c.req.query();
     return c.json({ keep_days: KEEP_DAYS, sign_ins: await signIns(c.env, ctx.tenantId, { outcome: q.outcome, userId: q.user_id, limit: Number(q.limit) || 200 }) });
+  });
+
+  // ------------------------------------------------------------ the Android app
+  /**
+   * The app is handed out from inside the dealership's own site rather than from a public address,
+   * so a copy cannot be taken by anybody who guesses a URL. Both routes sit behind the ordinary
+   * sign-in: no extra permission, because anybody who works here may install the app on their phone.
+   */
+  app.get("/api/app", async (c) => {
+    const build = await currentBuild(c.env);
+    return c.json({ build });
+  });
+
+  app.get("/api/app/download", async (c) => {
+    const build = await currentBuild(c.env);
+    if (!build) throw notFound("No Android build has been published yet.");
+    const file = await buildFile(c.env, build);
+    if (!file) throw notFound("The build's file is missing. Ask for the Android build to be run again.");
+    return new Response(file.body, {
+      headers: {
+        // Android installs by content type; the name is what the phone shows in its downloads.
+        "Content-Type": "application/vnd.android.package-archive",
+        "Content-Disposition": `attachment; filename="${file.name}"`,
+        "Content-Length": String(file.size),
+        // One person's download is not something to keep in a shared cache anywhere on the way.
+        "Cache-Control": "private, no-store",
+      },
+    });
   });
 
   // ------------------------------------------------------------ day-end reconciliation

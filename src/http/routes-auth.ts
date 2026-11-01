@@ -11,7 +11,7 @@ import { previewRules } from "../domain/preview";
 import { recordSignIn, signIns, type Outcome } from "../domain/sign-ins";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
-import { bad, conflict, forbidden, HttpError, iso, newId, norm, normMobile, notFound } from "../lib/util";
+import { bad, conflict, forbidden, HttpError, iso, localParts, newId, norm, normMobile, notFound } from "../lib/util";
 import { ensureWaDefaults } from "../whatsapp/outbox";
 import { authenticate, buildCtx, clock, describeUser, getCookie, jsonBody, need, outletScope, sessionCookie, type App, type C } from "./app";
 
@@ -268,7 +268,7 @@ export function authRoutes(app: App) {
   app.get("/api/users", async (c) => {
     need(c, "admin.users");
     const ctx = c.get("ctx");
-    const users = await all<any>(ctx.db, `SELECT id, name, mobile, email, role, all_outlets, is_active, must_change_password, dms_code, created_at FROM users WHERE tenant_id = ? ORDER BY name`, ctx.tenantId);
+    const users = await all<any>(ctx.db, `SELECT id, name, mobile, email, role, all_outlets, is_active, must_change_password, dms_code, left_on, created_at FROM users WHERE tenant_id = ? ORDER BY name`, ctx.tenantId);
     const links = await all<{ user_id: string; outlet_id: string }>(ctx.db, `SELECT user_id, outlet_id FROM user_outlets WHERE tenant_id = ?`, ctx.tenantId);
     const segs = await all<{ user_id: string; segment: string }>(ctx.db, `SELECT user_id, segment FROM user_segments WHERE tenant_id = ? ORDER BY segment`, ctx.tenantId);
     return c.json(users.map((u) => ({ ...u, outlet_ids: links.filter((l) => l.user_id === u.id).map((l) => l.outlet_id), segments: segs.filter((l) => l.user_id === u.id).map((l) => l.segment) })));
@@ -307,8 +307,13 @@ export function authRoutes(app: App) {
     const code = norm(raw);
     if (!code) return null;
     if (code.length > 40) throw bad("The DMS ID is too long");
-    const other = await first<{ name: string }>(ctx.db, `SELECT name FROM users WHERE tenant_id = ? AND dms_code = ? AND id <> ?`, ctx.tenantId, code, userId ?? "");
-    if (other) throw conflict(`DMS ID ${code} is already given to ${other.name}`);
+    // A DMS ID belongs to the desk, not to the person sitting at it. Somebody still here holding it is
+    // a clash and has to be sorted out by hand; somebody who has left is not, and their replacement
+    // takes the ID and, with it, the bookings the manufacturer's system has under it.
+    const other = await first<{ id: string; name: string; left_on: string | null; is_active: number }>(
+      ctx.db, `SELECT id, name, left_on, is_active FROM users WHERE tenant_id = ? AND dms_code = ? AND id <> ?`, ctx.tenantId, code, userId ?? "");
+    if (other && !other.left_on && other.is_active) throw conflict(`DMS ID ${code} is already given to ${other.name}`);
+    if (other) await run(ctx.db, `UPDATE users SET dms_code = NULL WHERE id = ? AND tenant_id = ?`, other.id, ctx.tenantId);
     return code;
   }
   /** Bookings the DMS has under this person become theirs in the system, so they see them and are told about them. */
@@ -404,7 +409,7 @@ export function authRoutes(app: App) {
     need(c, "admin.users");
     const ctx = c.get("ctx");
     if (c.req.param("id") === c.get("user").id) throw bad("You cannot remove your own account");
-    const u = await first<{ id: string; name: string; mobile: string; role: Role }>(ctx.db, `SELECT id, name, mobile, role FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
+    const u = await first<{ id: string; name: string; mobile: string; role: Role; dms_code: string | null }>(ctx.db, `SELECT id, name, mobile, role, dms_code FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!u) throw notFound("User");
     const history = await first<{ n: number }>(
       ctx.db,
@@ -417,7 +422,24 @@ export function authRoutes(app: App) {
       ctx.tenantId, u.id,
     );
     if ((history?.n ?? 0) > 0) {
-      throw conflict(`${u.name} has already worked in the system, so the record of what they did has to keep their name. Switch the account off instead: they can no longer sign in, and their history stays.`);
+      // Their name is in the record of what they did and has to stay there, so the account is not
+      // deleted — but the departure is not something to argue with either. It is recorded as a
+      // leaving date, every session ends, and the DMS ID goes back to the desk for whoever replaces
+      // them. The bookings stay where they are and move across when the replacement takes that ID.
+      const today = localParts(ctx.now, ctx.tenant.timezone).date;
+      await ctx.db.batch([
+        stmt(ctx.db, `UPDATE users SET is_active = 0, left_on = ?, dms_code = NULL, token_version = token_version + 1, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`, today, u.id, ctx.tenantId),
+        stmt(ctx.db, `DELETE FROM password_otps WHERE user_id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
+        auditStmt(ctx, "USER_LEFT", "user", u.id, { name: u.name, mobile: u.mobile, role: u.role, left_on: today, dms_code_freed: u.dms_code ?? null }),
+      ]);
+      return c.json({
+        ok: true,
+        left: true,
+        name: u.name,
+        left_on: today,
+        dms_code_freed: u.dms_code ?? null,
+        message: `${u.name} has been recorded as having left on ${today} and can no longer sign in. Their name stays on the work they did. ${u.dms_code ? `Their DMS ID ${u.dms_code} is free for whoever takes over, and the bookings under it move with it.` : "Whoever takes over the role picks up the work."}`,
+      });
     }
     await ctx.db.batch([
       stmt(ctx.db, `DELETE FROM user_outlets WHERE user_id = ? AND tenant_id = ?`, u.id, ctx.tenantId),
@@ -461,10 +483,14 @@ export function authRoutes(app: App) {
     let bump = 0;
     // A password is never typed in on somebody's behalf: Reset password makes one and emails it.
     if (b.is_active === false || movedNumber) bump = 1;
+    // Switching an account off is a suspension, not a departure, so it sets no leaving date. Switching
+    // one back on is the other way round: somebody who is working here again has not left, and a date
+    // left sitting beside a working account would be read as if they had.
+    const leftOn = b.is_active === true ? null : u.left_on;
     await run(
       ctx.db,
-      `UPDATE users SET name = ?, mobile = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
-      b.name?.trim() || u.name, mobile, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
+      `UPDATE users SET name = ?, mobile = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, left_on = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
+      b.name?.trim() || u.name, mobile, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, leftOn, bump, u.id, ctx.tenantId,
     );
     if (dmsCode && dmsCode !== u.dms_code) await linkBookingsTo(ctx, u.id, dmsCode);
     if (b.outlet_ids || b.all_outlets !== undefined) await setOutlets(ctx, u.id, allOutlets ? [] : b.outlet_ids ?? []);

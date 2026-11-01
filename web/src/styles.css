@@ -2545,6 +2545,22 @@ input[type="radio"] {
   gap: 6px;
   min-width: 0;
 }
+/* Numbered instructions to follow in order, as prose. Not .ordered-list, which is the drag-to-reorder
+   control, nor .steps, which is a timeline of dates. */
+.howto {
+  margin: 0;
+  padding-left: 1.35em;
+  list-style: decimal;
+  display: grid;
+  gap: 10px;
+}
+.howto li {
+  padding-left: 2px;
+}
+.howto li::marker {
+  color: var(--navy);
+  font-weight: 600;
+}
 .ordered-list {
   display: grid;
   gap: 6px;
