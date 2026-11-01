@@ -422,6 +422,8 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   RECON_ITEM_RESOLVED: "Day-end difference settled",
   USER_CREATED: "User added",
   USER_UPDATED: "User changed",
+  USER_LEFT: "Person left",
+  USER_DELETED: "User removed",
   PASSWORD_CHANGED: "Password changed",
   OUTLET_CREATED: "Outlet added",
   OUTLET_UPDATED: "Outlet changed",
@@ -543,6 +545,10 @@ export function auditSentence(action: string, d: Record<string, unknown>, outlet
       if (d.is_active === true) return "User reactivated.";
       if (d.password) return "User's password was reset.";
       return "User details changed.";
+    case "USER_LEFT":
+      return `${s(d.name)} (${roleLabel(s(d.role))}) left on ${s(d.left_on)}. The account can no longer sign in; their name stays on the work they did.${d.dms_code_freed ? ` DMS ID ${s(d.dms_code_freed)} is free for whoever takes over.` : ""}`;
+    case "USER_DELETED":
+      return `User removed: ${s(d.name)} (${roleLabel(s(d.role))}). The account had no history of its own.`;
     case "PASSWORD_CHANGED":
       return "Changed their own password.";
     case "OUTLET_CREATED":

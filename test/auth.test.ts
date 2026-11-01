@@ -147,7 +147,7 @@ describe("request guards", () => {
 });
 
 describe("removing a user", () => {
-  it("removes an account nobody has used, keeps one that has worked, and lets nobody else do either", async () => {
+  it("removes an account nobody has used, records a departure for one that has worked, and lets nobody else do either", async () => {
     const w2 = makeWorld("2026-10-13 10:00");
     const d2 = await makeDealer(w2);
 
@@ -162,12 +162,18 @@ describe("removing a user", () => {
     // The removal itself is on the record, so a name that disappears can still be accounted for.
     expect(w2.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'USER_DELETED' AND entity_id = ?`, made.body.id)[0].n).toBe(1);
 
-    // Somebody who has worked: the dealership's own record needs their name, so the account is kept.
+    // Somebody who has worked: the dealership's own record needs their name, so the account is kept
+    // rather than deleted — but the departure itself is recorded rather than refused. The system is
+    // role-driven: a person leaving is a thing that happens, not a thing to argue with.
     await submittedBooking(w2, d2, "se1", CRETA, "PATIA", "Vikram Rao", "9811111111");
     const kept = await w2.api("DELETE", `/api/users/${d2.users.se1.id}`, undefined, d2.users.admin.session);
-    expect(kept.status).toBe(409);
-    expect(kept.body.error.message).toContain("Switch the account off instead");
-    expect(w2.db.q(`SELECT id FROM users WHERE id = ?`, d2.users.se1.id).length).toBe(1);
+    expect(kept.status).toBe(200);
+    expect(kept.body).toMatchObject({ left: true, left_on: "2026-10-13" });
+    const row = w2.db.q<{ is_active: number; left_on: string | null }>(`SELECT is_active, left_on FROM users WHERE id = ?`, d2.users.se1.id);
+    expect(row.length).toBe(1);
+    expect(row[0]).toMatchObject({ is_active: 0, left_on: "2026-10-13" });
+    // Their name is still on the booking they took.
+    expect(w2.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM bookings WHERE sales_exec_id = ?`, d2.users.se1.id)[0].n).toBeGreaterThan(0);
 
     // Not a manager's to do, and not one's own to do either.
     expect((await w2.api("DELETE", `/api/users/${d2.users.se2.id}`, undefined, d2.users.sm.session)).status).toBe(403);
