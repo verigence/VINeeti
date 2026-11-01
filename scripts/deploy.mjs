@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deploys Verigence VINeeti to Cloudflare. This is what the pipeline runs (.github/workflows/deploy.yml,
+// Deploys VINeeti to Cloudflare. This is what the pipeline runs (.github/workflows/deploy.yml,
 // on every push to main); the same command also works by hand with the same two environment variables.
 // Everything goes through the project's Wrangler, so the API token needs nothing beyond what Wrangler
 // itself needs. Each step is safe to repeat and nothing has to be done in the dashboard:
@@ -32,7 +32,7 @@ function gitSha() {
     return null;
   }
 }
-import { ROOT, Stop, credentials, ensureDatabase, main, note, randomSecret, readConfig, run, urlFromDeployOutput, waitHealthy, workerSecrets, workerUrl, wrangler } from "./lib/cloudflare.mjs";
+import { ROOT, Stop, credentials, ensureBucket, ensureDatabase, main, note, randomSecret, readConfig, run, urlFromDeployOutput, waitHealthy, workerSecrets, workerUrl, wrangler } from "./lib/cloudflare.mjs";
 
 const flags = new Set(process.argv.slice(2));
 const APP_SECRETS = ["SESSION_SECRET", "DATA_KEY", "PLATFORM_ADMIN_TOKEN"];
@@ -40,7 +40,7 @@ const APP_SECRETS = ["SESSION_SECRET", "DATA_KEY", "PLATFORM_ADMIN_TOKEN"];
 // Set when given in the environment; the Worker runs without them. The SMTP ones are the group's own
 // mail account, the same one the HR service sends from: with them the temporary passwords are emailed,
 // without them they are shown on screen as before.
-const OPTIONAL_SECRETS = ["ANDROID_CERT_SHA256", "WA_APP_SECRET", "WA_VERIFY_TOKEN", "SMTP_USER", "SMTP_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM"];
+const OPTIONAL_SECRETS = ["ANDROID_CERT_SHA256", "WA_APP_SECRET", "WA_VERIFY_TOKEN", "SMTP_USER", "SMTP_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SUPPORT_EMAIL"];
 const CONFIG = "wrangler.deploy.json"; // written beside wrangler.jsonc so its relative paths still hold; not committed
 const step = (n, text) => console.log(`\n[${n}/5] ${text}`);
 
@@ -49,12 +49,18 @@ main(async () => {
   const config = readConfig();
   const worker = config.name;
   const db = config.d1_databases?.[0];
+  const bucket = config.r2_buckets?.[0];
   if (!worker || !db) throw new Stop("wrangler.jsonc must name the Worker and one D1 database.");
   const check = flags.has("--dry-run") || flags.has("--check");
 
-  step(1, `Database "${db.database_name}"`);
+  step(1, `Database "${db.database_name}"${bucket ? ` and bucket "${bucket.bucket_name}"` : ""}`);
   const database = process.env.D1_DATABASE_ID ? { id: process.env.D1_DATABASE_ID, created: false } : await ensureDatabase(db.database_name, process.env.D1_LOCATION ?? "apac", { create: !check });
   console.log(!database ? "Not there yet; a deployment would create it." : database.created ? `Created (${database.id}).` : `Found (${database.id}).`);
+  // Support-ticket attachments. A deployment of an older configuration has no bucket and skips this.
+  if (bucket?.bucket_name) {
+    const made = await ensureBucket(bucket.bucket_name, { create: !check });
+    console.log(!made ? `Bucket not there yet; a deployment would create it.` : made.created ? `Bucket created.` : `Bucket found.`);
+  }
   const have = await workerSecrets(worker);
   const missing = APP_SECRETS.filter((name) => !(have ?? []).includes(name));
   if (have?.includes("DATA_KEY") && process.env.DATA_KEY) throw new Stop("DATA_KEY is already set on the Worker and must not be replaced: the WhatsApp credentials stored in the database could no longer be read. Remove DATA_KEY from the environment and run again.");
@@ -143,7 +149,7 @@ main(async () => {
 
   const created = names.filter((n) => missing.includes(n) && !process.env[n]);
   const lines = [
-    `Verigence VINeeti is deployed at ${url}`,
+    `VINeeti is deployed at ${url}`,
     `Database: ${db.database_name} (${database.id})${database.created ? ", created in this run" : ""}`,
     created.length ? `Secrets created in this run: ${created.join(", ")}` : "Application secrets: unchanged",
     bootstrapToken ? `Platform console: sign in at ${url}/platform with ${superMobile}` : "",

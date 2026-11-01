@@ -246,6 +246,15 @@ export const api = {
   updateUser: (id: string, u: T.UserInput) => patch<Ok>(`/api/users/${enc(id)}`, u),
   resetUserPassword: (id: string) => post<{ temporary_password: string; emailed?: boolean; emailing?: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
   testMail: (to?: string) => post<{ configured: boolean; sent: boolean; reason: string | null; stage: string | null; detail: string | null; to: string | null; host: string; port: number; account: string | null }>("/api/mail/test", to ? { to } : {}),
+  myTickets: () => get<{ tickets: T.SupportTicket[]; support_email: string; attachment_limit: number }>("/api/support/tickets"),
+  raiseTicket: (subject: string, body: string, file: File | null) => {
+    const form = new FormData();
+    form.set("subject", subject);
+    form.set("body", body);
+    if (file) form.set("file", file);
+    return request<{ id: string; attachment_name: string | null }>("POST", "/api/support/tickets", { form });
+  },
+  ticketAttachmentUrl: (id: string) => `/api/support/tickets/${enc(id)}/attachment`,
   employeeTemplateUrl: "/api/users/template",
   importEmployees: (file: File) => {
     const form = new FormData();

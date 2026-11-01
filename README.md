@@ -1,8 +1,8 @@
-# Verigence VINeeti
+# VINeeti
 
 **Booking-to-delivery control for car dealerships. By JBR Consulting.**
 
-Verigence VINeeti works alongside the dealership's DMS. It reads the two files the DMS already produces,
+VINeeti works alongside the dealership's DMS. It reads the two files the DMS already produces,
 the **stock report** and the **booking sheet**, and from them keeps one answer to three questions:
 
 - Which car is free, which is reserved, and for whom?

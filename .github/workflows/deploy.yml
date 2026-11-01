@@ -1,5 +1,5 @@
 ##############################################################################
-# deploy.yml — Verigence VINeeti to Cloudflare Workers + D1
+# deploy.yml — VINeeti to Cloudflare Workers + D1
 #
 # Deployment happens here, not by hand: every push to `main` runs the checks and
 # then deploys. It can also be started from the Actions tab, with a dry run that

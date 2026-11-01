@@ -73,6 +73,8 @@ export class FakeD1 {
 
 export interface World {
   env: Env;
+  /** The in-memory bucket this world's attachments are written to. */
+  files: FakeR2;
   db: FakeD1;
   /** Sets the clock. Accepts local India time such as "2026-10-13 10:00". */
   at(local: string): Date;
@@ -98,15 +100,37 @@ export function ist(local: string): Date {
   return new Date(local.replace(" ", "T") + ":00+05:30");
 }
 
+/**
+ * Object storage, in memory: enough of R2 for a support ticket's attachment to be written, read back and
+ * served. It keeps the bytes and the content type, which is all the product asks of it.
+ */
+export class FakeR2 {
+  readonly objects = new Map<string, { bytes: Uint8Array; contentType?: string }>();
+  async put(key: string, value: ArrayBuffer | Uint8Array, opts?: { httpMetadata?: { contentType?: string } }) {
+    this.objects.set(key, { bytes: value instanceof Uint8Array ? value : new Uint8Array(value), contentType: opts?.httpMetadata?.contentType });
+    return { key };
+  }
+  async get(key: string) {
+    const o = this.objects.get(key);
+    if (!o) return null;
+    return { key, body: new Blob([o.bytes]).stream(), httpMetadata: { contentType: o.contentType }, arrayBuffer: async () => o.bytes.buffer };
+  }
+  async delete(key: string) {
+    this.objects.delete(key);
+  }
+}
+
 export function makeWorld(start = "2026-10-13 10:00"): World {
   const db = new FakeD1();
+  const files = new FakeR2();
   const env = {
     DB: db as unknown as D1Database,
     SESSION_SECRET: "test-session-secret-0123456789abcdef",
     DATA_KEY: "test-data-key-0123456789abcdef0123456789",
     PLATFORM_ADMIN_TOKEN: "platform-token",
-    APP_NAME: "Verigence VINeeti",
+    APP_NAME: "VINeeti",
     WA_GRAPH_VERSION: "v23.0",
+    FILES: files as unknown as R2Bucket,
   } as Env;
   const app = createApp();
   let current = ist(start);
@@ -130,6 +154,7 @@ export function makeWorld(start = "2026-10-13 10:00"): World {
   const world: World = {
     env,
     db,
+    files,
     at(local) {
       current = ist(local);
       return current;

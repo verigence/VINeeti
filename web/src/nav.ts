@@ -51,6 +51,9 @@ export const DESTINATIONS: Destination[] = [
   { admin: true, to: "/whatsapp", label: "WhatsApp", icon: "whatsapp", allowed: (can) => can("wa.view") },
   { admin: true, to: "/admin", label: "Settings", icon: "admin", allowed: (can) => can("admin.users") || can("admin.settings") },
   { admin: true, to: "/audit", label: "History", icon: "audit", allowed: (can) => can("audit.view") },
+  // Everybody, with no permission in front of it: somebody who cannot get a screen to work must not
+  // have to find a manager before they can say so.
+  { admin: true, to: "/support", label: "Support", icon: "info", allowed: () => true },
 ];
 
 export const destinationsFor = (can: Can) => DESTINATIONS.filter((d) => d.allowed(can));

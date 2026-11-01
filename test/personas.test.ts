@@ -69,7 +69,7 @@ describe("Finance verifies that a payment has been received", () => {
       { to_name: "Ravi Exec", title: "Car allocated to your booking" },
       { to_name: "Ravi Exec", title: "Payment verified by Finance" },
     ]);
-    expect(q(w, `SELECT rendered_text FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE' ORDER BY created_at, rowid`)[1].rendered_text).toBe("Update for Ravi Exec on booking OTF27A000001 (FIRST CUSTOMER): Payment verified by Finance. Finance has verified the payment. The car stays with this customer; proceed to invoicing. Open Verigence VINeeti for the details.");
+    expect(q(w, `SELECT rendered_text FROM wa_messages WHERE event_key = 'SALES_EXEC_UPDATE' ORDER BY created_at, rowid`)[1].rendered_text).toBe("Update for Ravi Exec on booking OTF27A000001 (FIRST CUSTOMER): Payment verified by Finance. Finance has verified the payment. The car stays with this customer; proceed to invoicing. Open VINeeti for the details.");
     // Long after the payment window, the car is still this customer's.
     const report = await day(w, d, "2026-10-20 10:00");
     expect(report).toMatchObject({ released: 0, held: 0 });

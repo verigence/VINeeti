@@ -130,11 +130,11 @@ function ChangePassword({ onDone }: { onDone: () => void }) {
   );
 }
 
-type Section = "dealerships" | "health";
+type Section = "dealerships" | "health" | "tickets";
 
 function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void }) {
   // Which part of the console is open: kept in the address (#health) so a bookmark opens it directly.
-  const [section, setSection] = useState<Section>(() => (typeof window !== "undefined" && window.location.hash === "#health" ? "health" : "dealerships"));
+  const [section, setSection] = useState<Section>(() => (typeof window !== "undefined" && window.location.hash === "#health" ? "health" : typeof window !== "undefined" && window.location.hash === "#tickets" ? "tickets" : "dealerships"));
   const go = (s: Section) => {
     setSection(s);
     if (typeof window !== "undefined") window.history.replaceState(null, "", s === "health" ? "#health" : window.location.pathname);
@@ -195,8 +195,9 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
         <Button size="sm" onClick={() => act(async () => { await call("POST", "/api/platform/logout"); onSignedOut(); })}>Sign out</Button>
       </header>
       <main className="platform-main">
-        <Segments<Section> label="Console sections" value={section} onChange={go} options={[{ value: "dealerships", label: "Dealerships" }, { value: "health", label: "System health" }]} />
+        <Segments<Section> label="Console sections" value={section} onChange={go} options={[{ value: "dealerships", label: "Dealerships" }, { value: "tickets", label: "Support tickets" }, { value: "health", label: "System health" }]} />
         {section === "health" && <PlatformHealthPage />}
+        {section === "tickets" && <TicketsSection />}
         {section === "dealerships" && (<>
         {error && <Notice tone="error">{error}</Notice>}
         <div className="tiles">
@@ -289,5 +290,129 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
         <Button type="submit" variant="primary" busy={busy}>Create the dealership</Button>
       </form>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------- support tickets, across every dealership
+interface ConsoleTicket {
+  id: string;
+  dealership: string;
+  slug: string;
+  raiser_name: string;
+  raiser_role: string;
+  raiser_email: string | null;
+  subject: string;
+  body: string;
+  status: "OPEN" | "CLOSED";
+  attachment_name: string | null;
+  attachment_size: number | null;
+  emailed: number;
+  email_error: string | null;
+  created_at: string;
+  closed_at: string | null;
+  closing_note: string | null;
+}
+
+/** Every ticket raised on this deployment. The open ones are the work, so they come first by default. */
+function TicketsSection() {
+  const [tickets, setTickets] = useState<ConsoleTicket[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [only, setOnly] = useState<"OPEN" | "ALL">("OPEN");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    try {
+      const res = (await call("GET", `/api/platform/tickets${only === "OPEN" ? "?status=OPEN" : ""}`)) as { tickets: ConsoleTicket[]; counts: Record<string, number> };
+      setTickets(res.tickets);
+      setCounts(res.counts ?? {});
+      setError(null);
+    } catch (e) {
+      setError(String((e as Error).message));
+    }
+  }, [only]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const decide = async (t: ConsoleTicket, status: "OPEN" | "CLOSED") => {
+    setBusy(t.id);
+    try {
+      await call("POST", `/api/platform/tickets/${t.id}/status`, { status, note: note[t.id] ?? "" });
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      {error && <Notice tone="error">{error}</Notice>}
+      <div className="tiles">
+        <Stat label="Open" value={fmtNumber(counts.OPEN ?? 0)} />
+        <Stat label="Closed" value={fmtNumber(counts.CLOSED ?? 0)} />
+      </div>
+      <Card
+        title={only === "OPEN" ? "Open tickets" : "Every ticket"}
+        note="Raised by the people using VINeeti at each dealership. They cannot see one another's."
+        actions={
+          <Button size="sm" onClick={() => setOnly(only === "OPEN" ? "ALL" : "OPEN")}>
+            {only === "OPEN" ? "Show closed as well" : "Show only open"}
+          </Button>
+        }
+      >
+        {!tickets?.length ? (
+          <Empty title={only === "OPEN" ? "Nothing open" : "No tickets yet"} />
+        ) : (
+          <div className="form-stack">
+            {tickets.map((t) => (
+              <article key={t.id} className="boxed">
+                <div className="row-between">
+                  <div>
+                    <span className="strong">{t.subject}</span>
+                    <span className="sub">
+                      {t.dealership} · {t.raiser_name} ({t.raiser_role}){t.raiser_email ? ` · ${t.raiser_email}` : ""} · {new Date(t.created_at).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                  <Chip tone={t.status === "OPEN" ? "amber" : "green"}>{t.status === "OPEN" ? "Open" : "Closed"}</Chip>
+                </div>
+                <p style={{ whiteSpace: "pre-wrap", margin: "10px 0" }}>{t.body}</p>
+                {!t.emailed && <Notice tone="warn" title="Not emailed. ">This ticket did not reach the support address{t.email_error ? ` (${t.email_error})` : ""}. It is only here.</Notice>}
+                <div className="row-actions">
+                  {t.attachment_name && (
+                    <a className="btn btn-secondary btn-sm" href={`/api/platform/tickets/${t.id}/attachment`} download>
+                      {t.attachment_name}
+                    </a>
+                  )}
+                  {t.status === "OPEN" ? (
+                    <>
+                      <input
+                        placeholder="What was done about it (shown to them)"
+                        value={note[t.id] ?? ""}
+                        onChange={(e) => setNote({ ...note, [t.id]: e.target.value })}
+                        style={{ flex: 1, minWidth: 220 }}
+                      />
+                      <Button size="sm" variant="primary" busy={busy === t.id} onClick={() => void decide(t, "CLOSED")}>
+                        Close
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {t.closing_note && <span className="muted">{t.closing_note}</span>}
+                      <Button size="sm" busy={busy === t.id} onClick={() => void decide(t, "OPEN")}>
+                        Open again
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </Card>
+    </>
   );
 }

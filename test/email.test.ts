@@ -69,7 +69,7 @@ describe("what the person is told", () => {
     const without = welcomeMail(w);
     expect(without.images).toBeUndefined();
     expect(without.html).not.toContain("cid:");
-    expect(without.html).toContain("Verigence VINeeti");
+    expect(without.html).toContain("VINeeti");
   });
 
   it("escapes what it puts into the HTML, so a name can never carry markup into the message", () => {
@@ -229,9 +229,9 @@ describe("the introduction to the system", () => {
 
   it("says what the system is for, what this person's part in it is, and thanks them — and carries no password", () => {
     const m = introMail({ name: "Arun AGM", dealership: "Aditya Motors", roleLabel: "AGM Sales", rolePurpose: "You raise allocation and deallocation requests for your segment. A GM or the CEO approves them.", mobile: "919876500001", password: "", signInUrl: "https://vineeti.example" });
-    expect(m.subject).toContain("Welcome to Verigence VINeeti");
+    expect(m.subject).toContain("Welcome to VINeeti");
     expect(m.subject).toContain("Aditya Motors");
-    for (const part of ["Arun AGM", "Aditya Motors", "AGM Sales", "You raise allocation and deallocation requests", "Thank you for choosing Verigence VINeeti"]) {
+    for (const part of ["Arun AGM", "Aditya Motors", "AGM Sales", "You raise allocation and deallocation requests", "Thank you for choosing VINeeti"]) {
       expect(m.body, `text: ${part}`).toContain(part);
       expect(m.html, `html: ${part}`).toContain(part);
     }

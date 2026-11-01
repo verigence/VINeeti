@@ -8,6 +8,7 @@ import { AnalyticsPage } from "./pages/Analytics";
 import { AdminPage } from "./pages/Admin";
 import { ApprovalsPage } from "./pages/Approvals";
 import { AuditPage } from "./pages/Audit";
+import { SupportPage } from "./pages/Support";
 import { BookingDetailPage } from "./pages/BookingDetail";
 import { BookingFormPage } from "./pages/BookingForm";
 import { BookingsPage } from "./pages/Bookings";
@@ -116,6 +117,7 @@ const ROUTES: Route[] = [
   { path: "/admin/health", allowed: (can) => can("admin.settings"), render: () => <AdminPage tab="health" /> },
 
   { path: "/audit", allowed: (can) => can("audit.view"), render: () => <AuditPage /> },
+  { path: "/support", allowed: () => true, render: () => <SupportPage /> },
 ];
 
 function Redirect({ to }: { to: string }) {
