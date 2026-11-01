@@ -425,26 +425,41 @@ export function authRoutes(app: App) {
     need(c, "admin.users");
     const ctx = c.get("ctx");
     const me = c.get("user");
-    const b = await jsonBody<{ name?: string; email?: string; role?: Role; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
+    const b = await jsonBody<{ name?: string; mobile?: string; email?: string; role?: Role; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
     const u = await first<any>(ctx.db, `SELECT * FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!u) throw notFound("User");
     const dmsCode = b.dms_code === undefined ? u.dms_code : await checkDmsCode(ctx, b.dms_code, u.id);
     if (b.role && !ROLES.includes(b.role)) throw bad("Role is not valid");
+    // The number can be corrected. It is how the person signs in, so it was held still at first — but a
+    // number typed wrongly leaves an account that cannot be used and, once its owner has worked, cannot
+    // be removed either; and people change their number in any case. Making a second account for the
+    // same person splits their history in two, which is worse than the problem it avoids.
+    let mobile = u.mobile;
+    if (b.mobile !== undefined) {
+      const next = normMobile(b.mobile);
+      if (!next) throw bad("Enter a valid mobile number");
+      if (next !== u.mobile) {
+        if (await first(ctx.db, `SELECT id FROM users WHERE tenant_id = ? AND mobile = ? AND id <> ?`, ctx.tenantId, next, u.id)) throw conflict("Another user at this dealership already signs in with that mobile number");
+        mobile = next;
+      }
+    }
+    // A changed sign-in number ends every session: whoever is signed in was signed in as the old one.
+    const movedNumber = mobile !== u.mobile;
     if (u.id === me.id && (b.is_active === false || (b.role && b.role !== "ADMIN"))) throw forbidden("You cannot remove your own administrator access");
     const role = b.role ?? u.role;
     const allOutlets = b.all_outlets === undefined ? Boolean(u.all_outlets) : b.all_outlets;
     let bump = 0;
     // A password is never typed in on somebody's behalf: Reset password makes one and emails it.
-    if (b.is_active === false) bump = 1;
+    if (b.is_active === false || movedNumber) bump = 1;
     await run(
       ctx.db,
-      `UPDATE users SET name = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
-      b.name?.trim() || u.name, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
+      `UPDATE users SET name = ?, mobile = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
+      b.name?.trim() || u.name, mobile, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
     );
     if (dmsCode && dmsCode !== u.dms_code) await linkBookingsTo(ctx, u.id, dmsCode);
     if (b.outlet_ids || b.all_outlets !== undefined) await setOutlets(ctx, u.id, allOutlets ? [] : b.outlet_ids ?? []);
     if (b.segments !== undefined) await setSegments(ctx, u.id, b.segments);
-    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b });
+    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b, ...(movedNumber ? { mobile_was: u.mobile, mobile_now: mobile } : {}) });
     return c.json({ ok: true });
   });
 
