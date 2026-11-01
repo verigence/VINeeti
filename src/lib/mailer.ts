@@ -1,4 +1,14 @@
-// Outgoing email, through the dealership group's own mail account (Gmail with an app password).
+// Outgoing email, through the product's own mail account (Gmail with an app password).
+//
+// VINeeti is sold as a service, so the account belongs to JBR Consulting and one account writes to the
+// staff of every dealership on the deployment. A dealership never supplies mail credentials and never
+// sees these; what a person receives comes from the product, which is why the messages carry the
+// product's marks and not the dealership's.
+//
+// Two things follow from one shared account that would not from an account per dealership. Its daily
+// sending limit is shared by every dealership at once, so a bulk employee import is the thing most
+// likely to reach it; and anything that stops the account — a revoked app password, a lock — stops
+// sign-in mail for all of them together.
 //
 // The HR service (verigence/hrmgmt, src/hrmgmt/mailer.py) sends its mail the same way, from the same
 // account, and this is deliberately its shape: one attempt per message and no retries, a failure

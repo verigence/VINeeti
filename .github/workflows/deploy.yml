@@ -16,8 +16,9 @@
 #                            the password is changed. SUPERADMIN_NAME optional.
 #   ANDROID_CERT_SHA256    — optional; the Android app's signing certificate
 #                            fingerprint, printed by the Android build workflow
-#   SMTP_USER              — optional; the group's mail account and its app password,
-#   SMTP_PASSWORD            the same pair the HR service uses. Set them and the temporary
+#   SMTP_USER              — optional; the product's own mail account and its app password (the
+#   SMTP_PASSWORD            same pair the HR service uses), which writes to every dealership on this
+#                            deployment, since VINeeti is sold as a service. Set them and the temporary
 #                            passwords are emailed; leave them out and they are shown on
 #                            screen. SMTP_HOST, SMTP_PORT and SMTP_FROM are optional too.
 #

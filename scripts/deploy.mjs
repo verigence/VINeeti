@@ -37,9 +37,9 @@ import { ROOT, Stop, credentials, ensureBucket, ensureDatabase, main, note, rand
 const flags = new Set(process.argv.slice(2));
 const APP_SECRETS = ["SESSION_SECRET", "DATA_KEY", "PLATFORM_ADMIN_TOKEN"];
 // Set when given in the environment; the Worker runs without them.
-// Set when given in the environment; the Worker runs without them. The SMTP ones are the group's own
-// mail account, the same one the HR service sends from: with them the temporary passwords are emailed,
-// without them they are shown on screen as before.
+// Set when given in the environment; the Worker runs without them. The SMTP ones are the product's own
+// mail account, the same one the HR service sends from, which writes to every dealership on this
+// deployment: with them the temporary passwords are emailed, without them they are shown on screen.
 const OPTIONAL_SECRETS = ["ANDROID_CERT_SHA256", "WA_APP_SECRET", "WA_VERIFY_TOKEN", "SMTP_USER", "SMTP_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SUPPORT_EMAIL"];
 const CONFIG = "wrangler.deploy.json"; // written beside wrangler.jsonc so its relative paths still hold; not committed
 const step = (n, text) => console.log(`\n[${n}/5] ${text}`);
