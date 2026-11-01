@@ -182,6 +182,8 @@ export function EarlierAllocations({ d }: { d: BookingDetail }) {
 // ---------------------------------------------------------------- customer contact (mobile number and WhatsApp consent)
 export function ContactDialog({ booking: b, onClose, onDone }: { booking: Booking; onClose: () => void; onDone: () => void }) {
   const action = useAction();
+  const { me } = useSession();
+  const wa = me.settings.whatsapp_enabled;
   const [mobile, setMobile] = useState(b.customer_mobile.replace(/^91(?=\d{10}$)/, ""));
   const [optIn, setOptIn] = useState(Boolean(b.wa_opt_in));
   const [problem, setProblem] = useState<string | null>(null);
@@ -210,12 +212,14 @@ export function ContactDialog({ booking: b, onClose, onDone }: { booking: Bookin
       }
     >
       <div className="form-stack">
-        <Field label="Customer mobile number" hint="10 digits. Messages about the car go to this number.">
+        <Field label="Customer mobile number" hint={wa ? "10 digits. Messages about the car go to this number." : "10 digits."}>
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} type="tel" inputMode="numeric" autoComplete="off" maxLength={16} />
         </Field>
-        <Check checked={optIn} onChange={setOptIn} hint="When unticked, no WhatsApp message is sent for this booking.">
-          The customer agrees to receive WhatsApp messages about this booking
-        </Check>
+        {wa && (
+          <Check checked={optIn} onChange={setOptIn} hint="When unticked, no WhatsApp message is sent for this booking.">
+            The customer agrees to receive WhatsApp messages about this booking
+          </Check>
+        )}
         {(problem || action.error) && <Notice tone="error">{problem ?? plainText(action.error)}</Notice>}
       </div>
     </Dialog>

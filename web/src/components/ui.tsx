@@ -298,9 +298,13 @@ export function DataTable<R>({
 
 // ---------------------------------------------------------------- numbers and details
 export function Stat({ label, value, to, tone, hint }: { label: string; value: ReactNode; to?: string; tone?: "warn" | "danger"; hint?: string }) {
+  // A date or a money figure is far wider than a count, and two of these sit side by side on a phone.
+  // Anything past a short number steps down a size rather than running over the edge of its card.
+  const plain = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  const long = plain.length > 8 ? " stat-value-long" : "";
   const inner = (
     <>
-      <span className="stat-value">{value}</span>
+      <span className={`stat-value${long}`}>{value}</span>
       <span className="stat-label">{label}</span>
       {hint && <span className="stat-hint">{hint}</span>}
     </>

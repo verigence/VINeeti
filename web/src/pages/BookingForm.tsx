@@ -68,6 +68,7 @@ function BookingForm({ booking }: { booking?: Booking }) {
   // A booking may sit at an outlet that has since been closed or that the user no longer works in.
   if (booking && !outletOptions.some((o) => o.value === booking.outlet_id)) outletOptions.unshift({ value: booking.outlet_id, label: booking.outlet ?? "Current outlet" });
   const min = me.settings.min_booking_amount;
+  const wa = me.settings.whatsapp_enabled;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -106,14 +107,16 @@ function BookingForm({ booking }: { booking?: Booking }) {
           <Field label="Customer name">
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" autoCapitalize="words" maxLength={120} />
           </Field>
-          <Field label="Mobile number" hint="10 digits. Messages about the car go to this number.">
+          <Field label="Mobile number" hint={wa ? "10 digits. Messages about the car go to this number." : "10 digits."}>
             <input value={mobile} onChange={(e) => setMobile(e.target.value)} type="tel" inputMode="numeric" autoComplete="off" maxLength={16} />
           </Field>
-          <div className="field-wide">
-            <Check checked={optIn} onChange={setOptIn} hint="Untick only if the customer has said they do not want WhatsApp messages. No allocation or reminder messages will be sent.">
-              The customer agrees to receive WhatsApp messages about this booking
-            </Check>
-          </div>
+          {wa && (
+            <div className="field-wide">
+              <Check checked={optIn} onChange={setOptIn} hint="Untick only if the customer has said they do not want WhatsApp messages. No allocation or reminder messages will be sent.">
+                The customer agrees to receive WhatsApp messages about this booking
+              </Check>
+            </div>
+          )}
         </div>
       </Card>
 

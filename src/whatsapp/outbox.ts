@@ -84,7 +84,10 @@ export async function messageStmt(ctx: Ctx, m: OutgoingMessage): Promise<D1Prepa
 
   let status: "QUEUED" | "SKIPPED" = "QUEUED";
   let error: string | null = null;
-  if (!cfg || !cfg.enabled) [status, error] = ["SKIPPED", "WhatsApp messaging is switched off"];
+  // The dealership can switch the whole feature off in its settings. That hides it from every screen,
+  // so a message queued behind the scenes would be one nobody could see, chase or stop: none is sent.
+  if (!ctx.settings.whatsapp_enabled) [status, error] = ["SKIPPED", "WhatsApp is switched off for this dealership"];
+  else if (!cfg || !cfg.enabled) [status, error] = ["SKIPPED", "WhatsApp messaging is switched off"];
   else if (tpl && !tpl.enabled) [status, error] = ["SKIPPED", "This message is switched off"];
   else if (m.optIn === false) [status, error] = ["SKIPPED", "Customer has not agreed to WhatsApp messages"];
   else if (!mobile) [status, error] = ["SKIPPED", "Mobile number is missing or not valid"];
