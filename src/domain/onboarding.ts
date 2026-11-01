@@ -61,16 +61,26 @@ export function sendSignInAfter(ctx: Ctx, after: (p: Promise<unknown>) => void, 
 }
 
 /**
- * One message, with a failure turned into something somebody will see. Sent after the answer, there is
- * no screen left to show an error on, and an account whose owner was never told how to get in is worse
- * than a visible failure: the administrator who made it gets an alert and can send it again.
+ * One message, with its outcome recorded either way. Sent after the answer, there is no screen left to
+ * report to, so the audit trail is the only place the result can live: without a line for a message
+ * that went out, "it never arrived" cannot be told apart from "it was never sent", which is exactly the
+ * question somebody asks first. A failure also raises an alert, because an account whose owner was
+ * never told how to get in needs acting on; a deployment with no mail account at all does not, since
+ * the password is handed to the screen instead.
  */
-export async function sendSignInOrAlert(ctx: Ctx, kind: "WELCOME" | "RESET", to: string | null | undefined, w: Told, userId: string): Promise<void> {
-  try {
-    const sent = await sendSignIn(ctx, kind, to, w);
-    if (sent.emailed) return;
-    const what = kind === "WELCOME" ? "welcome email" : "new password";
-    await ctx.db.batch([
+export async function sendSignInOrAlert(ctx: Ctx, kind: "WELCOME" | "RESET", to: string | null | undefined, w: Told, userId: string): Promise<{ emailed: boolean; email_error?: string }> {
+  const sent = await sendSignIn(ctx, kind, to, w).catch((e) => ({ emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE" }));
+  const what = kind === "WELCOME" ? "welcome email" : "new password";
+  const writes = [
+    auditStmt(ctx, sent.emailed ? "SIGNIN_EMAIL_SENT" : "SIGNIN_EMAIL_FAILED", "user", userId, {
+      kind,
+      email: to ?? null,
+      account: (ctx.env.SMTP_FROM ?? ctx.env.SMTP_USER ?? "").trim() || null,
+      ...(sent.emailed ? {} : { error: sent.email_error }),
+    }),
+  ];
+  if (!sent.emailed && sent.email_error !== "MAIL_NOT_CONFIGURED") {
+    writes.unshift(
       alertStmt(ctx, {
         targetUser: ctx.actor.startsWith("usr") ? ctx.actor : null,
         targetRole: ctx.actor.startsWith("usr") ? null : "ADMIN",
@@ -80,11 +90,10 @@ export async function sendSignInOrAlert(ctx: Ctx, kind: "WELCOME" | "RESET", to:
         entityType: "user",
         entityId: userId,
       }),
-      auditStmt(ctx, "SIGNIN_EMAIL_FAILED", "user", userId, { kind, email: to ?? null, error: sent.email_error }),
-    ]);
-  } catch {
-    /* Nothing further can be done from here, and the request it followed is long since answered. */
+    );
   }
+  await ctx.db.batch(writes).catch(() => undefined);
+  return sent;
 }
 
 /** What a person is told so they can get in for the first time. */
@@ -127,7 +136,7 @@ export async function sendSignIn(
  * carries the product's name as text instead.
  */
 const marks = new Map<string, Uint8Array | null>();
-async function emailMark(env: Env, file: string): Promise<Uint8Array | undefined> {
+export async function emailMark(env: Env, file: string): Promise<Uint8Array | undefined> {
   if (!marks.has(file)) {
     try {
       const res = await env.ASSETS?.fetch(new Request(`https://assets.invalid/brand/${file}`));

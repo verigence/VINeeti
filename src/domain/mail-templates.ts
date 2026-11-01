@@ -45,10 +45,21 @@ interface Layout {
   lead: string;
   w: Welcome;
   closing: string;
+  /** The panel's lines, when they are not the sign-in ones: label, value, and whether to set it in mono. */
+  rows?: [string, string, boolean?][];
+  /** Whether to say the password must be replaced. A message carrying no password should not. */
+  secret?: boolean;
 }
 
+const signInRows = (w: Welcome): [string, string, boolean?][] => [
+  ["Dealership", w.dealership],
+  ["Your role", w.roleLabel],
+  ["Sign in with", prettyMobile(w.mobile)],
+  ["Temporary password", w.password, true],
+];
+
 /** The message as a page: a header with the mark, the matter, the password, and what to do next. */
-function page({ heading, lead, w, closing }: Layout): string {
+function page({ heading, lead, w, closing, rows, secret = true }: Layout): string {
   const logo = w.logo
     ? `<img src="cid:${LOGO_CID}" width="220" alt="Verigence VINeeti" style="display:block;border:0;outline:none;text-decoration:none;width:220px;max-width:100%;height:auto;">`
     : `<div style="font:700 22px/1.2 Helvetica,Arial,sans-serif;color:${NAVY};">Verigence VINeeti</div>`;
@@ -79,10 +90,7 @@ function page({ heading, lead, w, closing }: Layout): string {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f7fafb;border:1px solid ${LINE};border-radius:8px;">
             <tr><td style="padding:16px 20px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                ${row("Dealership", w.dealership)}
-                ${row("Your role", w.roleLabel)}
-                ${row("Sign in with", prettyMobile(w.mobile))}
-                ${row("Temporary password", w.password, true)}
+                ${(rows ?? signInRows(w)).map(([label, value, mono]) => row(label, value, mono)).join("")}
               </table>
             </td></tr>
           </table>
@@ -94,7 +102,7 @@ function page({ heading, lead, w, closing }: Layout): string {
           <p style="margin:0;font:400 12px/1.6 Helvetica,Arial,sans-serif;color:${MUTED};word-break:break-all;">${esc(w.signInUrl)}</p>
         </td></tr>
         <tr><td style="padding:0 28px 24px;">
-          <p style="margin:0 0 12px;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.</p>
+          ${secret ? `<p style="margin:0 0 12px;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.</p>` : ""}
           <p style="margin:0;font:400 14px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${esc(closing)}</p>
         </td></tr>
         <tr><td style="padding:0 28px;"><div style="height:1px;background:${LINE};"></div></td></tr>
@@ -121,17 +129,14 @@ function page({ heading, lead, w, closing }: Layout): string {
 </body></html>`;
 }
 
-function text(heading: string, lead: string, w: Welcome, closing: string): string {
+function text(heading: string, lead: string, w: Welcome, closing: string, rows?: [string, string, boolean?][], secret = true): string {
   return (
     `${heading}\n\n` +
     `Dear ${w.name},\n\n` +
     `${lead}\n\n` +
-    `Dealership: ${w.dealership}\n` +
-    `Your role: ${w.roleLabel}\n` +
-    `Sign in with: ${prettyMobile(w.mobile)}\n` +
-    `Temporary password: ${w.password}\n\n` +
-    `Sign in at ${w.signInUrl}\n\n` +
-    `You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.\n\n` +
+    (rows ?? signInRows(w)).map(([label, value]) => `${label}: ${value}\n`).join("") +
+    `\nSign in at ${w.signInUrl}\n\n` +
+    (secret ? `You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.\n\n` : "") +
     `${closing}\n\n` +
     `--\nVerigence VINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis message was sent by the system; nobody can reply to it.`
   );
@@ -166,6 +171,28 @@ export function resetMail(w: Welcome): Message {
     subject: `A new password for your ${w.dealership} sign-in`,
     body: text(heading, lead, w, closing),
     html: page({ heading, lead, w, closing }),
+    ...withLogo(w),
+  };
+}
+
+/**
+ * Proves the mail account works, without making an account to find out. It travels the same road as the
+ * real messages — same layout, same inline logos, same MIME — so if this arrives, a welcome will too.
+ */
+export function testMail(w: Welcome & { account: string; at: string }): Message {
+  const heading = `VINeeti can send email`;
+  const lead = `This is a test, sent from the Settings screen to check that messages from Verigence VINeeti reach you. Nothing has changed and nobody else was written to.`;
+  const closing = `If you can read this, the welcome and password messages will arrive the same way.`;
+  const rows: [string, string, boolean?][] = [
+    ["Dealership", w.dealership],
+    ["Sent from", w.account],
+    ["Sent at", w.at],
+  ];
+  return {
+    to: "",
+    subject: `Test message from Verigence VINeeti`,
+    body: text(heading, lead, w, closing, rows, false),
+    html: page({ heading, lead, w, closing, rows, secret: false }),
     ...withLogo(w),
   };
 }

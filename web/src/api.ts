@@ -245,6 +245,7 @@ export const api = {
   deleteUser: (id: string) => del<{ ok: true; removed: string }>(`/api/users/${enc(id)}`),
   updateUser: (id: string, u: T.UserInput) => patch<Ok>(`/api/users/${enc(id)}`, u),
   resetUserPassword: (id: string) => post<{ temporary_password: string; emailed?: boolean; emailing?: boolean; email?: string | null; email_error?: string }>(`/api/users/${enc(id)}/reset-password`),
+  testMail: (to?: string) => post<{ configured: boolean; sent: boolean; reason: string | null; to: string | null; host: string; port: number; account: string | null }>("/api/mail/test", to ? { to } : {}),
   employeeTemplateUrl: "/api/users/template",
   importEmployees: (file: File) => {
     const form = new FormData();
