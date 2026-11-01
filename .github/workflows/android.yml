@@ -68,8 +68,16 @@ jobs:
             keytool -genkeypair -v -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -alias "$KEY_ALIAS" \
               -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VINeeti, O=JBR Consulting, C=IN" >/dev/null
             echo "::add-mask::$KEYSTORE_PASSWORD"
-            printf 'ANDROID_KEYSTORE_PASSWORD=%s\nANDROID_KEY_ALIAS=%s\nANDROID_KEY_PASSWORD=%s\n' "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > "$RUNNER_TEMP/keystore-secrets.txt"
-            echo "No ANDROID_KEYSTORE_BASE64 secret: a new signing key was created. Download the android-keystore artifact and add the secrets before the next build."
+            # Everything needed to set the secrets goes in the file, the encoded keystore included, so
+            # nobody has to find a base64 command on their own machine to finish the job. One run, four
+            # copy-and-pastes, and this branch never runs again.
+            {
+              printf 'ANDROID_KEYSTORE_PASSWORD=%s\n' "$KEYSTORE_PASSWORD"
+              printf 'ANDROID_KEY_ALIAS=%s\n' "$KEY_ALIAS"
+              printf 'ANDROID_KEY_PASSWORD=%s\n' "$KEY_PASSWORD"
+              printf 'ANDROID_KEYSTORE_BASE64=%s\n' "$(base64 -w0 "$KS")"
+            } > "$RUNNER_TEMP/keystore-secrets.txt"
+            echo "No ANDROID_KEYSTORE_BASE64 secret: a new signing key was created. Download the android-keystore artifact and add the four secrets in keystore-secrets.txt before the next build."
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
           echo "ANDROID_KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
@@ -78,6 +86,7 @@ jobs:
           echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           FP=$(keytool -list -v -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" | grep -i "SHA256:" | head -1 | sed 's/.*SHA256: *//')
           echo "Certificate SHA-256 fingerprint (for the repository secret ANDROID_CERT_SHA256): $FP"
+          [ -f "$RUNNER_TEMP/keystore-secrets.txt" ] && printf 'ANDROID_CERT_SHA256=%s\n' "$FP" >> "$RUNNER_TEMP/keystore-secrets.txt"
           { echo "### Android build"; echo; echo "- Address: https://${{ inputs.host }}"; echo "- Version: ${{ inputs.version_name }} (${{ inputs.version_code }})"; echo "- Signing certificate SHA-256: \`$FP\`"; echo "- Put that fingerprint in the repository secret ANDROID_CERT_SHA256 and run \"Deploy to Cloudflare\" again."; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build
@@ -102,4 +111,7 @@ jobs:
           path: |
             ${{ runner.temp }}/vineeti-release.jks
             ${{ runner.temp }}/keystore-secrets.txt
-          retention-days: 7
+          # This artifact is the signing key and its passwords in the clear, readable by anybody with
+          # access to the repository. It exists to be collected once and put into secrets; a day is
+          # long enough for that and short enough that it is not left lying in Actions storage.
+          retention-days: 1
