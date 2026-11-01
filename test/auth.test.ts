@@ -176,3 +176,37 @@ describe("removing a user", () => {
     expect(self.body.error.message).toContain("your own account");
   });
 });
+
+describe("correcting a mobile number", () => {
+  it("is allowed, signs the person out, refuses a number somebody else uses, and keeps their history", async () => {
+    const w2 = makeWorld("2026-10-13 10:00");
+    const d2 = await makeDealer(w2);
+    const u = d2.users.se1;
+    const old = { cookie: u.session.cookie };
+
+    // Typed wrongly at first — eleven digits — and the account is unusable until it is corrected.
+    w2.db.raw.exec(`UPDATE users SET mobile = '90000000099' WHERE id = '${u.id}'`);
+    expect((await w2.api("POST", "/api/auth/login", { dealer: d2.slug, mobile: "9000000099", password: PASSWORD })).status).toBe(401);
+
+    // Another person's number is refused rather than quietly taken.
+    const taken = await w2.api("PATCH", `/api/users/${u.id}`, { mobile: d2.users.se2.mobile }, d2.users.admin.session);
+    expect(taken.status).toBe(409);
+    expect(taken.body.error.message).toContain("already signs in with that mobile number");
+
+    const fixed = await w2.api("PATCH", `/api/users/${u.id}`, { mobile: "9000000099" }, d2.users.admin.session);
+    expect(fixed.status).toBe(200);
+    expect(w2.db.q<{ mobile: string }>(`SELECT mobile FROM users WHERE id = ?`, u.id)[0].mobile).toBe("919000000099");
+
+    // Signed out everywhere, because whoever was signed in was signed in as the old number.
+    expect((await w2.api("GET", "/api/auth/me", undefined, old)).status).toBe(401);
+    // And in with the corrected one.
+    w2.db.raw.exec(`UPDATE users SET must_change_password = 0 WHERE id = '${u.id}'`);
+    expect((await w2.api("POST", "/api/auth/login", { dealer: d2.slug, mobile: "9000000099", password: PASSWORD })).status).toBe(200);
+
+    // The change is on the record, old number and new, and the person is still the same person.
+    const line = w2.db.q<{ detail_json: string }>(`SELECT detail_json FROM audit_log WHERE action = 'USER_UPDATED' AND entity_id = ? ORDER BY at DESC`, u.id)[0];
+    expect(line.detail_json).toContain("90000000099");
+    expect(line.detail_json).toContain("919000000099");
+    expect((await w2.api("PATCH", `/api/users/${u.id}`, { mobile: "not a number" }, d2.users.admin.session)).status).toBe(400);
+  });
+});

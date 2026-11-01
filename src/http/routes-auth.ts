@@ -72,11 +72,26 @@ export async function createTenant(
   return { tenant_id: tenantId, slug, admin_user_id: userId };
 }
 
+/** The dealership this address belongs to, if the address is one of theirs. */
+export async function tenantForHost(db: D1Database, host: string | null | undefined): Promise<TenantRow | null> {
+  const name = String(host ?? "").trim().toLowerCase().split(":")[0];
+  if (!name) return null;
+  return first<TenantRow>(db, `SELECT * FROM tenants WHERE hostname = ? AND is_active = 1`, name);
+}
+
 /**
- * The dealership a sign-in is for. The mobile number is the person's ID; the dealer code is only needed
- * when the same number is registered at more than one dealership on this deployment.
+ * The dealership a sign-in is for. Its own address settles it outright: somebody at
+ * adityamotors.mh.jbrconsulting.in is signing in to Aditya Motors and nowhere else, whatever is typed.
+ * Failing that, the mobile number is the person's ID and the dealer code is needed only when the same
+ * number is registered at more than one dealership on this deployment.
  */
-async function tenantFor(db: D1Database, dealer: unknown, mobile: string | null): Promise<TenantRow | null> {
+async function tenantFor(db: D1Database, dealer: unknown, mobile: string | null, host?: string | null): Promise<TenantRow | null> {
+  const byHost = await tenantForHost(db, host);
+  if (byHost) {
+    // A dealer code that names somebody else is a mistake worth refusing rather than quietly ignoring.
+    const slug = String(dealer ?? "").trim().toLowerCase();
+    return !slug || slug === byHost.slug ? byHost : null;
+  }
   const slug = String(dealer ?? "").trim().toLowerCase();
   if (slug) return first<TenantRow>(db, `SELECT * FROM tenants WHERE slug = ? AND is_active = 1`, slug);
   if (!mobile) return null;
@@ -94,7 +109,7 @@ export function authRoutes(app: App) {
     // One answer for every failure, including a locked account, so the sign-in page cannot be used to find out which accounts exist.
     const invalid = new HttpError(401, `Dealer code, mobile number or password is not correct. After ${MAX_FAILED} wrong attempts an account is locked for ${LOCK_MINUTES} minutes.`, "INVALID_LOGIN");
     const mobile = normMobile(body.mobile);
-    const tenant = await tenantFor(c.env.DB, body.dealer, mobile);
+    const tenant = await tenantFor(c.env.DB, body.dealer, mobile, new URL(c.req.url).hostname);
     if (!tenant || !mobile) throw invalid;
     const u = await first<{ id: string; password_hash: string; token_version: number; failed_logins: number; locked_until: string | null; is_active: number }>(
       c.env.DB, `SELECT id, password_hash, token_version, failed_logins, locked_until, is_active FROM users WHERE tenant_id = ? AND mobile = ?`, tenant.id, mobile);
@@ -115,13 +130,13 @@ export function authRoutes(app: App) {
   // ------------------------------------------------------------ setting a password with a one-time code on WhatsApp
   /** Whether a dealership's people can set their own password with a WhatsApp code (its WhatsApp number is live). */
   app.get("/api/auth/options", async (c) => {
-    const tenant = await tenantFor(c.env.DB, c.req.query("dealer"), normMobile(c.req.query("mobile")));
+    const tenant = await tenantFor(c.env.DB, c.req.query("dealer"), normMobile(c.req.query("mobile")), new URL(c.req.url).hostname);
     return c.json({ otp: tenant ? await otpAvailable(c.env, c.env.DB, tenant.id) : false });
   });
 
   app.post("/api/auth/otp/request", async (c) => {
     const body = await jsonBody<{ dealer?: string; mobile?: string }>(c);
-    const tenant = await tenantFor(c.env.DB, body.dealer, normMobile(body.mobile));
+    const tenant = await tenantFor(c.env.DB, body.dealer, normMobile(body.mobile), new URL(c.req.url).hostname);
     // The same answer whether or not the number is registered.
     if (tenant) await requestOtp(c.env, tenant, body.mobile, clock.now());
     return c.json({ ok: true, message: "If this mobile number is registered, a 6-digit code has been sent to it on WhatsApp. It is valid for 10 minutes." });
@@ -148,9 +163,19 @@ export function authRoutes(app: App) {
     return c.json({ ok: true });
   });
 
+  /**
+   * What this address is, before anybody has signed in: the dealership it belongs to, if any. Only the
+   * name and code, which whoever opens the address already knows — it is their own dealership's.
+   */
+  app.get("/api/site", async (c) => {
+    const tenant = await tenantForHost(c.env.DB, new URL(c.req.url).hostname);
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ app_name: c.env.APP_NAME ?? "VINeeti", dealership: tenant ? { name: tenant.name, slug: tenant.slug, oem: tenant.oem } : null });
+  });
+
   app.use("/api/*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
-    if (path === "/api/health" || path.startsWith("/api/wa/webhook") || path.startsWith("/api/platform/") || path.startsWith("/api/auth/login") || path.startsWith("/api/auth/logout") || path.startsWith("/api/auth/otp/") || path === "/api/auth/options") return next();
+    if (path === "/api/site" || path === "/api/health" || path.startsWith("/api/wa/webhook") || path.startsWith("/api/platform/") || path.startsWith("/api/auth/login") || path.startsWith("/api/auth/logout") || path.startsWith("/api/auth/otp/") || path === "/api/auth/options") return next();
     if (/^\/api\/eod\/[^/]+\/(stock|bookings|retail|run)$/.test(path)) return next(); // answered by the end-of-day feed routes, registered before this guard
     return authenticate(c, next);
   });
@@ -400,26 +425,41 @@ export function authRoutes(app: App) {
     need(c, "admin.users");
     const ctx = c.get("ctx");
     const me = c.get("user");
-    const b = await jsonBody<{ name?: string; email?: string; role?: Role; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
+    const b = await jsonBody<{ name?: string; mobile?: string; email?: string; role?: Role; all_outlets?: boolean; outlet_ids?: string[]; is_active?: boolean; dms_code?: string | null; segments?: string[] }>(c);
     const u = await first<any>(ctx.db, `SELECT * FROM users WHERE id = ? AND tenant_id = ?`, c.req.param("id"), ctx.tenantId);
     if (!u) throw notFound("User");
     const dmsCode = b.dms_code === undefined ? u.dms_code : await checkDmsCode(ctx, b.dms_code, u.id);
     if (b.role && !ROLES.includes(b.role)) throw bad("Role is not valid");
+    // The number can be corrected. It is how the person signs in, so it was held still at first — but a
+    // number typed wrongly leaves an account that cannot be used and, once its owner has worked, cannot
+    // be removed either; and people change their number in any case. Making a second account for the
+    // same person splits their history in two, which is worse than the problem it avoids.
+    let mobile = u.mobile;
+    if (b.mobile !== undefined) {
+      const next = normMobile(b.mobile);
+      if (!next) throw bad("Enter a valid mobile number");
+      if (next !== u.mobile) {
+        if (await first(ctx.db, `SELECT id FROM users WHERE tenant_id = ? AND mobile = ? AND id <> ?`, ctx.tenantId, next, u.id)) throw conflict("Another user at this dealership already signs in with that mobile number");
+        mobile = next;
+      }
+    }
+    // A changed sign-in number ends every session: whoever is signed in was signed in as the old one.
+    const movedNumber = mobile !== u.mobile;
     if (u.id === me.id && (b.is_active === false || (b.role && b.role !== "ADMIN"))) throw forbidden("You cannot remove your own administrator access");
     const role = b.role ?? u.role;
     const allOutlets = b.all_outlets === undefined ? Boolean(u.all_outlets) : b.all_outlets;
     let bump = 0;
     // A password is never typed in on somebody's behalf: Reset password makes one and emails it.
-    if (b.is_active === false) bump = 1;
+    if (b.is_active === false || movedNumber) bump = 1;
     await run(
       ctx.db,
-      `UPDATE users SET name = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
-      b.name?.trim() || u.name, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
+      `UPDATE users SET name = ?, mobile = ?, email = ?, role = ?, all_outlets = ?, is_active = ?, password_hash = ?, must_change_password = ?, dms_code = ?, token_version = token_version + ?, failed_logins = 0, locked_until = NULL WHERE id = ? AND tenant_id = ?`,
+      b.name?.trim() || u.name, mobile, b.email === undefined ? u.email : b.email?.trim() || null, role, allOutlets ? 1 : 0, b.is_active === undefined ? u.is_active : b.is_active ? 1 : 0, u.password_hash, u.must_change_password, dmsCode, bump, u.id, ctx.tenantId,
     );
     if (dmsCode && dmsCode !== u.dms_code) await linkBookingsTo(ctx, u.id, dmsCode);
     if (b.outlet_ids || b.all_outlets !== undefined) await setOutlets(ctx, u.id, allOutlets ? [] : b.outlet_ids ?? []);
     if (b.segments !== undefined) await setSegments(ctx, u.id, b.segments);
-    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b });
+    await audit(ctx, "USER_UPDATED", "user", u.id, { ...b, ...(movedNumber ? { mobile_was: u.mobile, mobile_now: mobile } : {}) });
     return c.json({ ok: true });
   });
 

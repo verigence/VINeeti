@@ -298,7 +298,7 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
   // Labels come from the server; the one-line purpose of each role is shown under the picker.
   const roleOptions = roles.length ? roles.map((r) => ({ value: r.role, label: r.label })) : (Object.entries(me.role_labels) as [Role, string][]).map(([value, label]) => ({ value, label }));
   const [name, setName] = useState(user?.name ?? "");
-  const [mobile, setMobile] = useState("");
+  const [mobile, setMobile] = useState(user ? fmtMobile(user.mobile) : "");
   const [role, setRole] = useState<Role | "">(user?.role ?? "");
   const [scope, setScope] = useState<"all" | "some">(user ? (user.all_outlets ? "all" : "some") : "some");
   const [outletIds, setOutletIds] = useState<string[]>(user?.outlet_ids ?? []);
@@ -324,13 +324,14 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
 
   const submit = async () => {
     if (!name.trim()) return setProblem("Enter the person's name.");
-    if (!user && mobile.replace(/\D/g, "").length < 10) return setProblem("Enter a 10-digit mobile number.");
+    if (mobile.replace(/\D/g, "").length < 10) return setProblem("Enter a 10-digit mobile number.");
     if (!role) return setProblem("Choose a role.");
     if (!user && !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email.trim())) return setProblem("Enter the person's email address: the temporary password is sent to it.");
     if (scope === "some" && !outletIds.length) return setProblem("Choose at least one outlet, or give access to all outlets.");
     if (segmentScope === "some" && !segments.length) return setProblem("Tick at least one segment, or let the person work with every segment.");
     setProblem(null);
     const body: UserInput = { name: name.trim(), role, all_outlets: scope === "all", outlet_ids: scope === "all" ? [] : outletIds, dms_code: dmsCode.trim() || null, segments: segmentScope === "all" ? [] : segments, email: email.trim() || undefined };
+    if (user && mobile.replace(/\D/g, "") !== user.mobile.replace(/\D/g, "")) body.mobile = mobile.trim();
     if (user && !self) body.is_active = active;
     const res = user
       ? await action.run(() => api.updateUser(user.id, body), { quiet: true, success: `${name.trim()} saved.` })
@@ -386,8 +387,8 @@ function UserDialog({ user, roles, outlets, onClose, onDone }: { user?: UserRow;
           <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" maxLength={80} />
         </Field>
         {user ? (
-          <Field label="Mobile number" hint="The mobile number is the person's ID and cannot be changed. Add a new user for a new number.">
-            <input value={fmtMobile(user.mobile)} readOnly disabled />
+          <Field label="Mobile number" hint={mobile.replace(/\D/g, "") !== user.mobile.replace(/\D/g, "") ? "Changing this changes how they sign in. They will be signed out everywhere and must use the new number." : "This is how the person signs in. Correct it if it was typed wrongly, or if their number has changed."}>
+            <input value={mobile} onChange={(e) => setMobile(e.target.value)} type="tel" inputMode="numeric" autoComplete="off" maxLength={16} />
           </Field>
         ) : (
           <Field label="Mobile number" hint="The person's ID: they sign in with this number.">

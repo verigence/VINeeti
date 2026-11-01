@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, errorMessage } from "../api";
 import { StatusBars } from "../components/AppBars";
 import { BrandFoot } from "../components/Brand";
@@ -59,6 +59,21 @@ function DealerCode({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
+  // A dealership's own address says which dealership this is, so there is nothing to ask and nothing
+  // to get wrong. On the shared address there is no answer here and the code is asked for as before.
+  const [site, setSite] = useState<{ name: string; slug: string } | null>(null);
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api
+      .site()
+      .then((r) => live && setSite(r.dealership ? { name: r.dealership.name, slug: r.dealership.slug } : null))
+      .catch(() => undefined)
+      .finally(() => live && setAsked(true));
+    return () => {
+      live = false;
+    };
+  }, []);
   const [dealer, setDealer] = useState(() => recall(DEALER_KEY));
   const [mobile, setMobile] = useState(() => recall(MOBILE_KEY));
   const [password, setPassword] = useState("");
@@ -93,7 +108,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> })
   if (resetting) {
     return (
       <AuthFrame>
-        <ResetPassword dealer={dealer} setDealer={setDealer} mobile={mobile} setMobile={setMobile} onBack={() => setResetting(false)} onSignedIn={signedIn} />
+        <ResetPassword dealer={dealer} setDealer={setDealer} mobile={mobile} setMobile={setMobile} onBack={() => setResetting(false)} onSignedIn={signedIn} onOwnAddress={Boolean(site)} />
       </AuthFrame>
     );
   }
@@ -102,13 +117,14 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> })
     <AuthFrame>
       <form className="auth-card" onSubmit={submit} noValidate>
         <h1>Sign in</h1>
+        {site && <p className="auth-dealership">{site.name}</p>}
         <Field label="Mobile number" hint="Your mobile number is your ID.">
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} name="username" type="tel" inputMode="numeric" autoComplete="username" enterKeyHint="next" autoFocus={!mobile} />
         </Field>
         <Field label="Password">
           <PasswordInput label="Password" value={password} onChange={setPassword} name="password" autoComplete="current-password" enterKeyHint="go" autoFocus={Boolean(mobile)} />
         </Field>
-        <DealerCode value={dealer} onChange={setDealer} />
+        {asked && !site && <DealerCode value={dealer} onChange={setDealer} />}
         {error && <Notice tone="error">{error}</Notice>}
         <Button type="submit" variant="primary" busy={busy} className="btn-block">
           Sign in
@@ -132,7 +148,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => Promise<void> })
  * Setting a password without the old one: a 6-digit code goes to the person's own mobile on WhatsApp.
  * Where the dealership has not switched that on, the administrator resets the password instead.
  */
-function ResetPassword({ dealer, setDealer, mobile, setMobile, onBack, onSignedIn }: { dealer: string; setDealer: (v: string) => void; mobile: string; setMobile: (v: string) => void; onBack: () => void; onSignedIn: () => Promise<void> }) {
+function ResetPassword({ dealer, setDealer, mobile, setMobile, onBack, onSignedIn, onOwnAddress }: { dealer: string; setDealer: (v: string) => void; mobile: string; setMobile: (v: string) => void; onBack: () => void; onSignedIn: () => Promise<void>; onOwnAddress?: boolean }) {
   const [step, setStep] = useState<"ask" | "code" | "admin">("ask");
   const [message, setMessage] = useState("");
   const [code, setCode] = useState("");
@@ -251,7 +267,7 @@ function ResetPassword({ dealer, setDealer, mobile, setMobile, onBack, onSignedI
       <Field label="Mobile number" hint="Your mobile number is your ID.">
         <input value={mobile} onChange={(e) => setMobile(e.target.value)} name="username" type="tel" inputMode="numeric" autoComplete="username" enterKeyHint="go" autoFocus={!mobile} />
       </Field>
-      <DealerCode value={dealer} onChange={setDealer} />
+      {!onOwnAddress && <DealerCode value={dealer} onChange={setDealer} />}
       {error && <Notice tone="error">{error}</Notice>}
       <Button type="submit" variant="primary" busy={busy} className="btn-block">
         Continue

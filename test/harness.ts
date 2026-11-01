@@ -81,7 +81,8 @@ export interface World {
   now(): Date;
   /** Runs the scheduled job at the current clock time and waits for background work. */
   tick(): ReturnType<typeof runScheduled>;
-  api(method: string, path: string, body?: unknown, session?: Session, headers?: Record<string, string>): Promise<{ status: number; body: any; headers: Headers }>;
+  /** `host` pretends the request arrived at a dealership's own address. */
+  api(method: string, path: string, body?: unknown, session?: Session, headers?: Record<string, string>, host?: string): Promise<{ status: number; body: any; headers: Headers }>;
   upload(path: string, form: FormData, session: Session): Promise<{ status: number; body: any }>;
   /** Sends a file as the request body, as the Uploads screen does. */
   send(path: string, bytes: Uint8Array, session: Session): Promise<{ status: number; body: any }>;
@@ -164,7 +165,7 @@ export function makeWorld(start = "2026-10-13 10:00"): World {
       clock.now = () => current;
       return runScheduled(env, current);
     },
-    async api(method, path, body, session, headers = {}) {
+    async api(method, path, body, session, headers = {}, host) {
       if (session) await fresh(session);
       const h: Record<string, string> = { ...headers };
       if (session) h.Cookie = session.cookie;
@@ -176,7 +177,7 @@ export function makeWorld(start = "2026-10-13 10:00"): World {
         payload = "{}";
         h["Content-Type"] ??= "application/json";
       }
-      return call(new Request(`https://app.test${path}`, { method, headers: h, body: payload }));
+      return call(new Request(`https://${host ?? "app.test"}${path}`, { method, headers: h, body: payload }));
     },
     async upload(path, form, session) {
       await fresh(session);
