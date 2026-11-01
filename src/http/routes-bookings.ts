@@ -105,7 +105,9 @@ export function bookingRoutes(app: App) {
     const b = await bookingFor(c, c.req.param("id"));
     const outlet = await first<{ name: string }>(ctx.db, `SELECT name FROM outlets WHERE id = ?`, b.outlet_id);
     const names = await all<{ id: string; name: string }>(ctx.db, `SELECT id, name FROM users WHERE tenant_id = ?`, ctx.tenantId);
-    const nameOf = (id: string | null) => (id ? names.find((n) => n.id === id)?.name ?? (id.startsWith("UPLOAD:") ? "Data upload" : id === "SYSTEM" ? "System" : id) : null);
+    // An id with no user behind it is an account that has been removed: the record says so rather than
+    // showing the raw id, which means nothing to anybody reading it.
+    const nameOf = (id: string | null) => (id ? names.find((n) => n.id === id)?.name ?? (id.startsWith("UPLOAD:") ? "Data upload" : id === "SYSTEM" ? "System" : id.startsWith("usr") ? "Removed account" : id) : null);
     const ticks = checklistOf(b);
     const allocations = await all<any>(
       ctx.db,

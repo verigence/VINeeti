@@ -435,7 +435,7 @@ export async function listExceptions(ctx: Ctx, status: string | null, outletIds:
   const scope = outletIds ? `AND b.outlet_id IN (${outletIds.map(() => "?").join(",") || "''"})` : "";
   return all(
     ctx.db,
-    `SELECT e.*, b.booking_no, b.customer_name, b.model, b.variant, b.colour, b.outlet_id, bo.name AS outlet, v.vin, ru.name AS requested_by_name, du.name AS decided_by_name,
+    `SELECT e.*, b.booking_no, b.customer_name, b.model, b.variant, b.colour, b.outlet_id, bo.name AS outlet, v.vin, COALESCE(ru.name, CASE WHEN e.requested_by IS NULL THEN NULL ELSE 'Removed account' END) AS requested_by_name, COALESCE(du.name, CASE WHEN e.decided_by IS NULL THEN NULL ELSE 'Removed account' END) AS decided_by_name,
             (SELECT x.booking_no FROM bookings x WHERE x.tenant_id = e.tenant_id AND x.id = json_extract(e.payload_json, '$.before_booking_id')) AS before_booking_no,
             (SELECT o.name FROM outlets o WHERE o.tenant_id = e.tenant_id AND o.id = json_extract(e.payload_json, '$.outlet_id')) AS to_outlet
      FROM exceptions e JOIN bookings b ON b.id = e.booking_id AND b.tenant_id = e.tenant_id JOIN outlets bo ON bo.id = b.outlet_id LEFT JOIN vehicles v ON v.id = e.vehicle_id AND v.tenant_id = e.tenant_id

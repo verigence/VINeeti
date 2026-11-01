@@ -23,6 +23,12 @@ export type DocumentKind = "DOCKET" | "KYC" | "PAN_AADHAAR" | "PAYMENT_PROOF";
 
 /** Per-dealership rules. Everything here can be changed from the Settings screen without a new build. */
 export interface TenantSettings {
+  /**
+   * Whether this dealership uses WhatsApp at all. Off by default: no dealership on this deployment has
+   * a number yet, and a screen for something nobody can use is a screen that gets clicked, read and
+   * asked about. The machinery stays where it is — switching this on brings it back.
+   */
+  whatsapp_enabled: boolean;
   /** Days after the car is at the dealership before the customer is reminded. */
   reminder_days: number;
   /** Days before the Business Head is alerted. */
@@ -85,6 +91,7 @@ export interface TenantSettings {
 }
 
 export const DEFAULT_SETTINGS: TenantSettings = {
+  whatsapp_enabled: false,
   reminder_days: 3,
   escalation_days: 5,
   reallocate_days: 6,
@@ -191,6 +198,7 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
     if (!Number.isFinite(v) || v < 0) throw new Error("Minimum booking amount must be zero or more");
     next.min_booking_amount = v;
   }
+  if (patch.whatsapp_enabled !== undefined) next.whatsapp_enabled = Boolean(patch.whatsapp_enabled);
   if (patch.hold_after_timeout !== undefined) next.hold_after_timeout = Boolean(patch.hold_after_timeout);
   if (patch.import_bookings_as_approved !== undefined) next.import_bookings_as_approved = Boolean(patch.import_bookings_as_approved);
   for (const k of ["business_hours_from", "business_hours_to"] as const) {
