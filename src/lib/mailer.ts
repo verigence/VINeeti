@@ -16,11 +16,31 @@ import type { Env } from "../env";
 /** A failure the person who pressed the button can be told about. Mirrors hrmgmt's MailError codes. */
 export class MailError extends Error {
   constructor(
-    public code: "MAIL_AUTH_FAILED" | "MAIL_RECIPIENT_REFUSED" | "MAIL_UNAVAILABLE",
+    public code: "MAIL_AUTH_FAILED" | "MAIL_RECIPIENT_REFUSED" | "MAIL_UNAVAILABLE" | "MAIL_TIMED_OUT",
     message: string,
+    /** Where it went wrong: connect, greeting, hello, starttls, login, sender, recipient, data. */
+    public stage = "",
   ) {
     super(message);
   }
+}
+
+// A mail server that takes a connection and then says nothing would otherwise be waited for forever:
+// the screen spins, a background send is killed by the runtime part way through, and nothing is written
+// down either way — which is how a message can go missing leaving no trace at all. Every step is given
+// a deadline, so a silence becomes an answer naming the step it died at.
+const STEP_MS = 8_000;
+const TOTAL_MS = 25_000;
+
+/** The promise, or a failure naming the step it gave up on. */
+function withDeadline<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new MailError("MAIL_TIMED_OUT", `The mail server did not answer at ${stage} within ${Math.round(Math.max(1, ms) / 1000)} seconds`, stage)), Math.max(1, ms));
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e) => (clearTimeout(timer), reject(e)),
+    );
+  });
 }
 
 export interface Message {
@@ -155,30 +175,36 @@ export class SmtpMailer implements Mailer {
   async send(m: Message): Promise<void> {
     const a = this.account;
     let stage = "connect";
+    const until = Date.now() + TOTAL_MS;
+    const left = () => Math.min(STEP_MS, until - Date.now());
     // A failure says where it happened, so a blocked network can be told from a refused account.
     // The message body is never part of what is logged.
     const fail = (e: unknown): never => {
       if (e instanceof MailError) throw e;
       console.warn("mail failed", { stage, host: a.host, port: a.port, detail: String((e as Error)?.message ?? e).slice(0, 160) });
-      throw new MailError("MAIL_UNAVAILABLE", "The mail server could not be reached");
+      throw new MailError("MAIL_UNAVAILABLE", `The mail server could not be reached at ${stage}`, stage);
     };
     let socket: Awaited<ReturnType<typeof connect>> | null = null;
     try {
       // Port 465 is encrypted from the first byte; every other port is upgraded with STARTTLS.
       const implicit = a.port === 465;
       socket = connect({ hostname: a.host, port: a.port }, { secureTransport: implicit ? "on" : "starttls", allowHalfOpen: false });
+      // Whether a connection was made at all is only known by asking: without this, a port that goes
+      // nowhere looks exactly like a server taking its time, and both wait for ever.
+      await withDeadline(socket.opened, left(), "connect");
       let writer = socket.writable.getWriter();
-      let replies = new Replies(socket.readable.getReader());
+      let reader = socket.readable.getReader();
+      let replies = new Replies(reader);
       const enc = new TextEncoder();
-      const say = async (line: string) => writer.write(enc.encode(line + CRLF));
+      const say = async (line: string) => withDeadline(writer.write(enc.encode(line + CRLF)), left(), stage);
       const expect = async (want: number[], where: string) => {
-        const r = await replies.next();
+        const r = await withDeadline(replies.next(), left(), where);
         if (!want.includes(r.code)) {
-          if (r.code === 535 || r.code === 534) throw new MailError("MAIL_AUTH_FAILED", "The mail account refused the sign-in");
+          if (r.code === 535 || r.code === 534) throw new MailError("MAIL_AUTH_FAILED", "The mail account refused the sign-in", where);
           // Gmail refuses a MAIL FROM that the signed-in account does not own, which is a different
           // mistake from a bad recipient and has a different fix: correct SMTP_FROM, not the address.
-          if (r.code === 550 || r.code === 553 || r.code === 551) throw new MailError("MAIL_RECIPIENT_REFUSED", where === "sender" ? "The mail account is not allowed to send as this address" : "The address was refused");
-          throw new MailError("MAIL_UNAVAILABLE", `The mail server refused the message at ${where}`);
+          if (r.code === 550 || r.code === 553 || r.code === 551) throw new MailError("MAIL_RECIPIENT_REFUSED", where === "sender" ? "The mail account is not allowed to send as this address" : "The address was refused", where);
+          throw new MailError("MAIL_UNAVAILABLE", `The mail server refused the message at ${where} (${r.text.slice(0, 120)})`, where);
         }
         return r;
       };
@@ -191,11 +217,14 @@ export class SmtpMailer implements Mailer {
         stage = "starttls";
         await say("STARTTLS");
         await expect([220], "starttls");
-        // From here the same connection is encrypted; its reader and writer are new.
+        // From here the same connection is encrypted; its reader and writer are new. The old pair dies
+        // with the original socket, so their locks are given up before the upgrade.
         writer.releaseLock();
+        reader.releaseLock();
         socket = socket.startTls();
         writer = socket.writable.getWriter();
-        replies = new Replies(socket.readable.getReader());
+        reader = socket.readable.getReader();
+        replies = new Replies(reader);
         await say(`EHLO ${a.host}`);
         await expect([250], "hello");
       }
@@ -213,7 +242,7 @@ export class SmtpMailer implements Mailer {
       await expect([250, 251], "recipient");
       await say("DATA");
       await expect([354], "data");
-      await writer.write(enc.encode(mime(`${a.fromName} <${a.from}>`, m, this.now()) + CRLF + "." + CRLF));
+      await withDeadline(writer.write(enc.encode(mime(`${a.fromName} <${a.from}>`, m, this.now()) + CRLF + "." + CRLF)), left(), "data");
       await expect([250], "data");
       stage = "quit";
       await say("QUIT");

@@ -451,13 +451,18 @@ export function authRoutes(app: App) {
       jbr: await emailMark(ctx.env, "email-jbr.png"),
     });
     let reason: string | null = null;
+    let stage: string | null = null;
+    let detail: string | null = null;
     try {
       await post!.send({ ...message, to });
     } catch (e) {
       reason = e instanceof MailError ? e.code : "MAIL_UNAVAILABLE";
+      stage = e instanceof MailError ? e.stage || null : null;
+      // The server's own words, which say more than any code: a refusal explains itself.
+      detail = String((e as Error)?.message ?? "").slice(0, 200) || null;
     }
-    await audit(ctx, reason ? "MAIL_TEST_FAILED" : "MAIL_TEST_SENT", "tenant", ctx.tenantId, { to, account: account || null, ...(reason ? { error: reason } : {}) });
-    return c.json({ configured: true, sent: !reason, reason, to, ...where });
+    await audit(ctx, reason ? "MAIL_TEST_FAILED" : "MAIL_TEST_SENT", "tenant", ctx.tenantId, { to, account: account || null, ...(reason ? { error: reason, stage, detail } : {}) });
+    return c.json({ configured: true, sent: !reason, reason, stage, detail, to, ...where });
   });
 
   // ------------------------------------------------------------ dealership settings

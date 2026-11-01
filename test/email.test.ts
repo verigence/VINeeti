@@ -2,7 +2,8 @@
 // without somewhere to send the password, that a deployment with no mail account still works exactly
 // as it did before email existed, and that what is written to the person carries what they need.
 import { describe, expect, it } from "vitest";
-import { bodyToHtml } from "../src/lib/mailer";
+import { bodyToHtml, SmtpMailer } from "../src/lib/mailer";
+import { deadPort, silentServer } from "./stubs/cloudflare-sockets";
 import { resetMail, testMail, welcomeMail } from "../src/domain/mail-templates";
 import { makeMahindraDealer, makeWorld } from "./harness";
 
@@ -165,4 +166,35 @@ describe("whether mail works at all is answerable without creating a user", () =
     expect(m.body).not.toContain("replace this password");
     expect(m.body).toContain("A PRODUCT BY JBR CONSULTING");
   });
+});
+
+describe("a mail server that never answers", () => {
+  const account = { host: "smtp.gmail.com", port: 587, user: "it@example", password: "secret", from: "it@example", fromName: "VINeeti" };
+  const message = { to: "someone@example.com", subject: "Hello", body: "Hello" };
+
+  it("gives up, instead of waiting for ever, and says which step it died at", async () => {
+    // This is the failure that left no trace at all: the screen span, the background send was killed
+    // by the runtime part way through, and neither an alert nor an audit line was ever written.
+    const reset = silentServer();
+    try {
+      const err = await new SmtpMailer(account).send(message).then(() => null, (e) => e);
+      expect(err).toBeTruthy();
+      expect(err.code).toBe("MAIL_TIMED_OUT");
+      expect(err.stage).toBe("greeting");
+      expect(err.message).toContain("did not answer");
+    } finally {
+      reset();
+    }
+  }, 30_000);
+
+  it("says so when the connection is never made at all, which is not a password problem", async () => {
+    const reset = deadPort();
+    try {
+      const err = await new SmtpMailer(account).send(message).then(() => null, (e) => e);
+      expect(err.code).toBe("MAIL_TIMED_OUT");
+      expect(err.stage).toBe("connect");
+    } finally {
+      reset();
+    }
+  }, 30_000);
 });
