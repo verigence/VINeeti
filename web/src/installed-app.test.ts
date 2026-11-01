@@ -5,7 +5,7 @@
 // every phone a browser would not answer the question it exists for.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { installedApp } from "../web/src/api";
+import { installedApp } from "./api";
 
 const asWindow = (w: unknown) => {
   (globalThis as { window?: unknown }).window = w;
