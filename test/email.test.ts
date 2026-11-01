@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { bodyToHtml, SmtpMailer } from "../src/lib/mailer";
 import { deadPort, silentServer } from "./stubs/cloudflare-sockets";
-import { resetMail, testMail, welcomeMail } from "../src/domain/mail-templates";
+import { introMail, resetMail, testMail, welcomeMail } from "../src/domain/mail-templates";
 import { makeMahindraDealer, makeWorld } from "./harness";
 
 describe("an account has to have somewhere to send the password", () => {
@@ -197,4 +197,52 @@ describe("a mail server that never answers", () => {
       reset();
     }
   }, 30_000);
+});
+
+describe("the introduction to the system", () => {
+  it("goes when the temporary password is replaced, and not with the password itself", async () => {
+    const w = makeWorld();
+    const d = await makeMahindraDealer(w);
+    w.env.SMTP_USER = "jbrconsulting.it@example";
+    w.env.SMTP_PASSWORD = "app-password";
+
+    const made = await w.api("POST", "/api/users", { name: "New Joiner", mobile: "9100000044", email: "joiner@aditya.example", role: "SALES_CONSULTANT", all_outlets: true }, d.users.admin.session);
+    expect(made.status).toBe(201);
+    // Creating the account writes to them about signing in, and says nothing about what the tool is for.
+    expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action LIKE 'INTRO_EMAIL%'`)[0].n).toBe(0);
+
+    // The temporary password is theirs to replace, and replacing it is the moment they are properly in.
+    const given = w.db.q<{ id: string }>(`SELECT id FROM users WHERE mobile = '919100000044'`)[0].id;
+    const reset = await w.api("POST", `/api/users/${given}/reset-password`, undefined, d.users.admin.session);
+    const session = await w.login(d.slug, "9100000044", reset.body.temporary_password);
+    const changed = await w.api("POST", "/api/auth/change-password", { current: reset.body.temporary_password, next: "TheirOwn1234" }, session);
+    expect(changed.status).toBe(200);
+    const intro = w.db.q<{ action: string; detail_json: string }>(`SELECT action, detail_json FROM audit_log WHERE action LIKE 'INTRO_EMAIL%' AND entity_id = ?`, given);
+    expect(intro.length).toBe(1);
+    expect(intro[0].detail_json).toContain("joiner@aditya.example");
+
+    // And not again on a later password change: it is an introduction, not a notification.
+    const fresh = { cookie: changed.headers.get("Set-Cookie")!.split(";")[0] };
+    expect((await w.api("POST", "/api/auth/change-password", { current: "TheirOwn1234", next: "Another12345" }, fresh)).status).toBe(200);
+    expect(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log WHERE action LIKE 'INTRO_EMAIL%' AND entity_id = ?`, given)[0].n).toBe(1);
+  });
+
+  it("says what the system is for, what this person's part in it is, and thanks them — and carries no password", () => {
+    const m = introMail({ name: "Arun AGM", dealership: "Aditya Motors", roleLabel: "AGM Sales", rolePurpose: "You raise the allocation and deallocation requests for your segment; a GM or the CEO decides them.", mobile: "919876500001", password: "", signInUrl: "https://vineeti.example" });
+    expect(m.subject).toContain("Welcome to Verigence VINeeti at Aditya Motors");
+    for (const part of ["Arun AGM", "Aditya Motors", "AGM Sales", "You raise the allocation and deallocation requests", "Thank you for choosing Verigence VINeeti"]) {
+      expect(m.body, `text: ${part}`).toContain(part);
+      expect(m.html, `html: ${part}`).toContain(part);
+    }
+    // What it does, in the dealership's own terms.
+    for (const point of ["in stock and in transit", "waiting for it", "who asked, who agreed", "One version of the truth"]) {
+      expect(m.body, `point: ${point}`).toContain(point);
+      expect(m.html, `point: ${point}`).toContain(point);
+    }
+    // Nothing secret travels in it, so a copy left open on a screen gives nothing away.
+    expect(m.body).not.toContain("Temporary password");
+    expect(m.body).not.toContain("replace this password");
+    expect(m.html).not.toContain("Temporary password");
+    expect(m.body).toContain("A PRODUCT BY JBR CONSULTING");
+  });
 });

@@ -3,7 +3,7 @@ import { hashPassword, signSession, timingSafeEqual, verifyPassword, verifySessi
 import { alertStmt, all, audit, auditStmt, first, run, stmt } from "../lib/db";
 import { PERMISSION_LABELS, permissionsFor, ROLE_LABELS, ROLE_PURPOSE, roleMatrix, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { ALLOCATION_RULE_KEYS, CAR_CRITERIA, DEFAULT_SETTINGS, mergeSettings, parseSettings, QUEUE_CRITERIA, type TenantSettings } from "../lib/settings";
-import { emailMark, emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendSignIn, sendSignInAfter, sendSignInOrAlert, temporaryPassword } from "../domain/onboarding";
+import { emailMark, emailPossible, employeeTemplate, importEmployees, otpAvailable, requestOtp, resetPassword, resetWithOtp, sendIntro, sendSignIn, sendSignInAfter, sendSignInOrAlert, temporaryPassword } from "../domain/onboarding";
 import { testMail } from "../domain/mail-templates";
 import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
@@ -182,6 +182,10 @@ export function authRoutes(app: App) {
     if (next === body.current) throw bad("The new password must be different");
     await run(ctx.db, `UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1 WHERE id = ? AND tenant_id = ?`, await hashPassword(next), user.id, ctx.tenantId);
     await audit(ctx, "PASSWORD_CHANGED", "user", user.id);
+    // The temporary one has just been replaced, which is the moment this person is properly in: the
+    // introduction to the system goes now rather than with the password, because nobody reads an
+    // explanation of something they cannot open yet. Only the first time, not on every later change.
+    if (user.mustChangePassword) after(c, sendIntro(ctx, user.id));
     const token = await signSession({ tid: ctx.tenantId, uid: user.id, tv: row.token_version + 1, exp: Math.floor(ctx.now.getTime() / 1000) + 43200 }, c.env.SESSION_SECRET);
     c.header("Set-Cookie", sessionCookie(c.req.raw, token));
     return c.json({ ok: true });

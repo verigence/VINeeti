@@ -25,6 +25,8 @@ export interface Welcome {
   logo?: Uint8Array;
   /** The maker's mark for the foot of the message. Optional in the same way. */
   jbr?: Uint8Array;
+  /** What this person's role is for, in the dealership's words. Only the introduction uses it. */
+  rolePurpose?: string;
 }
 
 const NAVY = "#002858";
@@ -49,6 +51,8 @@ interface Layout {
   rows?: [string, string, boolean?][];
   /** Whether to say the password must be replaced. A message carrying no password should not. */
   secret?: boolean;
+  /** Short lines set off with a mark, for saying what the system is for. */
+  points?: string[];
 }
 
 const signInRows = (w: Welcome): [string, string, boolean?][] => [
@@ -59,13 +63,23 @@ const signInRows = (w: Welcome): [string, string, boolean?][] => [
 ];
 
 /** The message as a page: a header with the mark, the matter, the password, and what to do next. */
-function page({ heading, lead, w, closing, rows, secret = true }: Layout): string {
+function page({ heading, lead, w, closing, rows, secret = true, points }: Layout): string {
   const logo = w.logo
     ? `<img src="cid:${LOGO_CID}" width="220" alt="Verigence VINeeti" style="display:block;border:0;outline:none;text-decoration:none;width:220px;max-width:100%;height:auto;">`
     : `<div style="font:700 22px/1.2 Helvetica,Arial,sans-serif;color:${NAVY};">Verigence VINeeti</div>`;
   const maker = w.jbr
     ? `<img src="cid:${JBR_CID}" width="180" alt="JBR Consulting" style="display:block;border:0;outline:none;text-decoration:none;width:180px;max-width:100%;height:auto;">`
     : `<div style="font:700 15px/1.3 Helvetica,Arial,sans-serif;color:${NAVY};letter-spacing:2px;">J B R &nbsp;C O N S U L T I N G</div>`;
+  // A list, as a table: every mail client agrees on tables, and several still mangle <ul> margins.
+  const bullets = (lines: string[]) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${lines
+      .map(
+        (line) => `<tr>
+           <td valign="top" style="width:18px;padding:0 0 10px;font:700 15px/1.6 Helvetica,Arial,sans-serif;color:${TEAL};">&bull;</td>
+           <td valign="top" style="padding:0 0 10px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${line}</td>
+         </tr>`,
+      )
+      .join("")}</table>`;
   const row = (label: string, value: string, mono = false) =>
     `<tr>
        <td style="padding:6px 16px 6px 0;font:400 13px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};white-space:nowrap;">${esc(label)}</td>
@@ -85,6 +99,7 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
           <h1 style="margin:0 0 12px;font:600 20px/1.3 Helvetica,Arial,sans-serif;color:${NAVY};">${esc(heading)}</h1>
           <p style="margin:0 0 16px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">Dear ${esc(w.name)},</p>
           <p style="margin:0 0 20px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};">${esc(lead)}</p>
+          ${points?.length ? bullets(points.map(esc)) + '<div style="height:4px;"></div>' : ""}
         </td></tr>
         <tr><td style="padding:0 28px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f7fafb;border:1px solid ${LINE};border-radius:8px;">
@@ -129,11 +144,12 @@ function page({ heading, lead, w, closing, rows, secret = true }: Layout): strin
 </body></html>`;
 }
 
-function text(heading: string, lead: string, w: Welcome, closing: string, rows?: [string, string, boolean?][], secret = true): string {
+function text(heading: string, lead: string, w: Welcome, closing: string, rows?: [string, string, boolean?][], secret = true, points?: string[]): string {
   return (
     `${heading}\n\n` +
     `Dear ${w.name},\n\n` +
     `${lead}\n\n` +
+    (points?.length ? points.map((p) => `- ${p}\n`).join("") + "\n" : "") +
     (rows ?? signInRows(w)).map(([label, value]) => `${label}: ${value}\n`).join("") +
     `\nSign in at ${w.signInUrl}\n\n` +
     (secret ? `You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.\n\n` : "") +
@@ -193,6 +209,36 @@ export function testMail(w: Welcome & { account: string; at: string }): Message 
     subject: `Test message from Verigence VINeeti`,
     body: text(heading, lead, w, closing, rows, false),
     html: page({ heading, lead, w, closing, rows, secret: false }),
+    ...withLogo(w),
+  };
+}
+
+/**
+ * The introduction, sent once the person has replaced the temporary password and is properly in. It is
+ * deliberately not the message that carries the password: that one has a job to do and a secret in it,
+ * and nobody reads an explanation of a system they cannot get into yet. This one arrives when they can.
+ */
+export function introMail(w: Welcome): Message {
+  const heading = `You are in. Here is what VINeeti is for`;
+  const lead = `Your password is set, so the account is yours now. VINeeti is how ${w.dealership} decides which car goes to which customer — and the short version is this.`;
+  const closing = `Thank you for choosing Verigence VINeeti. If something does not look right, or a screen does not show what you expected, tell your System Admin: a product that nobody questions is a product nobody is using.`;
+  const points = [
+    `Stock you can answer a customer with: every car in stock and in transit at your billing centre, and whether it is free, booked or blocked.`,
+    `A queue that follows the rules rather than whoever asks loudest, so the next car goes to the customer who has been waiting for it.`,
+    `Allocation, deallocation and approval that leave a record: who asked, who agreed, and when.`,
+    `One version of the truth: the DMS files are loaded daily and the differences settled, so stock, bookings and payments agree with each other.`,
+  ];
+  const rows: [string, string, boolean?][] = [
+    ["Dealership", w.dealership],
+    ["Your role", w.roleLabel],
+    ["Sign in with", prettyMobile(w.mobile)],
+  ];
+  if (w.rolePurpose) rows.push(["What you do here", w.rolePurpose]);
+  return {
+    to: "",
+    subject: `Welcome to Verigence VINeeti at ${w.dealership}`,
+    body: text(heading, lead, w, closing, rows, false, points),
+    html: page({ heading, lead, w, closing, rows, secret: false, points }),
     ...withLogo(w),
   };
 }

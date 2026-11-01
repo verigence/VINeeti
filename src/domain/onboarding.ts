@@ -8,8 +8,8 @@ import type { Ctx, Env, Role, TenantRow } from "../env";
 import { hashPassword, hex, timingSafeEqual } from "../lib/crypto";
 import { alertStmt, all, auditStmt, chunk, first, run, stmt } from "../lib/db";
 import { MailError, mailer } from "../lib/mailer";
-import { resetMail, welcomeMail } from "./mail-templates";
-import { ROLE_LABELS, TENANT_WIDE_ROLES } from "../lib/permissions";
+import { introMail, resetMail, welcomeMail } from "./mail-templates";
+import { ROLE_LABELS, ROLE_TO_YOU, TENANT_WIDE_ROLES } from "../lib/permissions";
 import { HttpError, bad, iso, newId, norm, normMobile } from "../lib/util";
 import { buildXlsx, readExport, tableWith } from "../lib/xlsx";
 import { loadCredentials, type WaConfigRow } from "../whatsapp/outbox";
@@ -392,4 +392,36 @@ export async function resetWithOtp(env: Env, tenant: TenantRow, mobileRaw: unkno
   ]);
   if (!(changed[0] as { meta?: { changes?: number } }).meta?.changes) return null;
   return { id: u.id, token_version: u.token_version + 1 };
+}
+
+/**
+ * The introduction to the system, sent once somebody has replaced the temporary password. It carries no
+ * secret, so a failure costs nobody their way in: it is recorded and left at that, with no alert, since
+ * there is nothing for an administrator to go and do about it.
+ */
+export async function sendIntro(ctx: Ctx, userId: string): Promise<void> {
+  const u = await first<{ name: string; email: string | null; mobile: string; role: Role }>(ctx.db, `SELECT name, email, mobile, role FROM users WHERE id = ? AND tenant_id = ?`, userId, ctx.tenantId);
+  if (!u?.email) return;
+  const post = mailer(ctx.env, () => ctx.now);
+  if (!post) return;
+  const message = introMail({
+    name: u.name,
+    dealership: ctx.tenant.name,
+    roleLabel: ROLE_LABELS[u.role],
+    rolePurpose: ROLE_TO_YOU[u.role],
+    mobile: u.mobile,
+    password: "",
+    signInUrl: ctx.env.APP_URL || "the VINeeti address your dealership uses",
+    logo: await emailMark(ctx.env, "email-logo.png"),
+    jbr: await emailMark(ctx.env, "email-jbr.png"),
+  });
+  let error: string | null = null;
+  try {
+    await post.send({ ...message, to: u.email });
+  } catch (e) {
+    error = e instanceof MailError ? e.code : "MAIL_UNAVAILABLE";
+  }
+  await ctx.db
+    .batch([auditStmt(ctx, error ? "INTRO_EMAIL_FAILED" : "INTRO_EMAIL_SENT", "user", userId, { email: u.email, ...(error ? { error } : {}) })])
+    .catch(() => undefined);
 }
