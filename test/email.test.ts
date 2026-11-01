@@ -228,14 +228,15 @@ describe("the introduction to the system", () => {
   });
 
   it("says what the system is for, what this person's part in it is, and thanks them — and carries no password", () => {
-    const m = introMail({ name: "Arun AGM", dealership: "Aditya Motors", roleLabel: "AGM Sales", rolePurpose: "You raise the allocation and deallocation requests for your segment; a GM or the CEO decides them.", mobile: "919876500001", password: "", signInUrl: "https://vineeti.example" });
-    expect(m.subject).toContain("Welcome to Verigence VINeeti at Aditya Motors");
-    for (const part of ["Arun AGM", "Aditya Motors", "AGM Sales", "You raise the allocation and deallocation requests", "Thank you for choosing Verigence VINeeti"]) {
+    const m = introMail({ name: "Arun AGM", dealership: "Aditya Motors", roleLabel: "AGM Sales", rolePurpose: "You raise allocation and deallocation requests for your segment. A GM or the CEO approves them.", mobile: "919876500001", password: "", signInUrl: "https://vineeti.example" });
+    expect(m.subject).toContain("Welcome to Verigence VINeeti");
+    expect(m.subject).toContain("Aditya Motors");
+    for (const part of ["Arun AGM", "Aditya Motors", "AGM Sales", "You raise allocation and deallocation requests", "Thank you for choosing Verigence VINeeti"]) {
       expect(m.body, `text: ${part}`).toContain(part);
       expect(m.html, `html: ${part}`).toContain(part);
     }
     // What it does, in the dealership's own terms.
-    for (const point of ["in stock and in transit", "waiting for it", "who asked, who agreed", "One version of the truth"]) {
+    for (const point of ["in stock and in transit", "priority rules the dealership has set", "recorded against the person and the time", "loaded daily"]) {
       expect(m.body, `point: ${point}`).toContain(point);
       expect(m.html, `point: ${point}`).toContain(point);
     }

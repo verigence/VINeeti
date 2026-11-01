@@ -152,16 +152,16 @@ export const ROLE_PURPOSE: Record<Role, string> = {
  * addressed to somebody on their first day it reads like a demotion, so the introduction email uses this.
  */
 export const ROLE_TO_YOU: Record<Role, string> = {
-  ADMIN: "You set VINeeti up for the dealership: the people, the outlets and the rules it follows.",
-  DEALER_PRINCIPAL: "You have the owner's view: every screen, every outlet, and how the dealership is doing across all of them.",
-  CEO_VP: "You see every screen and decide what is raised to you. Payments you can read, and only Finance records them.",
-  GM_SALES: "You decide the allocation and deallocation requests raised at your billing centre.",
-  AGM_SALES: "You raise the allocation and deallocation requests for your segment; a GM or the CEO decides them.",
-  SALES_LEAD: "You look after your team's bookings at your outlets, and approve them.",
-  SALES_CONSULTANT: "You answer customers on stock and delivery, take bookings, and follow your own through to delivery.",
-  EDP_MANAGER: "You load the DMS files each day and settle the differences, and you keep the vehicle master and the orders straight.",
+  ADMIN: "You administer VINeeti for the dealership: users, outlets and system settings.",
+  DEALER_PRINCIPAL: "You have access to all screens and all outlets, including the owner's dashboards.",
+  CEO_VP: "You have access to all screens and approve the requests raised to you. Payment records are read-only.",
+  GM_SALES: "You approve allocation and deallocation requests raised at your billing centre.",
+  AGM_SALES: "You raise allocation and deallocation requests for your segment. A GM or the CEO approves them.",
+  SALES_LEAD: "You manage your team's bookings at your outlets and approve them.",
+  SALES_CONSULTANT: "You check stock and delivery for customers, create bookings and track your own bookings.",
+  EDP_MANAGER: "You upload the daily DMS files and resolve the differences, and you maintain the vehicle master and orders.",
   FINANCE: "You verify that payments have been received, and record invoicing and delivery.",
-  AUDITOR: "You can read everything and change nothing: the whole record is yours to inspect.",
+  AUDITOR: "You have read-only access to all records.",
 };
 
 export const PERMISSION_LABELS: Record<Permission, string> = {

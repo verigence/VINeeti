@@ -136,7 +136,7 @@ function page({ heading, lead, w, closing, rows, secret = true, points }: Layout
         </td></tr>
         <tr><td align="center" style="padding:12px 28px 4px;">${maker}</td></tr>
         <tr><td align="center" style="padding:0 28px 24px;">
-          <p style="margin:0;font:400 12px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};">This message was sent by the system; nobody can reply to it.</p>
+          <p style="margin:0;font:400 12px/1.5 Helvetica,Arial,sans-serif;color:${MUTED};">This is an automated message. Please do not reply to it.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -154,7 +154,7 @@ function text(heading: string, lead: string, w: Welcome, closing: string, rows?:
     `\nSign in at ${w.signInUrl}\n\n` +
     (secret ? `You will be asked to replace this password the first time you sign in. Nobody can read it back to you afterwards, so keep it until then and choose your own.\n\n` : "") +
     `${closing}\n\n` +
-    `--\nVerigence VINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis message was sent by the system; nobody can reply to it.`
+    `--\nVerigence VINeeti. Fair Allocation. Smarter Inventory.\nA PRODUCT BY JBR CONSULTING. Insight. Strategy. Impact.\nThis is an automated message. Please do not reply to it.`
   );
 }
 
@@ -196,9 +196,9 @@ export function resetMail(w: Welcome): Message {
  * real messages — same layout, same inline logos, same MIME — so if this arrives, a welcome will too.
  */
 export function testMail(w: Welcome & { account: string; at: string }): Message {
-  const heading = `VINeeti can send email`;
-  const lead = `This is a test, sent from the Settings screen to check that messages from Verigence VINeeti reach you. Nothing has changed and nobody else was written to.`;
-  const closing = `If you can read this, the welcome and password messages will arrive the same way.`;
+  const heading = `Test message from Verigence VINeeti`;
+  const lead = `This is a test message, sent to confirm that email from Verigence VINeeti reaches you. No other recipient was included and nothing has been changed.`;
+  const closing = `If this message has reached you, the sign-in and password messages will reach their recipients in the same way.`;
   const rows: [string, string, boolean?][] = [
     ["Dealership", w.dealership],
     ["Sent from", w.account],
@@ -219,24 +219,25 @@ export function testMail(w: Welcome & { account: string; at: string }): Message 
  * and nobody reads an explanation of a system they cannot get into yet. This one arrives when they can.
  */
 export function introMail(w: Welcome): Message {
-  const heading = `You are in. Here is what VINeeti is for`;
-  const lead = `Your password is set, so the account is yours now. VINeeti is how ${w.dealership} decides which car goes to which customer — and the short version is this.`;
-  const closing = `Thank you for choosing Verigence VINeeti. If something does not look right, or a screen does not show what you expected, tell your System Admin: a product that nobody questions is a product nobody is using.`;
+  const heading = `Welcome to Verigence VINeeti`;
+  const lead = `Your password has been set and your account at ${w.dealership} is now active. VINeeti is the system ${w.dealership} uses to manage vehicle stock, customer bookings and vehicle allocation.`;
+  const closing = `Thank you for choosing Verigence VINeeti. If you need any help, or if something does not appear correct, please contact your System Admin.`;
   const points = [
-    `Stock you can answer a customer with: every car in stock and in transit at your billing centre, and whether it is free, booked or blocked.`,
-    `A queue that follows the rules rather than whoever asks loudest, so the next car goes to the customer who has been waiting for it.`,
-    `Allocation, deallocation and approval that leave a record: who asked, who agreed, and when.`,
-    `One version of the truth: the DMS files are loaded daily and the differences settled, so stock, bookings and payments agree with each other.`,
+    `Stock: every vehicle in stock and in transit at your billing centre, with its current status.`,
+    `Bookings: each customer booking with its model, variant and colour, and the stage it has reached.`,
+    `Allocation: vehicles are allocated to bookings using the priority rules the dealership has set.`,
+    `Approvals: allocation, deallocation and approval are recorded against the person and the time.`,
+    `Reconciliation: the DMS stock, booking and payment files are loaded daily and any differences are reported.`,
   ];
   const rows: [string, string, boolean?][] = [
     ["Dealership", w.dealership],
     ["Your role", w.roleLabel],
     ["Sign in with", prettyMobile(w.mobile)],
   ];
-  if (w.rolePurpose) rows.push(["What you do here", w.rolePurpose]);
+  if (w.rolePurpose) rows.push(["Your access", w.rolePurpose]);
   return {
     to: "",
-    subject: `Welcome to Verigence VINeeti at ${w.dealership}`,
+    subject: `Welcome to Verigence VINeeti \u2013 ${w.dealership}`,
     body: text(heading, lead, w, closing, rows, false, points),
     html: page({ heading, lead, w, closing, rows, secret: false, points }),
     ...withLogo(w),
