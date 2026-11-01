@@ -5,7 +5,7 @@ export default defineConfig({
   resolve: { alias: { "cloudflare:sockets": new URL("./test/stubs/cloudflare-sockets.ts", import.meta.url).pathname } },
   test: {
     environment: "node",
-    include: ["test/**/*.test.ts"],
+    include: ["test/**/*.test.ts", "web/src/**/*.test.ts"],
     testTimeout: 60_000,
     // Each file builds its own in-memory database; password hashing makes the first requests slow.
     hookTimeout: 60_000,

@@ -8,6 +8,7 @@ import { testMail } from "../domain/mail-templates";
 import { ATTACHMENT_LIMIT, checkAttachment, myTickets, notifySupport, raiseTicket, supportAddress, type Attachment } from "../domain/support";
 import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
+import { recordSignIn, signIns, type Outcome } from "../domain/sign-ins";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
 import { bad, conflict, forbidden, HttpError, iso, newId, norm, normMobile, notFound } from "../lib/util";
@@ -111,17 +112,24 @@ export function authRoutes(app: App) {
     const mobile = normMobile(body.mobile);
     const tenant = await tenantFor(c.env.DB, body.dealer, mobile, new URL(c.req.url).hostname);
     if (!tenant || !mobile) throw invalid;
-    const u = await first<{ id: string; password_hash: string; token_version: number; failed_logins: number; locked_until: string | null; is_active: number }>(
-      c.env.DB, `SELECT id, password_hash, token_version, failed_logins, locked_until, is_active FROM users WHERE tenant_id = ? AND mobile = ?`, tenant.id, mobile);
-    if (!u || !u.is_active) throw invalid;
-    if (u.locked_until && u.locked_until > iso(now)) throw invalid;
+    const u = await first<{ id: string; name: string; role: Role; password_hash: string; token_version: number; failed_logins: number; locked_until: string | null; is_active: number }>(
+      c.env.DB, `SELECT id, name, role, password_hash, token_version, failed_logins, locked_until, is_active FROM users WHERE tenant_id = ? AND mobile = ?`, tenant.id, mobile);
+    // Every attempt is logged, refused ones included: a log of successes answers "was that me?", and
+    // the question a dealership actually asks after something has gone wrong is "is somebody trying?".
+    // The answer to the caller never varies, so the log says nothing the sign-in page does not.
+    const log = (outcome: Outcome) =>
+      after(c, recordSignIn(c.env, c.req.raw, { tenantId: tenant.id, userId: u?.id ?? null, mobile, name: u?.name ?? null, role: u?.role ?? null, outcome }, now));
+    if (!u || !u.is_active) { log("REFUSED"); throw invalid; }
+    if (u.locked_until && u.locked_until > iso(now)) { log("LOCKED"); throw invalid; }
     if (!(await verifyPassword(String(body.password ?? ""), u.password_hash))) {
       const fails = u.failed_logins + 1;
       const lock = fails >= MAX_FAILED ? new Date(now.getTime() + LOCK_MINUTES * 60_000).toISOString() : null;
       await run(c.env.DB, `UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?`, lock ? 0 : fails, lock, u.id);
+      log(lock ? "LOCKED" : "REFUSED");
       throw invalid;
     }
     await run(c.env.DB, `UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?`, u.id);
+    log("IN");
     const token = await signSession({ tid: tenant.id, uid: u.id, tv: u.token_version, exp: Math.floor(now.getTime() / 1000) + 43200 }, c.env.SESSION_SECRET);
     c.header("Set-Cookie", sessionCookie(c.req.raw, token));
     return c.json({ ok: true });
@@ -149,6 +157,8 @@ export function authRoutes(app: App) {
     const tenant = await tenantFor(c.env.DB, body.dealer, normMobile(body.mobile));
     const u = tenant ? await resetWithOtp(c.env, tenant, body.mobile, body.code, await hashPassword(password), now) : null;
     if (!tenant || !u) throw new HttpError(400, "The code is not correct or has expired. Ask for a new code.", "INVALID_CODE");
+    // Setting a password with the code signs the person in, so it is a way in and belongs in the log.
+    after(c, recordSignIn(c.env, c.req.raw, { tenantId: tenant.id, userId: u.id, mobile: normMobile(body.mobile) ?? String(body.mobile ?? ""), name: u.name ?? null, role: u.role ?? null, outcome: "IN" }, now));
     const token = await signSession({ tid: tenant.id, uid: u.id, tv: u.token_version, exp: Math.floor(now.getTime() / 1000) + 43200 }, c.env.SESSION_SECRET);
     c.header("Set-Cookie", sessionCookie(c.req.raw, token));
     return c.json({ ok: true });

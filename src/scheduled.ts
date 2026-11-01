@@ -12,6 +12,7 @@ import type { Ctx, Env, TenantRow } from "./env";
 import { all, first as firstRow } from "./lib/db";
 import { localDayBounds, localParts } from "./lib/util";
 import { alarmStmts } from "./domain/alarms";
+import { pruneSignIns } from "./domain/sign-ins";
 import { allocateAll, releaseAllocation } from "./domain/allocation";
 import { raiseOverdueVerifications } from "./domain/bookings";
 import { dataStatus } from "./domain/data-status";
@@ -115,6 +116,9 @@ export async function runScheduled(env: Env, now: Date): Promise<ScheduledReport
     reports.push(report);
   }
   await dispatchQueued(env, env.DB, now, { limit: 100 });
+  // The sign-in log is kept for a while and no longer: an address says where somebody was, and a log
+  // nobody prunes turns into a permanent record of that. One delete covers every dealership.
+  await pruneSignIns(env, now);
   // Reports come back in a fixed order, whichever dealership went first this time.
   return reports.sort((a, b) => (a.tenant < b.tenant ? -1 : 1));
 }

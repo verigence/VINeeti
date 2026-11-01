@@ -45,6 +45,7 @@ export const CLEARED = [
   "stock_positions",
   "uploads",
   "password_otps",
+  "sign_ins",
   "bookings",
   "vehicles",
   "audit_log",

@@ -371,12 +371,12 @@ export async function requestOtp(env: Env, tenant: TenantRow, mobileRaw: unknown
 }
 
 /** Checks the code and sets the new password. Returns the user to sign in, or null when the code is wrong, used or expired. */
-export async function resetWithOtp(env: Env, tenant: TenantRow, mobileRaw: unknown, codeRaw: unknown, newPasswordHash: string, now: Date): Promise<{ id: string; token_version: number } | null> {
+export async function resetWithOtp(env: Env, tenant: TenantRow, mobileRaw: unknown, codeRaw: unknown, newPasswordHash: string, now: Date): Promise<{ id: string; name: string; role: Role; token_version: number } | null> {
   const db = env.DB;
   const mobile = normMobile(mobileRaw);
   const code = String(codeRaw ?? "").replace(/\D/g, "");
   if (!mobile || code.length !== 6) return null;
-  const u = await first<{ id: string; token_version: number }>(db, `SELECT id, token_version FROM users WHERE tenant_id = ? AND mobile = ? AND is_active = 1`, tenant.id, mobile);
+  const u = await first<{ id: string; name: string; role: Role; token_version: number }>(db, `SELECT id, name, role, token_version FROM users WHERE tenant_id = ? AND mobile = ? AND is_active = 1`, tenant.id, mobile);
   if (!u) return null;
   const otp = await first<{ id: string; code_hash: string; expires_at: string; attempts: number }>(db, `SELECT id, code_hash, expires_at, attempts FROM password_otps WHERE tenant_id = ? AND user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`, tenant.id, u.id);
   if (!otp || otp.expires_at <= iso(now) || otp.attempts >= OTP_MAX_ATTEMPTS) return null;
@@ -391,7 +391,7 @@ export async function resetWithOtp(env: Env, tenant: TenantRow, mobileRaw: unkno
     stmt(db, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) VALUES (?,?,?,?,?,?,?,?)`, newId("aud"), tenant.id, u.id, "PASSWORD_SET_WITH_CODE", "user", u.id, "{}", iso(now)),
   ]);
   if (!(changed[0] as { meta?: { changes?: number } }).meta?.changes) return null;
-  return { id: u.id, token_version: u.token_version + 1 };
+  return { id: u.id, name: u.name, role: u.role, token_version: u.token_version + 1 };
 }
 
 /**
