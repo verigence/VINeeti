@@ -50,4 +50,10 @@ android {
 dependencies {
   implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.6.0"
   implementation "androidx.appcompat:appcompat:1.7.0"
+  // androidbrowserhelper pulls androidx.browser in behind it, and left to itself that resolved to
+  // 1.9.0-alpha02 — which needs a newer Android plugin and compile SDK than this project is on, so
+  // the build stopped. Held at the last stable release instead. This is the library that puts the
+  // site inside the app, so it is the last place a pre-release should arrive on its own: pinning it
+  // means a build made months apart from the same tag produces the same app.
+  implementation("androidx.browser:browser") { version { strictly "1.8.0" } }
 }
