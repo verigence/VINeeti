@@ -1,4 +1,4 @@
-// Verigence VINeeti service worker. Hand-written and deliberately small.
+// VINeeti service worker. Hand-written and deliberately small.
 //
 //  - The app shell (the page itself, manifest, icons) is cached on install so the app opens offline.
 //  - Page navigations go to the network first and fall back to the cached shell when offline.

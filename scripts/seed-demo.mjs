@@ -35,9 +35,10 @@ async function call(method, path, body, session, headers = {}) {
 const get = (path, s) => call("GET", path, undefined, s).then((r) => r.json);
 const post = (path, body, s) => call("POST", path, body, s).then((r) => r.json);
 
-async function signIn(mobile, firstTime) {
-  let s = { cookie: (await call("POST", "/api/auth/login", { dealer: SLUG, mobile, password: firstTime ? FIRST : PASSWORD })).cookie };
-  if (firstTime) s = { cookie: (await call("POST", "/api/auth/change-password", { current: FIRST, next: PASSWORD }, s)).cookie };
+async function signIn(mobile, firstPassword) {
+  const first = firstPassword === true ? FIRST : firstPassword;
+  let s = { cookie: (await call("POST", "/api/auth/login", { dealer: SLUG, mobile, password: first || PASSWORD })).cookie };
+  if (first) s = { cookie: (await call("POST", "/api/auth/change-password", { current: first, next: PASSWORD }, s)).cookie };
   return s;
 }
 
@@ -54,7 +55,7 @@ console.log(`Seeding ${BASE} as dealer code "${SLUG}"`);
 // The minimum booking amount is what a Mahindra dealership actually collects to confirm a booking, so
 // the demonstration shows the queue rule doing its job: the customers who have paid it are in the queue,
 // and the ones who have not are listed apart for collection rather than quietly disappearing.
-await call("POST", "/api/platform/tenants", { slug: SLUG, name: "Sample Motors", oem: "Mahindra", admin: { name: "Asha Mohanty", mobile: "9000000001", password: FIRST }, settings: { min_booking_amount: 21000 } }, undefined, { Authorization: `Bearer ${TOKEN}` });
+await call("POST", "/api/platform/tenants", { slug: SLUG, name: "Sample Motors", oem: "Mahindra", admin: { name: "Asha Mohanty", mobile: "9000000001", email: "asha.mohanty@sample-motors.example", password: FIRST }, settings: { min_booking_amount: 21000 } }, undefined, { Authorization: `Bearer ${TOKEN}` });
 const admin = await signIn("9000000001", true);
 
 // The stock report is loaded as on today so the demonstration does not open with an "out of date" warning.
@@ -86,20 +87,25 @@ const people = [
 ];
 const session = {};
 for (const [label, name, mobile, role, codes, dms] of people) {
-  await post("/api/users", { name, mobile, role, password: FIRST, all_outlets: !codes, outlet_ids: (codes ?? []).map((c) => outlets[c]), dms_code: dms ?? undefined }, admin);
-  session[role] = await signIn(mobile, true);
+  // An address is required now that the temporary password is emailed rather than typed. These are
+  // .example addresses, which can never receive mail, so a demonstration never writes to a real inbox.
+  const email = `${name.toLowerCase().replace(/[^a-z]+/g, ".")}@sample-motors.example`;
+  // The server makes the temporary password now and hands it back where there is no mail account,
+  // which is the case locally: the seeder signs in with that rather than one of its own choosing.
+  const made = await post("/api/users", { name, mobile, email, role, all_outlets: !codes, outlet_ids: (codes ?? []).map((c) => outlets[c]), dms_code: dms ?? undefined }, admin);
+  session[role] = await signIn(mobile, made.temporary_password ?? FIRST);
   console.log(`  ${label.padEnd(20)} ${mobile}`);
 }
 
 // A little of each kind of work, so the queues and dashboards are not empty.
-const holding = (await get("/api/payments", session.ACCOUNTS)).filter((p) => p.state === "AWAITING_PAYMENT" && p.vehicle_status === "RECEIVED");
-if (holding[0]) await post(`/api/bookings/${holding[0].booking_id}/payment-reported`, { amount: 250000, reference: "UTR SAMPLE0001", note: "NEFT, customer shared the screenshot" }, session.SALES_MANAGER);
+const holding = (await get("/api/payments", session.FINANCE)).filter((p) => p.state === "AWAITING_PAYMENT" && p.vehicle_status === "RECEIVED");
+if (holding[0]) await post(`/api/bookings/${holding[0].booking_id}/payment-reported`, { amount: 250000, reference: "UTR SAMPLE0001", note: "NEFT, customer shared the screenshot" }, session.SALES_LEAD);
 if (holding[1]) {
-  await post(`/api/bookings/${holding[1].booking_id}/payment-reported`, { amount: 400000, reference: "UTR SAMPLE0002" }, session.SALES_MANAGER);
-  await post(`/api/bookings/${holding[1].booking_id}/payment-received`, {}, session.ACCOUNTS);
+  await post(`/api/bookings/${holding[1].booking_id}/payment-reported`, { amount: 400000, reference: "UTR SAMPLE0002" }, session.SALES_LEAD);
+  await post(`/api/bookings/${holding[1].booking_id}/payment-received`, {}, session.FINANCE);
 }
-const waiting = await get("/api/bookings?view=waiting", session.SALES_MANAGER);
-if (waiting[0]) await post("/api/exceptions", { type: "DEFER_DELIVERY", booking_id: waiting[0].id, reason: "Customer asked for delivery after the festival", payload: { until: inDays(14) } }, session.SALES_MANAGER).catch((e) => console.log("  (exception not raised:", e.message, ")"));
-await post("/api/recon/run", {}, session.BUSINESS_HEAD);
+const waiting = await get("/api/bookings?view=waiting", session.SALES_LEAD);
+if (waiting[0]) await post("/api/exceptions", { type: "DEFER_DELIVERY", booking_id: waiting[0].id, reason: "Customer asked for delivery after the festival", payload: { until: inDays(14) } }, session.SALES_LEAD).catch((e) => console.log("  (exception not raised:", e.message, ")"));
+await post("/api/recon/run", {}, session.CEO_VP);
 
 console.log(`\nDone. Sign in at ${BASE} with a mobile number above and the password ${PASSWORD} (dealer code ${SLUG}; administrator 9000000001).`);

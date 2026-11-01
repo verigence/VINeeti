@@ -1,4 +1,4 @@
-/* Verigence VINeeti: a calm, dense business tool. System fonts only, no external resources.
+/* VINeeti: a calm, dense business tool. System fonts only, no external resources.
    Wide screens get a sidebar; at 860px and below the app is laid out as a phone app (see the end of the file). */
 
 :root {
@@ -11,6 +11,12 @@
   --sky: #0090d0;
   /* The accent used throughout (section labels, active tab, focus): the logo's teal, on light surfaces its darker text shade. */
   --gold: #0098a8;
+  /*
+   * The same teal, lightened, for text and badges that sit on the navy bar. The brand teal is made for
+   * white behind it: on navy it measures 4.2:1, just under what small text needs, and the two places it
+   * lands there are the manufacturer's name and a count — both small. This one measures 6.1:1.
+   */
+  --teal-on-navy: #2bb8c8;
   --gold-text: #077086;
   --gold-soft: #e3f4f7;
   --bg: #f4f7f9;
@@ -230,7 +236,7 @@ a.mono,
   gap: 2px;
 }
 .brand-app {
-  color: var(--gold);
+  color: var(--teal-on-navy);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -278,7 +284,7 @@ a.mono,
   min-width: 0;
 }
 .nav-badge {
-  background: var(--gold);
+  background: var(--teal-on-navy);
   color: var(--navy);
   font-size: 11px;
   font-weight: 700;
@@ -2736,7 +2742,8 @@ input[type="radio"] {
     font-size: 16px;
   }
   .tenant-oem {
-    color: var(--gold);
+    /* On the phone this label sits on the navy bar, where the brand teal is 4.2:1 against small text. */
+    color: var(--teal-on-navy);
     font-size: 10.5px;
   }
   .topbar-user {
@@ -3781,8 +3788,12 @@ input[type="radio"] {
 .phone-bar {
   background-image: linear-gradient(90deg, var(--navy) 0, var(--navy-2) 100%);
 }
-.tabbar-active,
-.tab-active {
+/*
+ * The teal belongs to the bottom bar, which sits on a light background. The pills above do not: on a
+ * phone the selected one is filled navy, and teal on navy measures 2.5:1 — the one control that says
+ * where you are, and the hardest to read on the screen. It keeps the white the fill was chosen for.
+ */
+.tabbar-active {
   color: var(--gold-text);
 }
 .btn-primary,
