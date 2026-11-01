@@ -14,6 +14,7 @@ import { all, first, run, stmt } from "../lib/db";
 import { ROLE_LABELS } from "../lib/permissions";
 import { temporaryPassword } from "../domain/onboarding";
 import { platformHealth } from "../domain/platform-health";
+import { KEPT, resetTenant } from "../domain/reset";
 import { bad, conflict, HttpError, iso, newId, normMobile, notFound } from "../lib/util";
 import { clock, getCookie, jsonBody, type App, type C } from "./app";
 import { createTenant } from "./routes-auth";
@@ -240,6 +241,34 @@ export function platformRoutes(app: App) {
     ]);
     c.header("Cache-Control", "private, no-store");
     return c.json({ dealer: t.slug, name: target.name, mobile: target.mobile, role_label: ROLE_LABELS.ADMIN, temporary_password: password });
+  });
+
+  /**
+   * Empties a dealership's day-to-day record so it can start afresh: bookings, cars, allocations,
+   * requests, payments, files, messages, alerts, tickets and the audit trail go; the dealership, its
+   * outlets, its people, the vehicle master and the WhatsApp setup stay.
+   *
+   * There is no undo. The dealership's name has to be typed to confirm, because a slug is easy to
+   * mistype into the wrong dealership and a name is not, and what was removed is counted and recorded
+   * on both the platform's record and the dealership's own.
+   */
+  app.post("/api/platform/tenants/:slug/reset", async (c) => {
+    const admin = await working(c);
+    const t = await first<{ id: string; slug: string; name: string }>(c.env.DB, `SELECT id, slug, name FROM tenants WHERE slug = ?`, String(c.req.param("slug")).toLowerCase());
+    if (!t) throw notFound("Dealership");
+    const b = await jsonBody<{ confirm?: string }>(c).catch(() => ({}) as { confirm?: string });
+    if (String(b.confirm ?? "").trim().toLowerCase() !== t.name.trim().toLowerCase()) {
+      throw bad(`Type the dealership's name exactly — ${t.name} — to confirm. Nothing has been removed.`);
+    }
+    const now = clock.now();
+    const result = await resetTenant(c.env, t.id);
+    // Written after the wipe, because the dealership's own trail is one of the things emptied.
+    await c.env.DB.batch([
+      stmt(c.env.DB, `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) VALUES (?,?,?,?,?,?,?,?)`, newId("aud"), t.id, "PLATFORM", "DEALERSHIP_RESET", "tenant", t.id, JSON.stringify({ by: admin.mobile, removed: result.removed, total: result.total }), iso(now)),
+      auditStmt(c.env, admin.id, "TENANT_RESET", t.id, { slug: t.slug, name: t.name, removed: result.removed, total: result.total }, now),
+    ]);
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ dealer: t.slug, name: t.name, ...result, kept: KEPT });
   });
 
   /**

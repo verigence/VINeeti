@@ -144,6 +144,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [password, setPassword] = useState<{ dealer: string; name: string; mobile: string; temporary_password: string } | null>(null);
+  const [resetting, setResetting] = useState<Tenant | null>(null);
   const refresh = useCallback(async () => {
     try {
       setTenants(await call<Tenant[]>("GET", "/api/platform/tenants"));
@@ -179,6 +180,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
         <>
           <Button size="sm" onClick={() => act(async () => setPassword(await call("POST", `/api/platform/tenants/${t.slug}/admin-password`, {})))}>Reset admin</Button>
           <Button size="sm" onClick={() => act(() => call("PATCH", `/api/platform/tenants/${t.slug}`, { is_active: !t.is_active }))}>{t.is_active ? "Switch off" : "Switch on"}</Button>
+          <Button size="sm" variant="danger" onClick={() => setResetting(t)}>Start afresh</Button>
         </>
       ),
     },
@@ -198,6 +200,16 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
         <Segments<Section> label="Console sections" value={section} onChange={go} options={[{ value: "dealerships", label: "Dealerships" }, { value: "tickets", label: "Support tickets" }, { value: "health", label: "System health" }]} />
         {section === "health" && <PlatformHealthPage />}
         {section === "tickets" && <TicketsSection />}
+        {resetting && (
+          <ResetDialog
+            tenant={resetting}
+            onClose={() => setResetting(null)}
+            onDone={() => {
+              setResetting(null);
+              void refresh();
+            }}
+          />
+        )}
         {section === "dealerships" && (<>
         {error && <Notice tone="error">{error}</Notice>}
         <div className="tiles">
@@ -414,5 +426,75 @@ function TicketsSection() {
         )}
       </Card>
     </>
+  );
+}
+
+/**
+ * Emptying a dealership so it can start afresh. The name has to be typed: a dealer code is easy to
+ * mistype into the wrong dealership and a name is not, and there is no undo on the other side of this.
+ */
+function ResetDialog({ tenant, onClose, onDone }: { tenant: Tenant; onClose: () => void; onDone: () => void }) {
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ total: number; removed: Record<string, number> } | null>(null);
+  const matches = confirm.trim().toLowerCase() === tenant.name.trim().toLowerCase();
+
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setDone((await call("POST", `/api/platform/tenants/${tenant.slug}/reset`, { confirm })) as { total: number; removed: Record<string, number> });
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    const lines = Object.entries(done.removed).filter(([, n]) => n > 0);
+    return (
+      <Dialog title={`${tenant.name} has been emptied`} onClose={onDone} footer={<Button variant="primary" onClick={onDone}>Done</Button>}>
+        <div className="form-stack">
+          <Notice tone="ok" title="Done. ">{fmtNumber(done.total)} records removed. The dealership, its outlets, its people and the vehicle master are as they were.</Notice>
+          {lines.length > 0 && (
+            <ul className="muted">
+              {lines.map(([table, n]) => (
+                <li key={table}>
+                  {table.replace(/_/g, " ")}: {fmtNumber(n)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog
+      title={`Start ${tenant.name} afresh?`}
+      onClose={() => !busy && onClose()}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" busy={busy} disabled={!matches} onClick={() => void go()}>Empty this dealership</Button>
+        </>
+      }
+    >
+      <div className="form-stack">
+        <Notice tone="warn" title="This cannot be undone. ">
+          Every booking, car, allocation, request, payment, uploaded file, message, alert, ticket and audit entry at {tenant.name} is removed.
+        </Notice>
+        <p className="muted">
+          What stays: the dealership and its settings, its outlets, its people and their access, the vehicle master — models, variants and colours — and the WhatsApp setup. Everybody can still sign in afterwards with the same password.
+        </p>
+        <Field label={`Type "${tenant.name}" to confirm`}>
+          <input value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" spellCheck={false} placeholder={tenant.name} />
+        </Field>
+        {error && <Notice tone="error">{error}</Notice>}
+      </div>
+    </Dialog>
   );
 }
