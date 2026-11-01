@@ -175,7 +175,9 @@ export class SmtpMailer implements Mailer {
         const r = await replies.next();
         if (!want.includes(r.code)) {
           if (r.code === 535 || r.code === 534) throw new MailError("MAIL_AUTH_FAILED", "The mail account refused the sign-in");
-          if (r.code === 550 || r.code === 553 || r.code === 551) throw new MailError("MAIL_RECIPIENT_REFUSED", "The address was refused");
+          // Gmail refuses a MAIL FROM that the signed-in account does not own, which is a different
+          // mistake from a bad recipient and has a different fix: correct SMTP_FROM, not the address.
+          if (r.code === 550 || r.code === 553 || r.code === 551) throw new MailError("MAIL_RECIPIENT_REFUSED", where === "sender" ? "The mail account is not allowed to send as this address" : "The address was refused");
           throw new MailError("MAIL_UNAVAILABLE", `The mail server refused the message at ${where}`);
         }
         return r;

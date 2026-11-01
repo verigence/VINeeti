@@ -26,7 +26,7 @@ main(async () => {
     throw new Stop("Usage: PLATFORM_ADMIN_TOKEN=... node scripts/onboard.mjs <address> <dealer.json>\n   or: CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... node scripts/onboard.mjs --rotate-token [<address>] <dealer.json>");
   }
   const dealer = JSON.parse(readFileSync(file, "utf8"));
-  if (!dealer.slug || !dealer.name || !dealer.admin?.mobile || !dealer.admin?.password) throw new Stop(`${file} needs slug, name, oem and admin (name, mobile, password).`);
+  if (!dealer.slug || !dealer.name || !dealer.admin?.mobile || !dealer.admin?.email || !dealer.admin?.password) throw new Stop(`${file} needs slug, name, oem and admin (name, mobile, email, password).`);
 
   if (rotate) {
     const worker = readConfig().name;

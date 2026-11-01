@@ -30,6 +30,10 @@ on:
         description: "System Admin: mobile number (this is the sign-in ID)"
         required: true
         type: string
+      admin_email:
+        description: "System Admin: email address (a password reset is sent to it)"
+        required: true
+        type: string
       first_password:
         description: "First password (8+ characters, a letter and a number). Must be changed at first sign-in."
         required: true
@@ -71,12 +75,13 @@ jobs:
           OEM: ${{ inputs.oem }}
           ADMIN_NAME: ${{ inputs.admin_name }}
           ADMIN_MOBILE: ${{ inputs.admin_mobile }}
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
           FIRST_PASSWORD: ${{ inputs.first_password }}
           ADDRESS: ${{ inputs.address }}
         run: |
           echo "::add-mask::$FIRST_PASSWORD"
           umask 077
-          node -e 'const e = process.env; require("fs").writeFileSync(e.RUNNER_TEMP + "/dealer.json", JSON.stringify({ slug: e.DEALER_CODE, name: e.DEALERSHIP_NAME, oem: e.OEM, admin: { name: e.ADMIN_NAME, mobile: e.ADMIN_MOBILE, password: e.FIRST_PASSWORD } }))'
+          node -e 'const e = process.env; require("fs").writeFileSync(e.RUNNER_TEMP + "/dealer.json", JSON.stringify({ slug: e.DEALER_CODE, name: e.DEALERSHIP_NAME, oem: e.OEM, admin: { name: e.ADMIN_NAME, mobile: e.ADMIN_MOBILE, email: e.ADMIN_EMAIL, password: e.FIRST_PASSWORD } }))'
           if [ -n "$ADDRESS" ]; then
             node scripts/onboard.mjs --rotate-token "$ADDRESS" "$RUNNER_TEMP/dealer.json"
           else

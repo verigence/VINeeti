@@ -3,7 +3,7 @@
   "name": "Sample Motors",
   "oem": "Mahindra",
   "timezone": "Asia/Kolkata",
-  "admin": { "name": "System Administrator", "mobile": "9000000001", "password": "ChangeMe123" },
+  "admin": { "name": "System Administrator", "mobile": "9000000001", "email": "admin@sample-motors.example", "password": "ChangeMe123" },
   "settings": {
     "min_booking_amount": 21000,
     "reminder_days": 3,

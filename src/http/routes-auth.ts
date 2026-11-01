@@ -32,7 +32,7 @@ function checkPassword(pw: unknown): string {
 /** Creates a dealership with its outlets, first administrator and WhatsApp defaults. */
 export async function createTenant(
   env: Env,
-  input: { slug: string; name: string; oem: string; timezone?: string; settings?: Record<string, unknown>; outlets?: { code: string; name: string; city?: string }[]; admin: { name: string; mobile: string; password: string } },
+  input: { slug: string; name: string; oem: string; timezone?: string; settings?: Record<string, unknown>; outlets?: { code: string; name: string; city?: string }[]; admin: { name: string; mobile: string; email?: string; password: string } },
   now: Date,
 ) {
   const slug = String(input.slug ?? "").trim().toLowerCase();
@@ -42,6 +42,10 @@ export async function createTenant(
   if (input.outlets !== undefined && !Array.isArray(input.outlets)) throw bad("Outlets must be a list");
   const mobile = normMobile(input.admin?.mobile);
   if (!mobile || !input.admin?.name?.trim()) throw bad("Administrator name and mobile number are required");
+  // Required, because a password reset is sent by email and nothing else can let this person back in:
+  // an administrator with no address is one locked out the first time they forget their password.
+  const adminEmail = String(input.admin.email ?? "").trim();
+  if (!adminEmail || !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(adminEmail)) throw bad("A valid email address is required for the administrator: a password reset is sent to it");
   const password = checkPassword(input.admin.password);
   if (await first(env.DB, `SELECT id FROM tenants WHERE slug = ?`, slug)) throw conflict(`Dealer code "${slug}" is already in use`);
   const settings = mergeSettings(DEFAULT_SETTINGS, input.settings ?? {});
@@ -60,7 +64,7 @@ export async function createTenant(
     stmts.push(stmt(env.DB, `INSERT INTO outlets (id, tenant_id, code, name, city, created_at) VALUES (?,?,?,?,?,?)`, newId("out"), tenantId, code, o.name.trim(), o.city?.trim() ?? null, at));
   }
   stmts.push(
-    stmt(env.DB, `INSERT INTO users (id, tenant_id, name, mobile, role, password_hash, must_change_password, all_outlets, created_at) VALUES (?,?,?,?,'ADMIN',?,1,1,?)`, userId, tenantId, input.admin.name.trim(), mobile, await hashPassword(password), at),
+    stmt(env.DB, `INSERT INTO users (id, tenant_id, name, mobile, email, role, password_hash, must_change_password, all_outlets, created_at) VALUES (?,?,?,?,?,'ADMIN',?,1,1,?)`, userId, tenantId, input.admin.name.trim(), mobile, adminEmail, await hashPassword(password), at),
   );
   await env.DB.batch(stmts);
   await ensureWaDefaults(env.DB, tenantId, now);
