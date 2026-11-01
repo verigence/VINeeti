@@ -24,9 +24,10 @@ export interface Env {
   /** Optional: SHA-256 fingerprint(s) of the Android app's signing certificate, comma-separated, so the app may open the site full screen. */
   ANDROID_CERT_SHA256?: string;
   /**
-   * The mail account the deployment sends from: the dealership group's own, the same one the HR
-   * service uses. The app password is a Worker secret. Unset, nothing is emailed and a temporary
-   * password is shown on screen instead, as before.
+   * The mail account the deployment sends from. VINeeti is sold as a service, so this is the product's
+   * own account (JBR Consulting's, the same one the HR service uses) and it writes to the staff of
+   * every dealership here: a dealership supplies nothing and sees nothing of it. The app password is a
+   * Worker secret. Unset, nothing is emailed and a temporary password is shown on screen instead.
    */
   SMTP_HOST?: string;
   SMTP_PORT?: string;
