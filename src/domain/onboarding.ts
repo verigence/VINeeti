@@ -69,14 +69,14 @@ export function sendSignInAfter(ctx: Ctx, after: (p: Promise<unknown>) => void, 
  * the password is handed to the screen instead.
  */
 export async function sendSignInOrAlert(ctx: Ctx, kind: "WELCOME" | "RESET", to: string | null | undefined, w: Told, userId: string): Promise<{ emailed: boolean; email_error?: string }> {
-  const sent = await sendSignIn(ctx, kind, to, w).catch((e) => ({ emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE" }));
+  const sent = await sendSignIn(ctx, kind, to, w).catch((e) => ({ emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE", stage: e instanceof MailError ? e.stage : "", detail: String((e as Error)?.message ?? "").slice(0, 200) }));
   const what = kind === "WELCOME" ? "welcome email" : "new password";
   const writes = [
     auditStmt(ctx, sent.emailed ? "SIGNIN_EMAIL_SENT" : "SIGNIN_EMAIL_FAILED", "user", userId, {
       kind,
       email: to ?? null,
       account: (ctx.env.SMTP_FROM ?? ctx.env.SMTP_USER ?? "").trim() || null,
-      ...(sent.emailed ? {} : { error: sent.email_error }),
+      ...(sent.emailed ? {} : { error: sent.email_error, stage: "stage" in sent ? sent.stage : "", detail: "detail" in sent ? sent.detail : "" }),
     }),
   ];
   if (!sent.emailed && sent.email_error !== "MAIL_NOT_CONFIGURED") {
@@ -104,7 +104,7 @@ export async function sendSignIn(
   kind: "WELCOME" | "RESET",
   to: string | null | undefined,
   w: Told,
-): Promise<{ emailed: boolean; email_error?: string }> {
+): Promise<{ emailed: boolean; email_error?: string; stage?: string; detail?: string }> {
   const address = (to ?? "").trim();
   if (!address) return { emailed: false, email_error: "NO_EMAIL" };
   const post = mailer(ctx.env, () => ctx.now);
@@ -125,7 +125,7 @@ export async function sendSignIn(
     return { emailed: true };
   } catch (e) {
     // The person is still created or reset; only the telling of them failed.
-    return { emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE" };
+    return { emailed: false, email_error: e instanceof MailError ? e.code : "MAIL_UNAVAILABLE", stage: e instanceof MailError ? e.stage : "", detail: String((e as Error)?.message ?? "").slice(0, 200) };
   }
 }
 

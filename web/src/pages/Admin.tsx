@@ -586,13 +586,32 @@ function MailCheckCard() {
     MAIL_AUTH_FAILED: "The mail account refused the sign-in. The app password is wrong, expired or has been revoked.",
     MAIL_RECIPIENT_REFUSED: "The mail server refused the address it was asked to write to.",
     MAIL_UNAVAILABLE: "The mail server could not be reached, or it refused the message part way through.",
+    MAIL_TIMED_OUT: "The mail server took the connection and then said nothing. Either the port is unreachable from here or the account is being held up.",
+  };
+  // Where it died says what to change: a connection that never opened is not a password problem.
+  const atStage: Record<string, string> = {
+    connect: "The connection to the mail server was never made.",
+    greeting: "The server took the connection but never greeted us.",
+    starttls: "The server would not switch to an encrypted connection.",
+    login: "It got as far as signing in to the mail account.",
+    sender: "It signed in, and the address it was told to send from was refused.",
+    recipient: "It signed in, and the address it was asked to write to was refused.",
+    data: "It got as far as handing over the message itself.",
   };
   return (
     <Card title="Email" note="Temporary passwords and password resets are sent by email. This checks that they arrive.">
       <div className="form-stack">
         {result && (
           <Notice tone={result.sent ? "ok" : "error"} title={result.sent ? "Sent. " : "Not sent. "}>
-            {result.sent ? `A test message has gone to ${result.to}. If it is not in the inbox within a minute, look in Spam.` : (result.reason && why[result.reason]) || "The message could not be sent."}
+            {result.sent ? (
+              `A test message has gone to ${result.to}. If it is not in the inbox within a minute, look in Spam.`
+            ) : (
+              <>
+                {(result.reason && why[result.reason]) || "The message could not be sent."}
+                {result.stage && atStage[result.stage] ? <> {atStage[result.stage]}</> : null}
+                {result.detail ? <div className="mono" style={{ marginTop: 8, fontSize: 12, wordBreak: "break-word" }}>{result.detail}</div> : null}
+              </>
+            )}
           </Notice>
         )}
         {result && (

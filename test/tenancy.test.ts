@@ -16,13 +16,13 @@ beforeAll(async () => {
 
 describe("onboarding a dealership", () => {
   it("needs the platform token", async () => {
-    const body = { slug: "x-dealer", name: "X", oem: "Kia", outlets: [{ code: "MAIN", name: "Main" }], admin: { name: "A", mobile: "9000000001", password: PASSWORD } };
+    const body = { slug: "x-dealer", name: "X", oem: "Kia", outlets: [{ code: "MAIN", name: "Main" }], admin: { name: "A", mobile: "9000000001", email: "dealer.admin@test.example", password: PASSWORD } };
     expect((await w.api("POST", "/api/platform/tenants", body)).status).toBe(401);
     expect((await w.api("POST", "/api/platform/tenants", body, undefined, { Authorization: "Bearer wrong" })).status).toBe(401);
     expect((await w.api("POST", "/api/platform/tenants", body, a.users.admin.session)).status).toBe(401);
   });
   it("refuses a dealer code that is already in use", async () => {
-    const body = { slug: "northstar-hyundai", name: "Copy", oem: "Hyundai", outlets: [{ code: "MAIN", name: "Main" }], admin: { name: "A", mobile: "9000000001", password: PASSWORD } };
+    const body = { slug: "northstar-hyundai", name: "Copy", oem: "Hyundai", outlets: [{ code: "MAIN", name: "Main" }], admin: { name: "A", mobile: "9000000001", email: "dealer.admin@test.example", password: PASSWORD } };
     expect((await w.api("POST", "/api/platform/tenants", body, undefined, PLATFORM)).status).toBe(409);
   });
   it("gives the new dealership its own WhatsApp settings and message templates", async () => {

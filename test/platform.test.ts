@@ -61,7 +61,7 @@ describe("what the super admin can do", () => {
     const w = makeWorld();
     await bootstrap(w);
     const s = await signIn(w);
-    const made = await w.api("POST", "/api/platform/tenants", { slug: "new-motors", name: "New Motors", oem: "Mahindra", admin: { name: "Their Admin", mobile: "9700000001", password: "FirstPass123" } }, s);
+    const made = await w.api("POST", "/api/platform/tenants", { slug: "new-motors", name: "New Motors", oem: "Mahindra", admin: { name: "Their Admin", mobile: "9700000001", email: "dealer.admin@test.example", password: "FirstPass123" } }, s);
     expect(made.status).toBe(201);
     const d = await makeMahindraDealer(w);
     const list = (await w.api("GET", "/api/platform/tenants", undefined, s)).body;
@@ -76,6 +76,20 @@ describe("what the super admin can do", () => {
     expect((await w.api("PATCH", `/api/platform/tenants/${d.slug}`, { is_active: true }, s)).status).toBe(200);
     expect((await w.api("POST", "/api/auth/login", { dealer: d.slug, mobile: d.users.exec.mobile, password: PASSWORD })).status).toBe(200);
     expect((await w.api("PATCH", "/api/platform/tenants/no-such-dealer", { is_active: false }, s)).status).toBe(404);
+  });
+
+  it("will not create a dealership whose administrator has no email address", async () => {
+    const w = makeWorld();
+    const body = { slug: "unreachable-motors", name: "Unreachable Motors", oem: "Mahindra", admin: { name: "No Address", mobile: "9300000001", password: "Passw0rd!" } };
+    // A password reset is sent by email and nothing else lets this person back in.
+    const none = await w.api("POST", "/api/platform/tenants", body, undefined, PLATFORM);
+    expect(none.status).toBe(400);
+    expect(none.body.error.message).toContain("email address is required for the administrator");
+    expect((await w.api("POST", "/api/platform/tenants", { ...body, admin: { ...body.admin, email: "not-an-address" } }, undefined, PLATFORM)).status).toBe(400);
+    const ok = await w.api("POST", "/api/platform/tenants", { ...body, admin: { ...body.admin, email: "owner@unreachable.example" } }, undefined, PLATFORM);
+    expect(ok.status).toBe(201);
+    // And it is on the account, so Reset password has somewhere to send to.
+    expect(w.db.q<{ email: string }>(`SELECT email FROM users WHERE id = ?`, ok.body.admin_user_id)[0].email).toBe("owner@unreachable.example");
   });
 
   it("gives a locked-out dealership's administrator a new temporary password, shown once and recorded on both trails", async () => {

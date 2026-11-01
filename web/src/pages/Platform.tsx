@@ -244,7 +244,7 @@ function Console({ admin, onSignedOut }: { admin: Admin; onSignedOut: () => void
 }
 
 function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made: { dealer: string; name: string; mobile: string; temporary_password: string }) => void }) {
-  const [form, setForm] = useState({ slug: "", name: "", oem: "Mahindra", admin_name: "", admin_mobile: "", password: "" });
+  const [form, setForm] = useState({ slug: "", name: "", oem: "Mahindra", admin_name: "", admin_mobile: "", admin_email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
@@ -253,7 +253,7 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
     setBusy(true);
     setError(null);
     try {
-      await call("POST", "/api/platform/tenants", { slug: form.slug.trim().toLowerCase(), name: form.name.trim(), oem: form.oem.trim(), admin: { name: form.admin_name.trim(), mobile: form.admin_mobile.trim(), password: form.password } });
+      await call("POST", "/api/platform/tenants", { slug: form.slug.trim().toLowerCase(), name: form.name.trim(), oem: form.oem.trim(), admin: { name: form.admin_name.trim(), mobile: form.admin_mobile.trim(), email: form.admin_email.trim(), password: form.password } });
       onDone({ dealer: form.slug.trim().toLowerCase(), name: form.admin_name.trim(), mobile: form.admin_mobile.trim(), temporary_password: form.password });
     } catch (err) {
       setError(errorMessage(err));
@@ -278,6 +278,9 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
         </Field>
         <Field label="System Admin: mobile number">
           <input type="tel" inputMode="tel" value={form.admin_mobile} onChange={set("admin_mobile")} required />
+        </Field>
+        <Field label="System Admin: email address" hint="A password reset is sent here. Without it this person cannot be let back in if they forget the password.">
+          <input type="email" inputMode="email" autoCapitalize="none" value={form.admin_email} onChange={set("admin_email")} required />
         </Field>
         <Field label="First password" hint="At least 8 characters with a letter and a number. They must replace it at first sign-in.">
           <PasswordInput label="First password" value={form.password} onChange={(v) => set("password")({ target: { value: v } } as any)} autoComplete="new-password" required />

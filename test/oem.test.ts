@@ -11,7 +11,7 @@ describe("manufacturers", () => {
 
   it("refuses the DMS files of a manufacturer whose layout is not configured, plainly, and says so on sign-in", async () => {
     const w = makeWorld();
-    const made = await w.api("POST", "/api/platform/tenants", { slug: "other-hyundai", name: "Other Motors", oem: "Hyundai", outlets: [{ code: "H1", name: "Main" }], admin: { name: "Admin", mobile: "9300000001", password: PASSWORD } }, undefined, PLATFORM);
+    const made = await w.api("POST", "/api/platform/tenants", { slug: "other-hyundai", name: "Other Motors", oem: "Hyundai", outlets: [{ code: "H1", name: "Main" }], admin: { name: "Admin", mobile: "9300000001", email: "dealer.admin@test.example", password: PASSWORD } }, undefined, PLATFORM);
     expect(made.status).toBe(201);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0`);
     const s = await w.login("other-hyundai", "9300000001", PASSWORD);
@@ -27,7 +27,7 @@ describe("manufacturers", () => {
 
   it("tells a Mahindra dealership what its two files look like", async () => {
     const w = makeWorld();
-    const made = await w.api("POST", "/api/platform/tenants", { slug: "mm-dealer", name: "MM Motors", oem: "Mahindra & Mahindra", admin: { name: "Admin", mobile: "9300000002", password: PASSWORD } }, undefined, PLATFORM);
+    const made = await w.api("POST", "/api/platform/tenants", { slug: "mm-dealer", name: "MM Motors", oem: "Mahindra & Mahindra", admin: { name: "Admin", mobile: "9300000002", email: "dealer.admin@test.example", password: PASSWORD } }, undefined, PLATFORM);
     expect(made.status).toBe(201);
     w.db.raw.exec(`UPDATE users SET must_change_password = 0`);
     const s = await w.login("mm-dealer", "9300000002", PASSWORD);

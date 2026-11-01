@@ -205,7 +205,7 @@ export async function makeDealer(w: World, slug = "northstar-hyundai", mobilePre
         { code: "PATIA", name: "Patia", city: "Bhubaneswar" },
         { code: "CUTTACK", name: "Cuttack", city: "Cuttack" },
       ],
-      admin: { name: "Asha Admin", mobile: `${mobilePrefix}01`, password: PASSWORD },
+      admin: { name: "Asha Admin", mobile: `${mobilePrefix}01`, email: "dealer.admin@test.example", password: PASSWORD },
     },
     undefined,
     PLATFORM,
@@ -374,7 +374,7 @@ export const liveBookings = () => fixture("live_bookings.sample.xlsx");
  * administrator, and one user of each persona. The outlets named are created by the first file loaded.
  */
 export async function makeMahindraDealer(w: World, slug = "sample-mahindra", mobilePrefix = "91000000"): Promise<Dealer> {
-  const created = await w.api("POST", "/api/platform/tenants", { slug, name: "Sample Motors", oem: "Mahindra", outlets: [{ code: "SM01", name: "CUTTACK", city: "Cuttack" }], admin: { name: "Asha Admin", mobile: `${mobilePrefix}01`, password: PASSWORD } }, undefined, PLATFORM);
+  const created = await w.api("POST", "/api/platform/tenants", { slug, name: "Sample Motors", oem: "Mahindra", outlets: [{ code: "SM01", name: "CUTTACK", city: "Cuttack" }], admin: { name: "Asha Admin", mobile: `${mobilePrefix}01`, email: "dealer.admin@test.example", password: PASSWORD } }, undefined, PLATFORM);
   if (created.status !== 201) throw new Error(`tenant not created: ${JSON.stringify(created.body)}`);
   // Given an id, also puts the shared test password on that one account, salted on its own: the server
   // makes and emails every temporary password now, which the fixtures neither see nor need to test.
