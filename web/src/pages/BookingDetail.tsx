@@ -180,7 +180,7 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
               items={[
                 ["Customer", b.customer_name],
                 ["Mobile", b.customer_mobile ? fmtMobile(b.customer_mobile) : fromStockOnly ? NO_CUSTOMER_DETAILS : null],
-                ["WhatsApp messages", b.wa_opt_in ? "Customer has agreed" : "Customer has not agreed"],
+                me.settings.whatsapp_enabled ? ["WhatsApp messages", b.wa_opt_in ? "Customer has agreed" : "Customer has not agreed"] : null,
                 ...carItems(b),
                 ["Outlet", b.outlet],
                 ["Booked on", fmtDateTime(b.booking_date)],
@@ -225,7 +225,7 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
             )}
           </Card>
 
-          <MessagesCard d={d} />
+          {me.settings.whatsapp_enabled && <MessagesCard d={d} />}
           <EarlierAllocations d={d} />
         </div>
         <TimelineCard d={d} />

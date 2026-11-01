@@ -51,6 +51,7 @@ export interface TenantSettings {
   business_hours_from: string;
   business_hours_to: string;
   min_booking_amount: number;
+  whatsapp_enabled: boolean;
   required_documents: ChecklistKey[];
   outlet_scope: OutletScope;
   nearby_outlets: Record<string, string[]>;

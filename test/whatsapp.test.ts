@@ -63,6 +63,23 @@ describe("test mode (before a number is connected)", () => {
     expect((await w.api("POST", `/api/wa/messages/${skipped.id}/retry`, undefined, a.users.admin.session)).status).toBe(409);
     expect(lastMessage(a.tenantId).status).toBe("SKIPPED");
   });
+
+  it("a dealership that has switched WhatsApp off sends nothing, however the booking consents", async () => {
+    // Switching the feature off takes it off every screen. A message queued behind the scenes would be
+    // one nobody could see, chase or stop, so the allocation still happens and the message does not.
+    // Its own dealership: switching the feature off also withdraws the WhatsApp screens from every
+    // role there, which the rest of this file relies on still having.
+    const off = await makeDealer(w, "waoff-mahindra");
+    expect((await w.api("PUT", "/api/settings", { whatsapp_enabled: false }, off.users.admin.session)).status).toBe(200);
+    await addCar(w, off, "MALC841CLRM400003", CRETA, "PATIA", "RECEIVED");
+    const bk = await approvedBooking(w, off, "se1", CRETA, "PATIA", "Wa Off", "9876500008");
+    expect(bk.approval.allocations).toHaveLength(1);
+    expect(lastMessage(off.tenantId)).toMatchObject({ booking_id: bk.id, status: "SKIPPED", error: "WhatsApp is switched off for this dealership" });
+    // And the other dealership, which has it on, is unaffected.
+    await addCar(w, a, "MALC841CLRM400004", CRETA, "PATIA", "RECEIVED");
+    const on = await approvedBooking(w, a, "se1", CRETA, "PATIA", "Wa On", "9876500009");
+    expect(lastMessage(a.tenantId)).toMatchObject({ booking_id: on.id, status: "SENT" });
+  });
 });
 
 describe("connecting a dealership's number", () => {

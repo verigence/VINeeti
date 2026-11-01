@@ -3950,6 +3950,17 @@ button.primary {
 .stat-value {
   font-size: 30px;
 }
+.stat-value-long {
+  font-size: 22px;
+}
+@media (max-width: 860px) {
+  .stat-value {
+    font-size: 24px;
+  }
+  .stat-value-long {
+    font-size: 18px;
+  }
+}
 .stat-label {
   color: #4a5a6a;
   font-size: 13px;
