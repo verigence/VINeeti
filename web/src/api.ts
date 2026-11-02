@@ -291,6 +291,8 @@ export const api = {
   saveSettings: (s: Partial<T.TenantSettings>) => put<{ settings: T.TenantSettings; rules_changed: string[] }>("/api/settings", s),
   clearData: (confirm: string, password: string) => post<{ name: string; total: number; removed: Record<string, number>; kept: string[] }>("/api/settings/clear-data", { confirm, password }),
   previewSettings: (s: Partial<T.TenantSettings>) => post<T.RulesPreview>("/api/settings/preview", s),
+  dayEndSetup: () => get<T.DayEndSetup>("/api/reports/day-end/setup"),
+  dayEndTest: (date?: string) => post<{ sent_to: string[] }>("/api/reports/day-end/test", { date }),
 
   // ---- audit trail
   audit: (q: Query) => get<T.AuditRow[]>("/api/audit", q),

@@ -44,6 +44,7 @@ export const CLEARED = [
   "support_tickets",
   "order_requests",
   "stock_positions",
+  "day_end_reports",
   "uploads",
   "password_otps",
   "sign_ins",

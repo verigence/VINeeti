@@ -74,6 +74,24 @@ export interface TenantSettings {
   funding_rate_pct: number | null;
   transit_days: number | null;
   monthly_retail_target: number | null;
+  day_end_report: DayEndReportSettings;
+}
+
+export interface DayEndReportSettings {
+  enabled: boolean;
+  time: string;
+  /** 0 = Sunday ... 6 = Saturday. */
+  days: number[];
+  roles: Role[];
+  emails: string[];
+}
+
+export interface DayEndSetup {
+  settings: DayEndReportSettings;
+  recipients: { name: string; role: string; email: string }[];
+  without_email: { name: string; role: string }[];
+  mail_ready: boolean;
+  history: { business_date: string; status: string; attempts: number; recipients: number; sent_at: string }[];
 }
 
 export interface Outlet {
