@@ -273,6 +273,8 @@ export interface BookingSheetRow extends DmsCar {
   sc_name: string | null;
   sc_code: string | null;
   sm_name: string | null;
+  /** The DMS's customer number, where the export gives one (Hyundai's Cust. No): how a retail invoice finds the booking. */
+  customer_no?: string | null;
 }
 
 export interface BookingSheet {
@@ -286,6 +288,8 @@ export interface BookingSheet {
   outlet_by: "code" | "name";
   /** Whether this export carries customer phone numbers at all. One of the two does not. */
   has_mobile: boolean;
+  /** Whether this export has a colour column at all. Hyundai's booking report does not. Absent means it does. */
+  has_colour?: boolean;
 }
 
 function stageOf(bookingStage: string, enquiryStage: string): BookingStage | null {
@@ -520,6 +524,10 @@ export interface RetailRow {
   /** Discount on this invoice that has no credit note to claim it back. See the file-wide check below. */
   unclaimed: number;
   issues: string[];
+  /** The manufacturer's (wholesale) invoice number, where the export gives one: how a car is found when the VIN is masked. */
+  oem_invoice_no?: string | null;
+  /** The DMS's customer number, where the export gives one: how the booking is found when no booking number is given. */
+  customer_no?: string | null;
 }
 
 export interface RetailReport {
@@ -547,7 +555,7 @@ export const RETAIL_ISSUES: Record<string, string> = {
 export const RETAIL_HEADINGS = ["Invoice Number", "Vehicle Identification Number", "Booking No.", "Invoice Amount", "Dealer Location Code"];
 
 /** A money cell. Blank, a dash or anything unreadable is nothing rather than zero: the two differ. */
-const cellMoney = (v: unknown): number | null => {
+export const cellMoney = (v: unknown): number | null => {
   const s = text(v).replace(/[, ]/g, "");
   if (!s || s === "-") return null;
   const n = Number(s);

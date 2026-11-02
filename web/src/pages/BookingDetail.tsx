@@ -9,11 +9,11 @@ import { useAction, useLoad } from "../hooks";
 import { allocationMessage, bookingSource, bookingStatus, holdReason, NO_CUSTOMER_DETAILS, paymentStateOf, plainText } from "../labels";
 import { useSession } from "../session";
 import type { BookingDetail } from "../types";
-import { AllocationCard, ChecklistCard, ContactDialog, EarlierAllocations, MessagesCard, PaymentCard, TimelineCard } from "./BookingParts";
+import { AllocationCard, ChecklistCard, COLOUR_NOT_GIVEN, ColourDialog, ContactDialog, EarlierAllocations, MessagesCard, PaymentCard, TimelineCard } from "./BookingParts";
 import { ExceptionItem, RaiseRequestDialog } from "./Exceptions";
 import { PaymentButtons } from "./PaymentParts";
 
-type DialogKind = "approve" | "reject" | "cancel" | "invoice" | "deliver" | "ready" | "request" | "contact" | null;
+type DialogKind = "approve" | "reject" | "cancel" | "invoice" | "deliver" | "ready" | "request" | "contact" | "colour" | null;
 
 export function BookingDetailPage({ id }: { id: string }) {
   const load = useLoad(() => api.booking(id), `booking:${id}`);
@@ -38,6 +38,7 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
   const carReceived = d.allocation?.vehicle_status === "RECEIVED";
   const checklistOpen = d.checklist_missing.length > 0;
   const fromStockOnly = b.source === "DMS_STOCK";
+  const noColour = b.colour === COLOUR_NOT_GIVEN && !["INVOICED", "DELIVERED", "CANCELLED"].includes(b.status);
   const payment = b.status === "ALLOCATED" ? paymentStateOf(b) : null;
   const paymentTarget = { ...b, customer_name: b.customer_name };
   const mayPay = payment !== null && ((can("booking.payment_report") && payment === "AWAITING_PAYMENT") || (can("booking.payment") && payment !== "VERIFIED"));
@@ -107,6 +108,11 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
           Invoice
         </Button>
       )}
+      {noColour && canContact && (
+        <Button disabled={action.busy} onClick={() => setDialog("colour")}>
+          Give colour
+        </Button>
+      )}
       {canContact && (
         <Button disabled={action.busy} onClick={() => setDialog("contact")}>
           Edit contact
@@ -155,7 +161,7 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
           {holdReason(b.hold_reason)}. {b.hold_until ? `The booking rejoins the queue on ${fmtDate(b.hold_until)}.` : "The booking rejoins the queue when someone marks the customer as ready."} It keeps its original place.
         </Notice>
       ) : null}
-      {d.queue && (
+      {d.queue && !noColour && (
         <Notice title={`Number ${d.queue.position} in the queue. `}>
           {d.queue.waiting > 1 ? `${d.queue.waiting} bookings are waiting for this model, variant and colour.` : "This is the only booking waiting for this model, variant and colour."} A car is allocated automatically as soon as one is free.
         </Notice>
@@ -166,6 +172,11 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
         </Notice>
       )}
       {b.status === "SUBMITTED" && !can("booking.approve") && <Notice>Waiting for approval. It joins the queue for a car as soon as it is approved.</Notice>}
+      {noColour && (
+        <Notice tone="warn">
+          The DMS booking report does not say which colour was booked, so no car is offered to this booking until the colour is given.{canContact ? " Use Give colour." : ""}
+        </Notice>
+      )}
       {fromStockOnly && <Notice tone="warn">{NO_CUSTOMER_DETAILS}. This order is known only from the DMS stock report.</Notice>}
 
       <div className="detail-grid">
@@ -298,6 +309,16 @@ function BookingView({ d, reload }: { d: BookingDetail; reload: () => Promise<vo
           confirmLabel="Customer is ready"
           {...dialogProps}
           onConfirm={() => void run(() => api.markReady(b.id), (r) => `Hold lifted. ${allocationMessage(r.allocations) || "The booking is back in the queue."}`)}
+        />
+      )}
+      {dialog === "colour" && (
+        <ColourDialog
+          booking={b}
+          onClose={() => setDialog(null)}
+          onDone={() => {
+            setDialog(null);
+            void reload();
+          }}
         />
       )}
       {dialog === "contact" && (

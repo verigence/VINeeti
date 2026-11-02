@@ -184,7 +184,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "booking.cancel": "Cancel a booking",
   "booking.payment_report": "Report a payment for Finance to verify",
   "booking.payment": "Verify payments; record invoicing",
-  "booking.contact": "Correct customer contact details",
+  "booking.contact": "Correct customer contact details, and give a booking's colour where the DMS file had none",
   "booking.deliver": "Mark delivered",
   "booking.ready": "Release a booking from hold",
   "exception.request": "Raise an allocation or deallocation request",
