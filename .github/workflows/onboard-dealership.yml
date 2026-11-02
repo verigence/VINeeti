@@ -9,6 +9,14 @@ name: Onboard a dealership
 on:
   workflow_dispatch:
     inputs:
+      deployment:
+        description: "Which deployment the dealership goes on"
+        required: true
+        default: "mahindra"
+        type: choice
+        options:
+          - mahindra
+          - hyundai
       dealer_code:
         description: "Dealer code: 3-40 lowercase letters, digits and hyphens (e.g. sample-mahindra)"
         required: true
@@ -78,6 +86,8 @@ jobs:
           ADMIN_EMAIL: ${{ inputs.admin_email }}
           FIRST_PASSWORD: ${{ inputs.first_password }}
           ADDRESS: ${{ inputs.address }}
+          # The worker names match the deploy workflow's matrix; empty means the one in wrangler.jsonc.
+          DEPLOY_WORKER: ${{ inputs.deployment == 'hyundai' && 'verigence-vineeti-hyundai' || '' }}
         run: |
           echo "::add-mask::$FIRST_PASSWORD"
           umask 077
