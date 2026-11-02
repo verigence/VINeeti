@@ -12,7 +12,7 @@ import { conflict, iso, localParts, newId } from "../lib/util";
 import { messageStmt } from "../whatsapp/outbox";
 import { salesExecMessage } from "./staff-notify";
 import type { EventKey } from "../whatsapp/templates";
-import { queueKey, waitingQueues } from "./queue";
+import { ANY_COLOUR, carFits, carQueue, waitingQueues } from "./queue";
 import { matchBookings, queueCompare, type Match as RuleMatch } from "./rules";
 
 export { matchBookings };
@@ -101,7 +101,7 @@ async function waitingBookings(ctx: Ctx, cfg: Config): Promise<BookingRow[]> {
   return all<BookingRow>(
     ctx.db,
     `SELECT b.* FROM bookings b
-     WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour = ? AND b.status = 'APPROVED'
+     WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour IN (?, '${ANY_COLOUR}') AND b.status = 'APPROVED'
        AND (b.on_hold = 0 OR (b.hold_until IS NOT NULL AND b.hold_until <= ?))
        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')
      ORDER BY b.priority_ts ASC, b.booking_no ASC`,
@@ -119,7 +119,7 @@ async function freeVehicles(ctx: Ctx, cfg: Config): Promise<VehicleRow[]> {
   return all<VehicleRow>(
     ctx.db,
     `SELECT v.*, ${LAST_BOOKING} FROM vehicles v
-     WHERE v.tenant_id = ? AND v.model = ? AND v.variant = ? AND v.colour = ? AND v.status IN (${allocatable(ctx)}) AND v.is_blocked = 0
+     WHERE v.tenant_id = ?1 AND v.model = ?2 AND v.variant = ?3 AND (?4 = '${ANY_COLOUR}' OR v.colour = ?4) AND v.status IN (${allocatable(ctx)}) AND v.is_blocked = 0
        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')`,
     ctx.tenantId,
     cfg.model,
@@ -140,7 +140,7 @@ type Match = Pick<RuleMatch<BookingRow, VehicleRow>, "booking" | "vehicle" | "qu
  * priority was changed passes over those it now stands ahead of.
  */
 export async function bookingsPassedOver(ctx: Ctx, b: BookingRow, car: Config, manual: boolean): Promise<{ id: string; booking_no: string }[]> {
-  const queue = (await waitingQueues(ctx, car)).get(queueKey(ctx.settings, { ...car, outlet_id: b.outlet_id })) ?? [];
+  const queue = carQueue(await waitingQueues(ctx, car), ctx.settings, { ...car, outlet_id: b.outlet_id });
   const rank = queueCompare(ctx.settings);
   const asBooked = <T extends { priority_ts: string; booking_date?: string; priority_override_json?: string | null }>(x: T) => ({ ...x, priority_ts: x.booking_date ?? x.priority_ts, priority_override_json: null });
   return queue.filter((w) => w.id !== b.id && rank(asBooked(w), asBooked(b)) < 0 && (manual || rank(b, w) < 0)).map((w) => ({ id: w.id, booking_no: w.booking_no }));
@@ -261,7 +261,7 @@ export async function allocateAll(ctx: Ctx, maxMatches = 100): Promise<Allocatio
     ctx.db,
     `SELECT DISTINCT b.model, b.variant, b.colour FROM bookings b
      WHERE b.tenant_id = ?1 AND b.status = 'APPROVED' AND (b.on_hold = 0 OR (b.hold_until IS NOT NULL AND b.hold_until <= ?2))
-       AND EXISTS (SELECT 1 FROM vehicles v WHERE v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour = b.colour
+       AND EXISTS (SELECT 1 FROM vehicles v WHERE v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND (b.colour = '${ANY_COLOUR}' OR v.colour = b.colour)
                    AND v.status IN (${allocatable(ctx)}) AND v.is_blocked = 0 ${reach}
                    AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE'))
      ORDER BY b.model, b.variant, b.colour`,
@@ -416,7 +416,7 @@ export async function manualAllocate(ctx: Ctx, bookingId: string, vehicleId: str
   const v = await first<VehicleRow>(ctx.db, `SELECT v.*, ${LAST_BOOKING} FROM vehicles v WHERE v.id = ? AND v.tenant_id = ?`, vehicleId, ctx.tenantId);
   if (!b || !v) throw new Error("Booking or vehicle not found");
   if (!["APPROVED", "ALLOCATED"].includes(b.status)) throw new Error("Only a booking that is waiting for a car, or holding one that is not yet invoiced, can be allocated a car");
-  if (v.model !== b.model || v.variant !== b.variant || v.colour !== b.colour) throw new Error("The vehicle does not match the booking's model, variant and colour");
+  if (!carFits(v, b)) throw new Error("The vehicle does not match the booking's model, variant and colour");
   if (!["RECEIVED", "IN_TRANSIT"].includes(v.status) || v.is_blocked) throw new Error("The vehicle is not available for allocation");
   if (await activeAllocationForVehicle(ctx, v.id)) throw new Error("The vehicle is allocated to another booking; release that allocation first");
   const existing = await activeAllocationForBooking(ctx, b.id);
@@ -466,7 +466,7 @@ export async function reallocateToBooking(
   // having a second one found for it by hand, which is the thing this closes off.
   if (b.status !== "APPROVED") throw new Error("The car can only go to a booking that is waiting for one");
   if (await activeAllocationForBooking(ctx, b.id)) throw new Error("That booking already holds a car");
-  if (v.model !== b.model || v.variant !== b.variant || v.colour !== b.colour) throw new Error("The car does not match that booking's model, variant and colour");
+  if (!carFits(v, b)) throw new Error("The car does not match that booking's model, variant and colour");
   if (!["RECEIVED", "IN_TRANSIT"].includes(v.status) || v.is_blocked) throw new Error("The car is no longer available to allocate");
   const done = await commitMatch(ctx, { booking: b, vehicle: v, queuePosition: 0, pass: "MANUAL_APPROVED_EXCEPTION" }, approver, requestId, {
     before: releaseStmts(ctx, from, opts.reason ?? "REALLOCATED_TO_BOOKING", opts.hold, { requestId, toBookingId: b.id }),

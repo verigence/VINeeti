@@ -1,5 +1,5 @@
 import type { Ctx } from "../env";
-import { inQueue } from "./queue";
+import { ANY_COLOUR, inQueue } from "./queue";
 import { all, first } from "../lib/db";
 import { addDays, localDayBounds, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
@@ -143,7 +143,7 @@ export async function availabilityAnswer(ctx: Ctx, cfg: { model: string; variant
      FROM vehicles v JOIN allocations a ON a.vehicle_id = v.id AND a.status = 'ACTIVE' WHERE v.tenant_id = ? AND v.model = ? AND v.variant = ? AND v.colour = ? AND v.status IN ('RECEIVED','IN_TRANSIT') ${vScope}`,
     ...p,
   );
-  const waiting = (await first<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour = ? AND ${inQueue(ctx.settings, "b.")} ${sameOnly ? "AND b.outlet_id = ?" : ""}`, ...p))?.n ?? 0;
+  const waiting = (await first<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM bookings b WHERE b.tenant_id = ? AND b.model = ? AND b.variant = ? AND b.colour IN (?, '${ANY_COLOUR}') AND ${inQueue(ctx.settings, "b.")} ${sameOnly ? "AND b.outlet_id = ?" : ""}`, ...p))?.n ?? 0;
   const onOrder = await first<{ quantity: number; expected_date: string | null }>(ctx.db, `SELECT SUM(quantity) AS quantity, MIN(expected_date) AS expected_date FROM order_requests WHERE tenant_id = ? AND model = ? AND variant = ? AND colour = ? AND status IN ('PLACED','CONFIRMED')`, ctx.tenantId, cfg.model, cfg.variant, cfg.colour);
 
   // Cars left for a new customer after everyone already waiting is served. As in allocation, a car in the
@@ -399,7 +399,7 @@ export async function nearMatches(ctx: Ctx, outletIds: string[] | null, onlyUser
             v.colour AS car_colour, SUM(CASE WHEN v.status = 'RECEIVED' THEN 1 ELSE 0 END) AS in_yard, SUM(CASE WHEN v.status = 'IN_TRANSIT' THEN 1 ELSE 0 END) AS in_transit,
             SUM(CASE WHEN v.outlet_id = b.outlet_id THEN 1 ELSE 0 END) AS at_own_outlet, MIN(v.wholesale_invoice_date) AS oldest_invoice
      FROM bookings b JOIN outlets o ON o.id = b.outlet_id LEFT JOIN users se ON se.id = b.sales_exec_id
-     JOIN vehicles v ON v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour <> b.colour AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0
+     JOIN vehicles v ON v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour <> b.colour AND b.colour <> '${ANY_COLOUR}' AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0
        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')
      WHERE b.tenant_id = ? AND ${inQueue(ctx.settings, "b.")} ${inList(outletIds, "b.outlet_id")} ${onlyUserId ? "AND (b.sales_exec_id = ? OR b.created_by = ?)" : ""}
        AND NOT EXISTS (SELECT 1 FROM vehicles w WHERE w.tenant_id = b.tenant_id AND w.model = b.model AND w.variant = b.variant AND w.colour = b.colour AND w.status IN ('RECEIVED','IN_TRANSIT') AND w.is_blocked = 0

@@ -13,7 +13,7 @@
 // Everything is from the DMS files and what the app recorded. Nothing is estimated.
 
 import type { Ctx } from "../env";
-import { atLeastMinimum, belowMinimum, inQueue, queueMinimum } from "./queue";
+import { ANY_COLOUR, atLeastMinimum, belowMinimum, inQueue, queueMinimum } from "./queue";
 import { all, first } from "../lib/db";
 import { addDays, localDayBounds, localParts } from "../lib/util";
 import { dataStatus } from "./data-status";
@@ -397,9 +397,9 @@ export async function myWork(ctx: Ctx, userId: string): Promise<{ as_of: string;
     `SELECT COUNT(*) AS n FROM bookings b
       WHERE ${mine} AND ${inQueue(ctx.settings, "b.")}
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.booking_id = b.id AND a.status = 'ACTIVE')
-        AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour = b.colour AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND v.is_demo = 0
+        AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND (b.colour = '${ANY_COLOUR}' OR v.colour = b.colour) AND v.status IN ('RECEIVED','IN_TRANSIT') AND v.is_blocked = 0 AND v.is_demo = 0
                           AND NOT EXISTS (SELECT 1 FROM allocations a2 WHERE a2.vehicle_id = v.id AND a2.status = 'ACTIVE'))
-        AND NOT EXISTS (SELECT 1 FROM order_requests r WHERE r.tenant_id = b.tenant_id AND r.model = b.model AND r.variant = b.variant AND r.colour = b.colour AND r.status IN ('PLACED','CONFIRMED'))`,
+        AND NOT EXISTS (SELECT 1 FROM order_requests r WHERE r.tenant_id = b.tenant_id AND r.model = b.model AND r.variant = b.variant AND (b.colour = '${ANY_COLOUR}' OR r.colour = b.colour) AND r.status IN ('PLACED','CONFIRMED'))`,
     ctx.tenantId, userId, userId,
   );
   return {
