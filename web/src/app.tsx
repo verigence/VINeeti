@@ -12,6 +12,7 @@ import { ChangePasswordScreen, LoginScreen } from "./pages/Login";
 import { PRODUCT, productName } from "./product";
 import { Splash } from "./components/Splash";
 import { PlatformConsole } from "./pages/Platform";
+import { WelcomeScreen } from "./pages/Welcome";
 import { RouterProvider, useRouter } from "./router";
 import { SessionContext, type Session } from "./session";
 import type { Me, Permission } from "./types";
@@ -37,6 +38,9 @@ function Root() {
   const [error, setError] = useState("");
   // Set when the server refuses a call until the password is changed, even if /me has not said so yet.
   const [passwordRequired, setPasswordRequired] = useState(false);
+  // Set the moment the person presses Get started, so the application opens at once rather than after
+  // the next answer from the server.
+  const [welcomedNow, setWelcomedNow] = useState(false);
   // The splash screen stays up for a moment even when the session answers at once, so it does not flash.
   const [splash, setSplash] = useState(true);
   useEffect(() => {
@@ -127,7 +131,14 @@ function Root() {
   return (
     <SessionContext.Provider value={session}>
       {/* Until the password is replaced the server refuses everything else, so nothing else is mounted or fetched. */}
-      {session.me.user.mustChangePassword || passwordRequired ? <ChangePasswordScreen /> : <Shell />}
+      {session.me.user.mustChangePassword || passwordRequired ? (
+        <ChangePasswordScreen />
+      ) : !session.me.user.welcomed && !welcomedNow ? (
+        // Once per person, the first time they reach the application itself.
+        <WelcomeScreen onDone={() => setWelcomedNow(true)} />
+      ) : (
+        <Shell />
+      )}
     </SessionContext.Provider>
   );
 }

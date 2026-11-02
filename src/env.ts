@@ -82,6 +82,8 @@ export interface SessionUser {
   /** The vehicle segments (master categories) the person works with; empty means every segment. */
   segments: string[];
   mustChangePassword: boolean;
+  /** False until the person has been shown the welcome screen, once. */
+  welcomed: boolean;
 }
 
 /** Everything a piece of business logic needs. Always bound to exactly one tenant. */
