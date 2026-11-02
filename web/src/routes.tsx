@@ -97,6 +97,7 @@ const ROUTES: Route[] = [
   { path: "/analytics/control", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="control" /> },
   { path: "/analytics/writeback", allowed: (can) => can("dashboards.view"), render: () => <AnalyticsPage tab="writeback" /> },
   { path: "/analytics/business", allowed: (can) => can("dashboards.view") && can("booking.view_all"), render: () => <AnalyticsPage tab="business" /> },
+  { path: "/analytics/day-end", allowed: (can) => can("report.day_end"), render: () => <AnalyticsPage tab="day-end" /> },
   { path: "/analytics/stock-days", allowed: (can) => can("stock.view"), render: () => <AnalyticsPage tab="stock-days" /> },
   { path: "/eod", allowed: canEod, render: () => <EodPage /> },
   // The earlier "Data upload" address still works.

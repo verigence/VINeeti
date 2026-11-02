@@ -650,12 +650,6 @@ export function authRoutes(app: App) {
   });
 
   // ------------------------------------------------------------ the day-end report
-  /** Who may read the report: whoever configures it, and the roles it is sent to. */
-  const mayReadDayEnd = (c: C) => {
-    const ctx = c.get("ctx");
-    const user = c.get("user");
-    return permissionsFor(user.role, ctx.settings).includes("admin.settings") || ctx.settings.day_end_report.roles.includes(user.role);
-  };
   const reportDate = (c: C, raw: string | undefined) => {
     const ctx = c.get("ctx");
     const today = localParts(ctx.now, ctx.tenant.timezone).date;
@@ -673,9 +667,15 @@ export function authRoutes(app: App) {
     return c.json({ settings: ctx.settings.day_end_report, recipients: recipients.to, without_email: recipients.without_email, mail_ready: emailPossible(ctx.env), history: await dayEndHistory(ctx) });
   });
 
+  /** The reports sent lately, by the morning email and on demand. */
+  app.get("/api/reports/day-end/sent", async (c) => {
+    need(c, "report.day_end");
+    return c.json({ history: await dayEndHistory(c.get("ctx")), recipients: (await dayEndRecipients(c.get("ctx"))).to.length });
+  });
+
   /** The report for one day, as the page that is emailed. */
   app.get("/api/reports/day-end", async (c) => {
-    if (!mayReadDayEnd(c)) throw forbidden();
+    need(c, "report.day_end");
     const ctx = c.get("ctx");
     const data = await gatherDayEnd(ctx, reportDate(c, c.req.query("date")));
     c.header("Cache-Control", "private, no-store");
@@ -683,17 +683,26 @@ export function authRoutes(app: App) {
     return c.html(dayEndHtml(data, { logo: "/brand/email-logo.png" }));
   });
 
-  /** Sends the report now, to the person asking only: to see it as the recipients will. */
-  app.post("/api/reports/day-end/test", async (c) => {
-    need(c, "admin.settings");
+  /**
+   * Sends a day's report now. `to: "me"` sends it to the person asking only; otherwise it goes to
+   * everyone it is configured for, as the morning email does. Either way it is in the audit trail.
+   */
+  app.post("/api/reports/day-end/send", async (c) => {
+    need(c, "report.day_end");
     const ctx = c.get("ctx");
-    const body = await jsonBody<{ date?: string }>(c).catch(() => ({}) as { date?: string });
-    const me = await first<{ email: string | null }>(ctx.db, `SELECT email FROM users WHERE id = ? AND tenant_id = ?`, c.get("user").id, ctx.tenantId);
-    if (!me?.email?.trim()) throw bad("Your account has no email address. Add one on the Users screen first.");
-    const res = await sendDayEndReport(ctx, reportDate(c, body.date), [me.email.trim()]);
+    const body = await jsonBody<{ date?: string; to?: string }>(c).catch(() => ({}) as { date?: string; to?: string });
+    const date = reportDate(c, body.date);
+    let only: { name: string; role: string; email: string }[] | undefined;
+    if (body.to === "me") {
+      const me = await first<{ name: string; email: string | null }>(ctx.db, `SELECT name, email FROM users WHERE id = ? AND tenant_id = ?`, c.get("user").id, ctx.tenantId);
+      if (!me?.email?.trim()) throw bad("Your account has no email address. Ask the System Admin to add one.");
+      only = [{ name: me.name, role: "", email: me.email.trim() }];
+    }
+    const res = await sendDayEndReport(ctx, date, { trigger: "ON_DEMAND", only });
     if (res.status === "MAIL_NOT_CONFIGURED") throw conflict("This deployment has no mail account set up, so nothing can be emailed.");
+    if (res.status === "NO_RECIPIENTS") throw conflict("Nobody receives the report: no active person in the chosen roles has an email address.");
     if (res.status === "FAILED") throw conflict(`The mail server refused the message (${res.failed[0]?.error ?? "unknown"}).`);
-    return c.json({ sent_to: res.sent });
+    return c.json({ date, sent_to: res.sent, failed: res.failed });
   });
 
   /**

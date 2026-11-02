@@ -33,14 +33,13 @@ beforeAll(async () => {
 }, 120_000);
 
 describe("the day-end report", () => {
-  it("counts who signed in, by role and by person", async () => {
+  it("lists who signed in and at what times", async () => {
     const r = await report();
     expect(r.status).toBe(200);
     const signedIn = w.db.q<{ n: number }>(`SELECT COUNT(DISTINCT user_id) AS n FROM sign_ins WHERE outcome = 'IN'`)[0].n;
     expect(r.body.people.signed_in).toBe(signedIn);
-    expect(r.body.people.active).toBe(w.db.q<{ n: number }>(`SELECT COUNT(*) AS n FROM users WHERE is_active = 1`)[0].n);
     expect(r.body.people.list.length).toBe(signedIn);
-    expect(r.body.people.by_role.find((x: any) => x.label === "GM Sales")).toMatchObject({ active: 1, signed_in: 1 });
+    expect(r.body.people.list.find((x: any) => x.name === "Girish GM")).toEqual({ name: "Girish GM", role: "GM Sales", times: ["10:00"], count: 1, via: "Browser" });
   });
 
   it("lists the DMS files loaded, with what each said", async () => {
@@ -87,6 +86,25 @@ describe("the day-end report", () => {
 });
 
 describe("configuring and sending it", () => {
+  it("goes by default every morning at 08:30 to GM Sales, CEO / VP and Dealer Principal", async () => {
+    const setup = await w.api("GET", "/api/reports/day-end/setup", undefined, d.users.admin.session);
+    expect(setup.body.settings).toEqual({ enabled: true, time: "08:30", days: [0, 1, 2, 3, 4, 5, 6], roles: ["GM_SALES", "CEO_VP", "DEALER_PRINCIPAL"], emails: [] });
+  });
+
+  it("can be sent on demand by the roles it goes to, to everyone or to oneself, and is recorded", async () => {
+    // The test deployment has no mail account, so the send is refused plainly and nothing is pretended.
+    const all_ = await w.api("POST", "/api/reports/day-end/send", { date: "2026-10-13" }, d.users.gm.session);
+    expect(all_.status).toBe(409);
+    expect(all_.body.error.message).toContain("no mail account");
+    expect((await w.api("POST", "/api/reports/day-end/send", { date: "2026-10-13", to: "me" }, d.users.head.session)).status).toBe(409);
+    expect((await w.api("POST", "/api/reports/day-end/send", { date: "2026-10-13" }, d.users.se1.session)).status).toBe(403);
+    const sent = await w.api("GET", "/api/reports/day-end/sent", undefined, d.users.gm.session);
+    expect(sent.body.history.map((h: any) => [h.how, h.by, h.status]).sort()).toEqual([
+      ["Sent on demand", "Girish GM", "MAIL_NOT_CONFIGURED"],
+      ["Sent to self", "Bikram Head", "MAIL_NOT_CONFIGURED"],
+    ]);
+  });
+
   it("refuses a report switched on with nobody to send it to, and saves one that names GM Sales", async () => {
     const save = (day_end_report: Record<string, unknown>) => w.api("PUT", "/api/settings", { day_end_report }, d.users.admin.session);
     expect((await save({ enabled: true, roles: [], emails: [] })).status).toBe(400);
@@ -101,22 +119,30 @@ describe("configuring and sending it", () => {
     expect(setup.body.recipients.map((r: any) => r.role)).toEqual(["CEO / VP", "GM Sales", "Added address"]);
   });
 
-  it("is sent by the scheduled job once a day, after its time", async () => {
-    w.at("2026-10-13 19:30");
+  it("is sent by the scheduled job each morning at its time, carrying the previous day, once", async () => {
+    expect((await w.api("PUT", "/api/settings", { day_end_report: { time: "08:30" } }, d.users.admin.session)).status).toBe(200);
+    w.db.raw.exec(`DELETE FROM day_end_reports`);
+    w.at("2026-10-14 08:15");
     await w.tick();
     expect(w.db.q(`SELECT * FROM day_end_reports`)).toHaveLength(0);
-    w.at("2026-10-13 20:15");
+    w.at("2026-10-14 08:30");
     await w.tick();
-    // The test deployment has no mail account: the attempt is recorded and not repeated.
+    // The test deployment has no mail account: the attempt is recorded against the 13th and not repeated.
     expect(w.db.q(`SELECT business_date, status, attempts FROM day_end_reports`)).toEqual([{ business_date: "2026-10-13", status: "MAIL_NOT_CONFIGURED", attempts: 1 }]);
-    w.at("2026-10-13 20:45");
+    w.at("2026-10-14 09:00");
     await w.tick();
     expect(w.db.q(`SELECT attempts FROM day_end_reports`)).toEqual([{ attempts: 1 }]);
+    // Late in the day nothing is sent: the morning email is not sent in the evening.
+    w.db.raw.exec(`DELETE FROM day_end_reports`);
+    w.at("2026-10-14 20:30");
+    await w.tick();
+    expect(w.db.q(`SELECT * FROM day_end_reports`)).toHaveLength(0);
+    w.db.raw.exec(`INSERT INTO day_end_reports (id, tenant_id, business_date, status, attempts, recipients_json, sent_at, created_at) SELECT 'der_x', id, '2026-10-13', 'MAIL_NOT_CONFIGURED', 1, '[]', '2026-10-14T03:00:00Z', '2026-10-14T03:00:00Z' FROM tenants LIMIT 1`);
   });
 
   it("is not sent once switched off", async () => {
     expect((await w.api("PUT", "/api/settings", { day_end_report: { enabled: false } }, d.users.admin.session)).status).toBe(200);
-    w.at("2026-10-14 21:00");
+    w.at("2026-10-15 08:45");
     await w.tick();
     expect(w.db.q(`SELECT business_date FROM day_end_reports`)).toEqual([{ business_date: "2026-10-13" }]);
   });
