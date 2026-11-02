@@ -9,6 +9,7 @@ import { ATTACHMENT_LIMIT, checkAttachment, myTickets, notifySupport, raiseTicke
 import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
 import { KEPT, resetTenant } from "../domain/reset";
+import { dayEndHistory, dayEndHtml, dayEndRecipients, gatherDayEnd, sendDayEndReport } from "../domain/day-end-report";
 import { recordSignIn, signIns, type Outcome } from "../domain/sign-ins";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
@@ -646,6 +647,53 @@ export function authRoutes(app: App) {
         : []),
     ]);
     return c.json({ settings: next, rules_changed: changed });
+  });
+
+  // ------------------------------------------------------------ the day-end report
+  /** Who may read the report: whoever configures it, and the roles it is sent to. */
+  const mayReadDayEnd = (c: C) => {
+    const ctx = c.get("ctx");
+    const user = c.get("user");
+    return permissionsFor(user.role, ctx.settings).includes("admin.settings") || ctx.settings.day_end_report.roles.includes(user.role);
+  };
+  const reportDate = (c: C, raw: string | undefined) => {
+    const ctx = c.get("ctx");
+    const today = localParts(ctx.now, ctx.tenant.timezone).date;
+    const d = (raw ?? "").trim() || today;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) throw bad("The date is not valid");
+    if (d > today) throw bad("That day has not happened yet");
+    return d;
+  };
+
+  /** The settings screen's view of it: what is set, who it would go to now, and what went out lately. */
+  app.get("/api/reports/day-end/setup", async (c) => {
+    need(c, "admin.settings");
+    const ctx = c.get("ctx");
+    const recipients = await dayEndRecipients(ctx);
+    return c.json({ settings: ctx.settings.day_end_report, recipients: recipients.to, without_email: recipients.without_email, mail_ready: emailPossible(ctx.env), history: await dayEndHistory(ctx) });
+  });
+
+  /** The report for one day, as the page that is emailed. */
+  app.get("/api/reports/day-end", async (c) => {
+    if (!mayReadDayEnd(c)) throw forbidden();
+    const ctx = c.get("ctx");
+    const data = await gatherDayEnd(ctx, reportDate(c, c.req.query("date")));
+    c.header("Cache-Control", "private, no-store");
+    if (c.req.query("format") === "json") return c.json(data);
+    return c.html(dayEndHtml(data, { logo: "/brand/email-logo.png" }));
+  });
+
+  /** Sends the report now, to the person asking only: to see it as the recipients will. */
+  app.post("/api/reports/day-end/test", async (c) => {
+    need(c, "admin.settings");
+    const ctx = c.get("ctx");
+    const body = await jsonBody<{ date?: string }>(c).catch(() => ({}) as { date?: string });
+    const me = await first<{ email: string | null }>(ctx.db, `SELECT email FROM users WHERE id = ? AND tenant_id = ?`, c.get("user").id, ctx.tenantId);
+    if (!me?.email?.trim()) throw bad("Your account has no email address. Add one on the Users screen first.");
+    const res = await sendDayEndReport(ctx, reportDate(c, body.date), [me.email.trim()]);
+    if (res.status === "MAIL_NOT_CONFIGURED") throw conflict("This deployment has no mail account set up, so nothing can be emailed.");
+    if (res.status === "FAILED") throw conflict(`The mail server refused the message (${res.failed[0]?.error ?? "unknown"}).`);
+    return c.json({ sent_to: res.sent });
   });
 
   /**

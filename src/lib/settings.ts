@@ -21,6 +21,28 @@ export const CAR_CRITERIA: Record<CarCriterion, { label: string; help: string }>
 /** Items of the booking submission checklist. The person submitting confirms each is on file; no copy is stored in this system. */
 export type DocumentKind = "DOCKET" | "KYC" | "PAN_AADHAAR" | "PAYMENT_PROOF";
 
+/** The day-end report: whether, when and to whom it is emailed. */
+export interface DayEndReportSettings {
+  /** Whether the report is sent at all. Off until the dealership turns it on. */
+  enabled: boolean;
+  /** Local time (HH:MM) from which the day's report is sent. */
+  time: string;
+  /** Days of the week it is sent on: 0 = Sunday ... 6 = Saturday. */
+  days: number[];
+  /** The roles whose active people receive it at their email address. */
+  roles: Role[];
+  /** Further addresses that receive it. */
+  emails: string[];
+}
+
+export const DEFAULT_DAY_END_REPORT: DayEndReportSettings = {
+  enabled: false,
+  time: "20:00",
+  days: [0, 1, 2, 3, 4, 5, 6],
+  roles: ["GM_SALES", "CEO_VP", "DEALER_PRINCIPAL"],
+  emails: [],
+};
+
 /** Per-dealership rules. Everything here can be changed from the Settings screen without a new build. */
 export interface TenantSettings {
   /**
@@ -88,6 +110,7 @@ export interface TenantSettings {
   transit_days: number | null;
   /** Retails the dealership is aiming for in a calendar month. Null until it is set: the pace is still shown, without a verdict against it. */
   monthly_retail_target: number | null;
+  day_end_report: DayEndReportSettings;
 }
 
 export const DEFAULT_SETTINGS: TenantSettings = {
@@ -120,9 +143,12 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   funding_rate_pct: null,
   transit_days: null,
   monthly_retail_target: null,
+  day_end_report: DEFAULT_DAY_END_REPORT,
 };
 
-const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "EDP_MANAGER", "CEO_VP", "CEO_VP", "SALES_LEAD", "SALES_CONSULTANT", "EDP_MANAGER", "EDP_MANAGER", "FINANCE", "AUDITOR"];
+// Every role there is. (A mechanical rename once left GM Sales and AGM Sales out of this list, which made
+// any roles setting naming them fail to save.)
+const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "GM_SALES", "AGM_SALES", "SALES_LEAD", "SALES_CONSULTANT", "EDP_MANAGER", "FINANCE", "AUDITOR"];
 const DOC_KINDS: DocumentKind[] = ["DOCKET", "KYC", "PAN_AADHAAR", "PAYMENT_PROOF"];
 const SCOPES: OutletScope[] = ["SAME_OUTLET_FIRST", "SAME_OUTLET_NEARBY", "SAME_OUTLET_ONLY", "ANY_OUTLET"];
 
@@ -147,7 +173,7 @@ export function parseSettings(json: string | null | undefined): TenantSettings {
   } catch {
     raw = {};
   }
-  return { ...DEFAULT_SETTINGS, ...raw };
+  return { ...DEFAULT_SETTINGS, ...raw, day_end_report: { ...DEFAULT_DAY_END_REPORT, ...(raw.day_end_report ?? {}) } };
 }
 
 const LABELS: Record<string, string> = {
@@ -248,5 +274,33 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
     next.day_end_time = String(patch.day_end_time);
   }
   if (patch.in_transit_eta_text !== undefined) next.in_transit_eta_text = String(patch.in_transit_eta_text).slice(0, 60);
+  if (patch.day_end_report !== undefined) {
+    const v = patch.day_end_report as Partial<Record<keyof DayEndReportSettings, unknown>>;
+    if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("The day-end report settings are not valid");
+    const d = { ...next.day_end_report };
+    if (v.enabled !== undefined) d.enabled = Boolean(v.enabled);
+    if (v.time !== undefined) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v.time))) throw new Error("The day-end report time must be a time such as 20:00");
+      d.time = String(v.time);
+    }
+    if (v.days !== undefined) {
+      if (!Array.isArray(v.days) || v.days.some((x) => !Number.isInteger(x) || (x as number) < 0 || (x as number) > 6)) throw new Error("The day-end report days are not valid");
+      d.days = [...new Set(v.days as number[])].sort();
+    }
+    if (v.roles !== undefined) {
+      if (!Array.isArray(v.roles) || v.roles.some((r) => !ROLES.includes(r as Role))) throw new Error("The day-end report names an unknown role");
+      d.roles = [...new Set(v.roles as Role[])];
+    }
+    if (v.emails !== undefined) {
+      const list = (Array.isArray(v.emails) ? v.emails : String(v.emails).split(/[\s,;]+/)).map((e) => String(e).trim()).filter(Boolean);
+      const badOne = list.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+      if (badOne) throw new Error(`"${badOne.slice(0, 80)}" is not an email address`);
+      if (list.length > 20) throw new Error("The day-end report can go to at most 20 further addresses");
+      d.emails = [...new Set(list.map((e) => e.toLowerCase()))];
+    }
+    if (d.enabled && !d.days.length) throw new Error("Choose at least one day to send the day-end report on");
+    if (d.enabled && !d.roles.length && !d.emails.length) throw new Error("Choose who receives the day-end report: a role, or an email address");
+    next.day_end_report = d;
+  }
   return next;
 }

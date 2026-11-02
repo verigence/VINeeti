@@ -10,8 +10,9 @@ import { useSession } from "../session";
 import { SystemTab } from "./Insights";
 import type { EmployeeImportResult, Outlet, Role, RoleInfo, RolesResponse, UserInput, UserRow } from "../types";
 import { RulesTab } from "./AdminRules";
+import { DayEndReportTab } from "./DayEndReport";
 
-type Tab = "outlets" | "users" | "roles" | "rules" | "health" | "clear";
+type Tab = "outlets" | "users" | "roles" | "rules" | "report" | "health" | "clear";
 
 export function AdminPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -20,17 +21,19 @@ export function AdminPage({ tab }: { tab: Tab }) {
     { to: "/admin/roles", label: "Roles and controls" },
     ...(can("admin.users") ? [{ to: "/admin/outlets", label: "Outlets" }] : []),
     ...(can("admin.settings") ? [{ to: "/admin/rules", label: "Rules and settings" }] : []),
+    ...(can("admin.settings") ? [{ to: "/admin/day-end-report", label: "Day-end report" }] : []),
     ...(can("admin.settings") ? [{ to: "/admin/health", label: "System health (new)" }] : []),
     ...(can("admin.reset") ? [{ to: "/admin/clear-data", label: "Clear old data" }] : []),
   ];
   return (
     <>
       <PageHeader title="Settings" subtitle="The people who use VINeeti here, the outlets, and the rules the system follows." />
-      <Tabs current={tab === "clear" ? "/admin/clear-data" : `/admin/${tab}`} tabs={tabs} />
+      <Tabs current={tab === "clear" ? "/admin/clear-data" : tab === "report" ? "/admin/day-end-report" : `/admin/${tab}`} tabs={tabs} />
       {tab === "outlets" && <OutletsTab />}
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
       {tab === "rules" && <RulesTab />}
+      {tab === "report" && <DayEndReportTab />}
       {tab === "health" && <SystemTab />}
       {tab === "clear" && <ClearDataTab />}
     </>

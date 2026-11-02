@@ -18,6 +18,7 @@ import { raiseOverdueVerifications } from "./domain/bookings";
 import { dataStatus } from "./domain/data-status";
 import { announceArrival } from "./domain/inventory";
 import { dayEndDue, runReconciliation } from "./domain/reconciliation";
+import { dayEndReportDue, sendDayEndReport } from "./domain/day-end-report";
 import { liftExpiredHolds, processPaymentWindows, withinBusinessHours } from "./domain/timers";
 import { buildCtx } from "./http/app";
 import { dispatchQueued } from "./whatsapp/outbox";
@@ -34,11 +35,14 @@ export interface ScheduledReport {
   repaired?: number;
   allocated?: number;
   reconciliation?: string;
+  day_end_report?: string;
   error?: string;
 }
 
 const STEPS_PER_FIRING = 200; // reminders, escalations, releases and allocations across all dealerships
 const RECONCILIATIONS_PER_FIRING = 3;
+/** Day-end reports emailed per firing. Each is a few seconds of talking to the mail server per recipient. */
+const REPORTS_PER_FIRING = 2;
 
 /**
  * Puts right the two states that a request interrupted between database calls, or two requests arriving
@@ -88,6 +92,7 @@ export async function runScheduled(env: Env, now: Date): Promise<ScheduledReport
   const reports: ScheduledReport[] = [];
   const budget = { left: STEPS_PER_FIRING };
   let reconBudget = RECONCILIATIONS_PER_FIRING;
+  let reportBudget = REPORTS_PER_FIRING;
   const first = tenants.length ? Math.floor(now.getTime() / 900_000) % tenants.length : 0;
   for (let i = 0; i < tenants.length; i++) {
     const tenant = tenants[(first + i) % tenants.length];
@@ -108,6 +113,12 @@ export async function runScheduled(env: Env, now: Date): Promise<ScheduledReport
       if (reconBudget > 0 && (await dayEndDue(ctx))) {
         reconBudget--;
         report.reconciliation = (await runReconciliation(ctx, "SCHEDULED")).run_id;
+      }
+      // The day-end report goes once a day, after its time, to the people the dealership chose.
+      if (reportBudget > 0 && (await dayEndReportDue(ctx))) {
+        reportBudget--;
+        const sent = await sendDayEndReport(ctx, localParts(now, tenant.timezone).date);
+        report.day_end_report = `${sent.status} (${sent.sent.length} sent${sent.failed.length ? `, ${sent.failed.length} failed` : ""})`;
       }
     } catch (e) {
       report.error = (e as Error).message;
