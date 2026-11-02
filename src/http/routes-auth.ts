@@ -8,6 +8,7 @@ import { testMail } from "../domain/mail-templates";
 import { ATTACHMENT_LIMIT, checkAttachment, myTickets, notifySupport, raiseTicket, supportAddress, type Attachment } from "../domain/support";
 import { MailError, mailer } from "../lib/mailer";
 import { previewRules } from "../domain/preview";
+import { KEPT, resetTenant } from "../domain/reset";
 import { recordSignIn, signIns, type Outcome } from "../domain/sign-ins";
 import { oemAdapter } from "../oem";
 import { XLSX_MIME } from "../lib/xlsx";
@@ -635,6 +636,44 @@ export function authRoutes(app: App) {
         : []),
     ]);
     return c.json({ settings: next, rules_changed: changed });
+  });
+
+  /**
+   * Clears the dealership's day-to-day record so it can start afresh, from inside the dealership.
+   *
+   * The System Admin's alone (`admin.reset`), and two things have to be given before anything is
+   * touched: the dealership's name typed out, and the person's own password again. The name is the
+   * guard against doing it to the wrong place; the password is the guard against it being done from
+   * a screen somebody walked away from. A near miss on either removes nothing.
+   *
+   * The people, the outlets, the vehicle master and the WhatsApp setup stay -- the same line resetTenant
+   * draws -- so everybody signs in afterwards exactly as before, the person who pressed it included.
+   *
+   * Two records are written afterwards. One on the dealership's own trail, which has just been emptied,
+   * so the first line on it says what happened. And one on the platform's record, which the dealership
+   * cannot reach or clear: who emptied it, and of how much, has to survive the emptying.
+   */
+  app.post("/api/settings/clear-data", async (c) => {
+    need(c, "admin.reset");
+    const ctx = c.get("ctx");
+    const user = c.get("user");
+    const b = await jsonBody<{ confirm?: string; password?: string }>(c).catch(() => ({}) as { confirm?: string; password?: string });
+    if (String(b.confirm ?? "").trim().toLowerCase() !== ctx.tenant.name.trim().toLowerCase()) {
+      throw bad(`Type the dealership's name exactly — ${ctx.tenant.name} — to confirm. Nothing has been removed.`);
+    }
+    const me = await first<{ password_hash: string }>(ctx.db, `SELECT password_hash FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1`, user.id, ctx.tenantId);
+    if (!me || !(await verifyPassword(String(b.password ?? ""), me.password_hash))) {
+      throw forbidden("That password is not correct. Nothing has been removed.");
+    }
+    const now = clock.now();
+    const result = await resetTenant(c.env, ctx.tenantId);
+    const detail = { by: user.name, mobile: user.mobile, removed: result.removed, total: result.total };
+    await ctx.db.batch([
+      auditStmt(ctx, "DEALERSHIP_RESET", "tenant", ctx.tenantId, detail),
+      stmt(ctx.db, `INSERT INTO platform_audit (id, actor, action, entity, detail_json, at) VALUES (?,?,?,?,?,?)`, newId("pau"), user.id, "TENANT_RESET", ctx.tenantId, JSON.stringify({ slug: ctx.tenant.slug, name: ctx.tenant.name, from: "dealership", ...detail }), iso(now)),
+    ]);
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ name: ctx.tenant.name, ...result, kept: KEPT });
   });
 
   /**

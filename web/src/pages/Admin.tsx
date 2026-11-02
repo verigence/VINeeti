@@ -11,7 +11,7 @@ import { SystemTab } from "./Insights";
 import type { EmployeeImportResult, Outlet, Role, RoleInfo, RolesResponse, UserInput, UserRow } from "../types";
 import { RulesTab } from "./AdminRules";
 
-type Tab = "outlets" | "users" | "roles" | "rules" | "health";
+type Tab = "outlets" | "users" | "roles" | "rules" | "health" | "clear";
 
 export function AdminPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -21,16 +21,18 @@ export function AdminPage({ tab }: { tab: Tab }) {
     ...(can("admin.users") ? [{ to: "/admin/outlets", label: "Outlets" }] : []),
     ...(can("admin.settings") ? [{ to: "/admin/rules", label: "Rules and settings" }] : []),
     ...(can("admin.settings") ? [{ to: "/admin/health", label: "System health (new)" }] : []),
+    ...(can("admin.reset") ? [{ to: "/admin/clear-data", label: "Clear old data" }] : []),
   ];
   return (
     <>
       <PageHeader title="Settings" subtitle="The people who use VINeeti here, the outlets, and the rules the system follows." />
-      <Tabs current={`/admin/${tab}`} tabs={tabs} />
+      <Tabs current={tab === "clear" ? "/admin/clear-data" : `/admin/${tab}`} tabs={tabs} />
       {tab === "outlets" && <OutletsTab />}
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
       {tab === "rules" && <RulesTab />}
       {tab === "health" && <SystemTab />}
+      {tab === "clear" && <ClearDataTab />}
     </>
   );
 }
@@ -918,5 +920,121 @@ function RolesView({ d }: { d: RolesResponse }) {
         </dl>
       </Card>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- clearing the dealership's data
+/** What a clear removes and what it keeps, in the words of the person deciding. */
+const CLEARS = ["Bookings", "Cars and their movements", "Allocations", "Requests and approvals", "Payments and invoices", "Uploaded DMS files", "Differences found by the day-end check", "WhatsApp messages", "Alerts", "Support tickets", "The audit trail"];
+const KEEPS = ["The dealership and its settings", "Outlets", "People and their sign-ins", "Models, variants and colours", "The WhatsApp setup"];
+
+/**
+ * Starting the dealership afresh, from inside it. The System Admin's alone. The tab says plainly what
+ * goes and what stays before any button is offered, and the button asks for the dealership's name and
+ * the person's own password: a clear done by accident cannot be undone, so the screen is built to make
+ * an accident impossible rather than unlikely.
+ */
+function ClearDataTab() {
+  const { me } = useSession();
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState<{ total: number; removed: Record<string, number> } | null>(null);
+  const name = me.tenant.name;
+
+  if (done) {
+    const lines = Object.entries(done.removed).filter(([, n]) => n > 0);
+    return (
+      <Card title={`${name} has been cleared`}>
+        <div className="form-stack">
+          <Notice tone="ok" title="Done. ">
+            {fmtNumber(done.total)} records removed. The outlets, the people and the vehicle master are as they were, and everybody signs in as before.
+          </Notice>
+          {lines.length > 0 && (
+            <ul className="muted">
+              {lines.map(([table, n]) => (
+                <li key={table}>
+                  {table.replace(/_/g, " ")}: {fmtNumber(n)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted">The next step is to load today's DMS files on Upload DMS files, which builds the stock and bookings up again from the DMS.</p>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card title="Clear old data and start afresh" note="For a dealership that wants to begin again with its own data — after a trial, or at the start of a new year.">
+        <div className="form-stack">
+          <Notice tone="warn" title="This cannot be undone. ">
+            Everything {name} has recorded in VINeeti is removed, and nothing is kept aside first. If any of it may be needed later, download the reports you need before you clear.
+          </Notice>
+          <div className="clear-columns">
+            <div>
+              <h3 className="group-title">Removed</h3>
+              <ul className="muted">{CLEARS.map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+            <div>
+              <h3 className="group-title">Kept</h3>
+              <ul className="muted">{KEEPS.map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+          </div>
+          <p className="muted">
+            One line is written to the audit trail afterwards, saying who cleared it and how much was removed. A copy of that line is also kept by JBR Consulting, outside the dealership, so the record of the clear survives it.
+          </p>
+          <div>
+            <Button variant="danger" onClick={() => setOpen(true)}>
+              Clear all data…
+            </Button>
+          </div>
+        </div>
+      </Card>
+      {open && <ClearDataDialog name={name} onClose={() => setOpen(false)} onDone={(r) => { setOpen(false); setDone(r); }} />}
+    </>
+  );
+}
+
+function ClearDataDialog({ name, onClose, onDone }: { name: string; onClose: () => void; onDone: (r: { total: number; removed: Record<string, number> }) => void }) {
+  const [confirm, setConfirm] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = confirm.trim().toLowerCase() === name.trim().toLowerCase() && password.length > 0;
+
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await api.clearData(confirm, password));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      title={`Clear all of ${name}'s data?`}
+      onClose={() => !busy && onClose()}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" busy={busy} disabled={!ready} onClick={() => void go()}>Clear all data</Button>
+        </>
+      }
+    >
+      <div className="form-stack">
+        <Notice tone="warn" title="This cannot be undone. ">Bookings, cars, allocations, payments, files, messages and the audit trail are removed. Outlets, people and the vehicle master stay.</Notice>
+        <Field label={`Type "${name}" to confirm`}>
+          <input value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" spellCheck={false} placeholder={name} />
+        </Field>
+        <Field label="Your password">
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+        </Field>
+        {error && <Notice tone="error">{error}</Notice>}
+      </div>
+    </Dialog>
   );
 }

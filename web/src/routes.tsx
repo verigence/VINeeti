@@ -117,6 +117,7 @@ const ROUTES: Route[] = [
   { path: "/admin/outlets", allowed: (can) => can("admin.users"), render: () => <AdminPage tab="outlets" /> },
   { path: "/admin/rules", allowed: (can) => can("admin.settings"), render: () => <AdminPage tab="rules" /> },
   { path: "/admin/health", allowed: (can) => can("admin.settings"), render: () => <AdminPage tab="health" /> },
+  { path: "/admin/clear-data", allowed: (can) => can("admin.reset"), render: () => <AdminPage tab="clear" /> },
 
   { path: "/audit", allowed: (can) => can("audit.view"), render: () => <AuditPage /> },
   { path: "/audit/sign-ins", allowed: (can) => can("audit.view"), render: () => <SignInsPage /> },

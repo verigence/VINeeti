@@ -33,6 +33,7 @@ export type Permission =
   | "master.manage" // the vehicle master: variants, colours, mapping of DMS names
   | "admin.users"
   | "admin.settings"
+  | "admin.reset" // empty the dealership's day-to-day record and start afresh: the System Admin only
   | "audit.view";
 
 /**
@@ -56,7 +57,7 @@ const EVERYTHING: Permission[] = [
  * Admin give their own privileges back.
  */
 export const SYSTEM_ADMIN_SETTLED: Permission[] = [
-  ...VIEW_ALL, "stock.value", "recon.view", "wa.view", "wa.manage", "master.manage", "admin.users", "admin.settings", "audit.view",
+  ...VIEW_ALL, "stock.value", "recon.view", "wa.view", "wa.manage", "master.manage", "admin.users", "admin.settings", "admin.reset", "audit.view",
 ];
 
 /**
@@ -66,8 +67,10 @@ export const SYSTEM_ADMIN_SETTLED: Permission[] = [
  */
 const MATRIX: Record<Role, Permission[]> = {
   // Sets the place up. Everything for now, while the dealership settles; SYSTEM_ADMIN_SETTLED above is
-  // where it is going, and that is a one-word change.
-  ADMIN: EVERYTHING,
+  // where it is going, and that is a one-word change. Clearing the dealership's data is added here and
+  // nowhere else: it is not in EVERYTHING, so the roles built from EVERYTHING by subtraction -- the
+  // Dealer Principal, the CEO -- do not pick it up by accident.
+  ADMIN: [...EVERYTHING, "admin.reset"],
   // The owner. Everything except loading the DMS files, which is the EDP Manager's daily job.
   DEALER_PRINCIPAL: EVERYTHING.filter((p) => p !== "upload.stock" && p !== "upload.bookings"),
   // Answerable for execution, so: everything, except acting on money. Payments are read-only here —
@@ -200,6 +203,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "master.manage": "Maintain the vehicle master",
   "admin.users": "Manage users and outlets",
   "admin.settings": "Change settings and allocation rules",
+  "admin.reset": "Clear the dealership's data and start afresh",
   "audit.view": "See the audit trail",
 };
 
