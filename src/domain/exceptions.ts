@@ -11,7 +11,7 @@ import { DEFERRAL_KEEP_DAYS, requestable } from "./release-reasons";
 
 /** Whole days from one business date to another, both `YYYY-MM-DD`. */
 const daysApart = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
-import { queueFor, type Waiting } from "./queue";
+import { carFits, queueFor, type Waiting } from "./queue";
 import { queueCompare, queueValues, type QueueBooking } from "./rules";
 import { windowSchedule } from "./timers";
 
@@ -117,7 +117,7 @@ async function namedReceiver(ctx: Ctx, p: Record<string, unknown>, from: Booking
   if (await activeAllocationForBooking(ctx, to.id)) throw conflict("That booking already holds a car");
   // A customer gets the car they booked. Handing them a different colour or trim is a different sale
   // and belongs in a changed booking, not in a release request.
-  if (car.model !== to.model || car.variant !== to.variant || car.colour !== to.colour) {
+  if (!carFits(car, to)) {
     throw bad(`Booking ${to.booking_no} is for a ${to.colour} ${to.model} ${to.variant}, and this car is a ${car.colour} ${car.model} ${car.variant}. Change the booking first if the customer has agreed to this car.`);
   }
   // What the approver has to see: taking this car off one customer and giving it to another may also
@@ -236,7 +236,7 @@ async function validate(ctx: Ctx, input: ExceptionInput, deciding?: string): Pro
       if (!input.vehicle_id) throw bad("Choose the car to allocate");
       const v = await first<{ id: string; model: string; variant: string; colour: string; status: string }>(ctx.db, `SELECT id, model, variant, colour, status FROM vehicles WHERE id = ? AND tenant_id = ?`, input.vehicle_id, ctx.tenantId);
       if (!v) throw bad("Vehicle not found");
-      if (v.model !== b.model || v.variant !== b.variant || v.colour !== b.colour) throw bad("The car does not match the booking's model, variant and colour");
+      if (!carFits(v, b)) throw bad("The car does not match the booking's model, variant and colour");
       if (!["APPROVED", "ALLOCATED"].includes(b.status)) throw conflict("Only an approved booking can be allocated a car");
       return {};
     }

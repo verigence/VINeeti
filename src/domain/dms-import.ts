@@ -29,8 +29,8 @@ import { oemAdapter, SUPPORTED_OEMS } from "../oem";
 import { allocateAll, releaseAllocation, releaseStmts, vehicleLabel } from "./allocation";
 import { cancelBooking } from "./bookings";
 import { receiveVehicle } from "./inventory";
-import { bookingColour, canonColour, COLOUR_NOT_GIVEN, keyOf, loadMaster, refreshBookingColours, registerColours, registerDmsCars, type DmsCarInput, type Master } from "./master";
-import { queueKey, waitingQueues, type Waiting } from "./queue";
+import { bookingColour, canonColour, keyOf, loadMaster, refreshBookingColours, registerColours, registerDmsCars, type DmsCarInput, type Master } from "./master";
+import { ANY_COLOUR, carQueue, waitingQueues, type Waiting } from "./queue";
 import { queueCompare } from "./rules";
 
 /** Steps per request that message a customer or move a reservation. Each costs several database calls. */
@@ -532,7 +532,7 @@ export async function importStockReport(
     let bypassed: Waiting[] = [];
     if (queues && !invoiced || (queues && wasWaiting)) {
       // Out of turn: bookings the dealership's queue rules rank ahead of this one were waiting for this same car.
-      const q = queues!.get(queueKey(ctx.settings, { model: v.model, variant: v.variant, colour: v.colour, outlet_id: b.outlet_id })) ?? [];
+      const q = carQueue(queues!, ctx.settings, { model: v.model, variant: v.variant, colour: v.colour, outlet_id: b.outlet_id });
       bypassed = q.filter((w) => w.id !== b.id && rank(w, b) < 0);
     }
     if (bypassed.length) { s.orders.out_of_turn++; outOfTurn.push(`${b.booking_no} (ahead of ${bypassed[0].booking_no}${bypassed.length > 1 ? ` and ${bypassed.length - 1} more` : ""})`); }
@@ -997,10 +997,9 @@ export async function importBookingSheet(
     if (!variant) { errors.push({ row: r.row, key: r.booking_no, message: `Variant ${r.variant} could not be registered in the vehicle master` }); continue; }
     const cur = existing.get(r.booking_no);
     // An export with no colour column (Hyundai's booking report) cannot say what colour the customer
-    // booked. The booking waits under "colour not given" and is not offered a car until somebody gives
-    // the colour on the booking, because a car of the wrong colour is a different sale. A colour given
-    // that way is kept when the same file is loaded again.
-    const colour = sheet.has_colour === false ? (cur && cur.colour !== COLOUR_NOT_GIVEN ? cur.colour : COLOUR_NOT_GIVEN) : bookingColour(master, r);
+    // booked, so the booking takes any colour of its model and variant, in its turn. A colour set on
+    // the booking in the app is kept when the same file is loaded again.
+    const colour = sheet.has_colour === false ? (cur && cur.colour !== ANY_COLOUR ? cur.colour : ANY_COLOUR) : bookingColour(master, r);
     if (!colour) { errors.push({ row: r.row, key: r.booking_no, message: "Colour is blank" }); continue; }
     if (cur && scope && !scope.includes(cur.outlet_id)) { errors.push({ row: r.row, key: r.booking_no, message: "This booking belongs to an outlet that is not one of yours" }); continue; }
     kept.push(r);

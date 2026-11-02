@@ -11,7 +11,7 @@ import { DEFAULT_TEMPLATES } from "../whatsapp/templates";
 import { formatDate } from "./allocation";
 import { dataStatus } from "./data-status";
 import { STOCK_ISSUES } from "../dms/reports";
-import { queueKey, waitingQueues, type Waiting } from "./queue";
+import { ANY_COLOUR, queueKey, waitingQueues, type Waiting } from "./queue";
 import { queueCompare } from "./rules";
 import { windowSchedule } from "./timers";
 
@@ -349,7 +349,7 @@ export async function runReconciliation(ctx: Ctx, trigger: string): Promise<{ ru
   for (const r of await all<{ model: string; variant: string; colour: string; cars: number; waiting: number }>(
     ctx.db,
     `SELECT b.model, b.variant, b.colour, COUNT(DISTINCT v.id) AS cars, COUNT(DISTINCT b.id) AS waiting
-     FROM bookings b JOIN vehicles v ON v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND v.colour = b.colour
+     FROM bookings b JOIN vehicles v ON v.tenant_id = b.tenant_id AND v.model = b.model AND v.variant = b.variant AND (b.colour = '${ANY_COLOUR}' OR v.colour = b.colour)
        AND v.status IN (${ctx.settings.allocate_in_transit ? "'IN_TRANSIT','RECEIVED'" : "'RECEIVED'"}) AND v.is_blocked = 0 ${ctx.settings.outlet_scope === "SAME_OUTLET_ONLY" ? "AND v.outlet_id = b.outlet_id" : ""}
      WHERE b.tenant_id = ? AND b.status = 'APPROVED' AND b.on_hold = 0
        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.vehicle_id = v.id AND a.status = 'ACTIVE')

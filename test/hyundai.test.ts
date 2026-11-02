@@ -81,51 +81,52 @@ describe("Hyundai DMS files", () => {
     expect(one(w, `SELECT COUNT(*) AS n FROM vehicles WHERE net_dealer_price IS NOT NULL`)).toBe(0);
   });
 
-  it("loads bookings under the same variant, with no colour, and offers them no car until the colour is given", async () => {
-    const res = await w.send("/api/uploads/bookings?filename=BDK%20-%20Booking.csv", csv([
-      bookingRow({}),
-      bookingRow({ No: "2", "Enquiry No": "E260000002", "Cust. No": "C1000000002", "Customer Name": "Test Customer Two", "Phone No": "9800000002", "Booking Date": "04/09/2026" }),
-      bookingRow({ No: "3", "Enquiry No": "E260000003", "Cust. No": "C1000000003", "Customer Name": "Test Customer Three", "Phone No": "9800000003", "Enquiry Status": "Retail" }),
-    ]), s);
+  const bookings = () => csv([
+    bookingRow({}),
+    bookingRow({ No: "2", "Enquiry No": "E260000002", "Cust. No": "C1000000002", "Customer Name": "Test Customer Two", "Phone No": "9800000002", "Booking Date": "04/09/2026" }),
+    bookingRow({ No: "3", "Enquiry No": "E260000003", "Cust. No": "C1000000003", "Customer Name": "Test Customer Three", "Phone No": "9800000003", "Enquiry Status": "Retail" }),
+    // A variant with no car in stock: it waits.
+    bookingRow({ No: "4", "Enquiry No": "E260000004", "Cust. No": "C1000000004", "Customer Name": "Test Customer Four", "Phone No": "9800000004", Model: "EXTER(HW)", Variant: "EXTER 1.2MT Kappa HX 8(6513)" }),
+  ]);
+
+  it("loads bookings under the same variant as the cars, in any colour, and allocates them in turn", async () => {
+    const res = await w.send("/api/uploads/bookings?filename=BDK%20-%20Booking.csv", bookings(), s);
     expect(res.status).toBe(200);
     expect(res.body.errors).toEqual([]);
-    expect(res.body.allocations).toBe(0);
     expect(w.db.q(`SELECT booking_no, status, model, variant, colour, dms_customer_no AS cust FROM bookings ORDER BY booking_no`)).toEqual([
-      { booking_no: "E260000001", status: "APPROVED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "COLOUR NOT GIVEN", cust: "C1000000001" },
-      { booking_no: "E260000002", status: "APPROVED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "COLOUR NOT GIVEN", cust: "C1000000002" },
+      { booking_no: "E260000001", status: "ALLOCATED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "ANY COLOUR", cust: "C1000000001" },
+      { booking_no: "E260000002", status: "ALLOCATED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "ANY COLOUR", cust: "C1000000002" },
       // "Retail" is invoiced; the report does not say the car was handed over.
-      { booking_no: "E260000003", status: "INVOICED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "COLOUR NOT GIVEN", cust: "C1000000003" },
+      { booking_no: "E260000003", status: "INVOICED", model: "New Venue", variant: "VENUE 1.2 Kappa MT HX 4 (6366)", colour: "ANY COLOUR", cust: "C1000000003" },
+      { booking_no: "E260000004", status: "APPROVED", model: "EXTER", variant: "EXTER 1.2MT Kappa HX 8 (6513)", colour: "ANY COLOUR", cust: "C1000000004" },
     ]);
-    expect(one(w, `SELECT COUNT(*) AS n FROM vehicle_variants`)).toBe(1);
-    expect(one(w, `SELECT COUNT(*) AS n FROM allocations`)).toBe(0);
+    // The two waiting Venue bookings take the two Venues in the showroom, before the two on their way, whatever their colour.
+    expect(res.body.allocations).toBe(2);
+    expect(w.db.q(`SELECT v.vin FROM allocations a JOIN vehicles v ON v.id = a.vehicle_id WHERE a.status = 'ACTIVE' ORDER BY v.vin`)).toEqual([{ vin: "MALTEST0000000001" }, { vin: "MALTEST0000000002" }]);
+    expect(one(w, `SELECT COUNT(*) AS n FROM vehicle_variants`)).toBe(2);
   });
 
-  it("takes the colour once, from the booking, and then allocates like any other booking", async () => {
-    const id = w.db.q<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'E260000001'`)[0].id;
-    const given = await w.api("POST", `/api/bookings/${id}/colour`, { colour: "atlas white" }, s);
-    expect(given.status).toBe(200);
-    expect(given.body.allocations).toBe(1);
-    expect(w.db.q(`SELECT b.booking_no, b.colour, v.vin FROM allocations a JOIN bookings b ON b.id = a.booking_id JOIN vehicles v ON v.id = a.vehicle_id WHERE a.status = 'ACTIVE'`)).toEqual([
-      { booking_no: "E260000001", colour: "ATLAS WHITE", vin: "MALTEST0000000001" },
-    ]);
-    const again = await w.api("POST", `/api/bookings/${id}/colour`, { colour: "FIERY RED" }, s);
-    expect(again.status).toBe(409);
+  it("can set a colour, once, for a customer who wants a particular one", async () => {
+    const waiting = w.db.q<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'E260000004'`)[0].id;
+    const held = w.db.q<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'E260000001'`)[0].id;
+    expect((await w.api("POST", `/api/bookings/${held}/colour`, { colour: "FIERY RED" }, s)).status).toBe(409);
+    const set = await w.api("POST", `/api/bookings/${waiting}/colour`, { colour: "ranger khaki" }, s);
+    expect(set.status).toBe(200);
+    expect(set.body.allocations).toBe(0);
+    expect((await w.api("POST", `/api/bookings/${waiting}/colour`, { colour: "ATLAS WHITE" }, s)).status).toBe(409);
     expect(one(w, `SELECT COUNT(*) AS n FROM audit_log WHERE action = 'BOOKING_COLOUR_GIVEN'`)).toBe(1);
   });
 
-  it("keeps a colour given in the app when the same booking report is loaded again", async () => {
-    const res = await w.send("/api/uploads/bookings?filename=BDK%20-%20Booking.csv", csv([
-      bookingRow({}),
-      bookingRow({ No: "2", "Enquiry No": "E260000002", "Cust. No": "C1000000002", "Customer Name": "Test Customer Two", "Phone No": "9800000002", "Booking Date": "04/09/2026" }),
-      bookingRow({ No: "3", "Enquiry No": "E260000003", "Cust. No": "C1000000003", "Customer Name": "Test Customer Three", "Phone No": "9800000003", "Enquiry Status": "Retail" }),
-    ]), s);
+  it("keeps a colour set in the app when the same booking report is loaded again", async () => {
+    const res = await w.send("/api/uploads/bookings?filename=BDK%20-%20Booking.csv", bookings(), s);
     expect(res.status).toBe(200);
     expect(res.body.errors).toEqual([]);
     expect(w.db.q(`SELECT booking_no, colour FROM bookings WHERE status IN ('APPROVED','ALLOCATED') ORDER BY booking_no`)).toEqual([
-      { booking_no: "E260000001", colour: "ATLAS WHITE" },
-      { booking_no: "E260000002", colour: "COLOUR NOT GIVEN" },
+      { booking_no: "E260000001", colour: "ANY COLOUR" },
+      { booking_no: "E260000002", colour: "ANY COLOUR" },
+      { booking_no: "E260000004", colour: "RANGER KHAKI" },
     ]);
-    expect(one(w, `SELECT COUNT(*) AS n FROM allocations WHERE status = 'ACTIVE'`)).toBe(1);
+    expect(one(w, `SELECT COUNT(*) AS n FROM allocations WHERE status = 'ACTIVE'`)).toBe(2);
   });
 
   it("reads the retail report: invoices per dealer code, the car by its HMI invoice, the booking by the customer number", async () => {

@@ -46,12 +46,34 @@ export const atLeastMinimum = (settings: Pick<TenantSettings, "min_booking_amoun
 /** The other side of it: approved, not on hold, and still short of the minimum, so not in the line. */
 export const belowMinimum = (settings: Pick<TenantSettings, "min_booking_amount">, p = "") => `${p}status = 'APPROVED' AND ${p}on_hold = 0 AND ${p}booking_amount < ${queueMinimum(settings)}`;
 
+/**
+ * The colour of a booking whose DMS export has no colour column (Hyundai's booking report). Such a
+ * booking takes a car of its model and variant in any colour, in its turn. If the customer wants a
+ * particular colour, it can be set on the booking, and from then on it waits for that colour.
+ */
+export const ANY_COLOUR = "ANY COLOUR";
+
+/** Whether a car is one a booking may be given: the same model and variant, and its colour or any colour. */
+export const carFits = (car: { model: string; variant: string; colour: string }, b: { model: string; variant: string; colour: string }) =>
+  car.model === b.model && car.variant === b.variant && (b.colour === ANY_COLOUR || car.colour === b.colour);
+
+/**
+ * The bookings waiting for one car, in order: those for its colour and those for any colour of its
+ * model and variant, ranked together by the dealership's queue rules.
+ */
+export function carQueue(queues: Map<string, Waiting[]>, settings: TenantSettings, car: { model: string; variant: string; colour: string; outlet_id: string }): Waiting[] {
+  const own = queues.get(queueKey(settings, car)) ?? [];
+  if (car.colour === ANY_COLOUR) return own;
+  const any = queues.get(queueKey(settings, { ...car, colour: ANY_COLOUR })) ?? [];
+  return any.length ? [...own, ...any].sort(queueCompare(settings)) : own;
+}
+
 /** Every waiting booking of the dealership (optionally of one model / variant / colour), grouped into queues and sorted. */
 export async function waitingQueues(ctx: Ctx, cfg?: { model: string; variant: string; colour: string }, settings: TenantSettings = ctx.settings): Promise<Map<string, Waiting[]>> {
   const rows = await all<Waiting>(
     ctx.db,
     `SELECT id, booking_no, outlet_id, model, variant, colour, booking_date, priority_ts, expected_delivery_date, booking_amount, priority_override_json, customer_name, approved_at, created_at
-     FROM bookings WHERE tenant_id = ? AND ${inQueue(settings)} ${cfg ? "AND model = ? AND variant = ? AND colour = ?" : ""} LIMIT 5000`,
+     FROM bookings WHERE tenant_id = ? AND ${inQueue(settings)} ${cfg ? `AND model = ? AND variant = ? AND colour IN (?, '${ANY_COLOUR}')` : ""} LIMIT 5000`,
     ...(cfg ? [ctx.tenantId, cfg.model, cfg.variant, cfg.colour] : [ctx.tenantId]),
   );
   const queues = new Map<string, Waiting[]>();

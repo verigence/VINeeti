@@ -279,10 +279,10 @@ export function TimelineCard({ d }: { d: BookingDetail }) {
   );
 }
 
-/** The colour a booking is loaded under when the DMS export has no colour column. Matches the server. */
-export const COLOUR_NOT_GIVEN = "COLOUR NOT GIVEN";
+/** The colour a booking is loaded under when the DMS export has no colour column: it takes any colour. Matches the server. */
+export const ANY_COLOUR = "ANY COLOUR";
 
-// ---------------------------------------------------------------- the colour the DMS file did not give
+// ---------------------------------------------------------------- a colour for a booking that takes any
 export function ColourDialog({ booking: b, onClose, onDone }: { booking: Booking; onClose: () => void; onDone: () => void }) {
   const action = useAction();
   const catalog = useCatalog();
@@ -291,11 +291,11 @@ export function ColourDialog({ booking: b, onClose, onDone }: { booking: Booking
   const [problem, setProblem] = useState<string | null>(null);
 
   const submit = async () => {
-    if (!colour.trim()) return setProblem("Choose the colour the customer booked.");
+    if (!colour.trim()) return setProblem("Choose the colour the customer wants.");
     setProblem(null);
     const res = await action.run(() => api.giveColour(b.id, colour.trim()), {
       quiet: true,
-      success: (r) => (r.allocations ? "Colour saved, and a car was allocated." : "Colour saved. The booking now waits for a car of this colour."),
+      success: (r) => (r.allocations ? "Colour set, and a car was allocated." : "Colour set. The booking now waits for a car of this colour."),
     });
     if (res) onDone();
   };
@@ -318,7 +318,8 @@ export function ColourDialog({ booking: b, onClose, onDone }: { booking: Booking
     >
       <div className="form-stack">
         <p className="muted">
-          The DMS booking report does not say which colour was booked. Give it from the booking form. It can be given once; a later change goes through a request.
+          The DMS booking report does not say which colour was booked, so this booking takes the next {b.model} of its variant in any colour. Set a colour only if the customer wants a
+          particular one; the booking then waits for that colour. It can be set once; a later change goes through a request.
         </p>
         {colours.length ? (
           <Field label={`Colour of the ${b.model}`}>
