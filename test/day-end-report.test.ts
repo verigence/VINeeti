@@ -132,6 +132,12 @@ describe("configuring and sending it", () => {
     w.at("2026-10-14 09:00");
     await w.tick();
     expect(w.db.q(`SELECT attempts FROM day_end_reports`)).toEqual([{ attempts: 1 }]);
+    // Late in the day nothing is sent: the morning email is not sent in the evening.
+    w.db.raw.exec(`DELETE FROM day_end_reports`);
+    w.at("2026-10-14 20:30");
+    await w.tick();
+    expect(w.db.q(`SELECT * FROM day_end_reports`)).toHaveLength(0);
+    w.db.raw.exec(`INSERT INTO day_end_reports (id, tenant_id, business_date, status, attempts, recipients_json, sent_at, created_at) SELECT 'der_x', id, '2026-10-13', 'MAIL_NOT_CONFIGURED', 1, '[]', '2026-10-14T03:00:00Z', '2026-10-14T03:00:00Z' FROM tenants LIMIT 1`);
   });
 
   it("is not sent once switched off", async () => {

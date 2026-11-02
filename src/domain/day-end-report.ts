@@ -470,6 +470,8 @@ export async function dayEndRecipients(ctx: Ctx): Promise<{ to: Recipient[]; wit
   return { to: to.slice(0, 40), without_email };
 }
 
+const SEND_WINDOW_MINUTES = 180;
+
 /** The day before a date, `YYYY-MM-DD`. */
 export const dayBefore = (date: string) => new Date(Date.parse(`${date}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
@@ -482,6 +484,11 @@ export async function dayEndReportDue(ctx: Ctx): Promise<string | null> {
   if (!cfg.enabled) return null;
   const { date, time } = localParts(ctx.now, ctx.tenant.timezone);
   if (time < cfg.time) return null;
+  // Only in the three hours after the set time. A report turned on, or a deployment made, late in the
+  // day does not send the morning email in the evening; it goes the next morning. The job runs every
+  // 15 minutes, so three hours leaves room for a failed send to be tried again.
+  const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  if (minutes(time) - minutes(cfg.time) >= SEND_WINDOW_MINUTES) return null;
   if (!cfg.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) return null;
   const covers = dayBefore(date);
   const row = await first<{ status: string; attempts: number }>(ctx.db, `SELECT status, attempts FROM day_end_reports WHERE tenant_id = ? AND business_date = ?`, ctx.tenantId, covers);
