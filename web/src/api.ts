@@ -233,6 +233,7 @@ export const api = {
   // ---- vehicle master
   master: () => get<T.MasterResponse>("/api/master"),
   updateVariant: (id: string, p: T.VariantPatch) => patch<T.MasterVariant>(`/api/master/variants/${enc(id)}`, p),
+  setModelCategory: (model: string, category: string) => post<{ model: string; category: string; variants: number }>("/api/master/model-category", { model, category }),
   masterExportUrl: "/api/master/export",
   uploadMaster: (file: File) => {
     const form = new FormData();

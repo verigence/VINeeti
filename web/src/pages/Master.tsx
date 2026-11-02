@@ -11,6 +11,7 @@ import { fmtDateTime, fmtNumber, orDash, plural } from "../format";
 import { useAction, useLoad } from "../hooks";
 import { plainText } from "../labels";
 import { useQuery } from "../router";
+import { useSession } from "../session";
 import type { ColourReviewRow, MasterName, MasterResponse, MasterUploadResult, MasterVariantRow, VariantPatch } from "../types";
 
 const ATTRS = ["category", "trim", "transmission", "fuel", "drive", "seater"] as const;
@@ -45,9 +46,11 @@ function VariantsTab({ m, reload }: { m: MasterResponse; reload: () => Promise<v
   const rows = m.variants.filter((v) => (!model || v.model === model) && (!blanks || hasBlanks(v)));
   const blank = <span className="muted">—</span>;
   const attr = (v: string) => (v.trim() ? v : blank);
+  const categoryName = useCategoryName();
 
   const columns: Column<MasterVariantRow>[] = [
-    { header: "Category", cell: (v) => attr(v.category) },
+    // The short form in the table, where the full name would wrap every row to three lines.
+    { header: "Category", cell: (v) => (v.category.trim() ? <span title={categoryName(v.category)}>{categoryName(v.category, true)}</span> : blank) },
     { header: "Model", cell: (v) => v.model },
     { header: "Trim", cell: (v) => attr(v.trim) },
     { header: "Transmission", cell: (v) => attr(v.transmission) },
@@ -74,6 +77,7 @@ function VariantsTab({ m, reload }: { m: MasterResponse; reload: () => Promise<v
   return (
     <>
       <SheetCard reload={reload} />
+      <ModelCategories m={m} reload={reload} />
       <FilterBar active={(model ? 1 : 0) + (blanks ? 1 : 0)} onClear={() => setQuery({ model: null, blanks: null })}>
         <Filter label="Model">
           <Select value={model} onChange={(v) => setQuery({ model: v })} options={models.map((x) => ({ value: x, label: x }))} placeholder="All models" />
@@ -114,6 +118,7 @@ function VariantsTab({ m, reload }: { m: MasterResponse; reload: () => Promise<v
 
 function VariantDialog({ variant: v, onClose, onDone }: { variant: MasterVariantRow; onClose: () => void; onDone: () => void }) {
   const action = useAction();
+  const categoryName = useCategoryName();
   const fromDms = v.origin === "DMS";
   const [f, setF] = useState({ category: v.category, model: v.model, trim: v.trim, transmission: v.transmission, fuel: v.fuel, drive: v.drive, seater: v.seater, variant: v.variant });
   const [active, setActive] = useState(Boolean(v.is_active));
@@ -121,7 +126,8 @@ function VariantDialog({ variant: v, onClose, onDone }: { variant: MasterVariant
 
   const submit = async () => {
     // A variant from the DMS keeps its model and name; they are not sent.
-    const patch: VariantPatch = { category: f.category, trim: f.trim, transmission: f.transmission, fuel: f.fuel, drive: f.drive, seater: f.seater, is_active: active };
+    // The category belongs to the model and is changed under Model categories, for every variant at once.
+    const patch: VariantPatch = { trim: f.trim, transmission: f.transmission, fuel: f.fuel, drive: f.drive, seater: f.seater, is_active: active };
     if (!fromDms) {
       patch.model = f.model;
       patch.variant = f.variant;
@@ -160,7 +166,9 @@ function VariantDialog({ variant: v, onClose, onDone }: { variant: MasterVariant
         )}
         {text("variant", "Variant", fromDms)}
         {text("model", "Model", fromDms)}
-        {text("category", "Category")}
+        <Field label="Category" hint={`Set for the whole ${v.model} model, under Model categories on this screen.`}>
+          <input value={v.category ? categoryName(v.category) : "Not set"} disabled />
+        </Field>
         {text("trim", "Trim")}
         {text("transmission", "Transmission")}
         {text("fuel", "Fuel")}
@@ -395,5 +403,103 @@ function SameColourDialog({ row, onClose, onDone }: { row: ColourReviewRow; onCl
         {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
       </div>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------- model categories
+/**
+ * The manufacturer's category for a model, as the dealership says it: "Commercial vehicles (CV)" for
+ * Mahindra's PROSPER. A category the list does not know is shown as itself, so it can be spotted.
+ */
+function useCategoryName() {
+  const { me } = useSession();
+  return (key: string, short = false) => {
+    const s = me.segments.find((x) => x.key === key);
+    return s ? (short ? s.short : `${s.label} (${s.short})`) : key;
+  };
+}
+
+interface ModelRow {
+  model: string;
+  /** The single category every variant shares, or "" when it is not set or the variants disagree. */
+  category: string;
+  split: boolean;
+  variants: number;
+  cars: number;
+  bookings: number;
+}
+
+/**
+ * Which category each model is in, one line per model, set for the whole model at once and only from
+ * the manufacturer's list. The category decides who sees a model: a person given only the commercial
+ * segment sees only commercial models. So a model with no category, or one the list does not know, is
+ * invisible to anybody restricted to a segment -- and those are put at the top, marked.
+ */
+function ModelCategories({ m, reload }: { m: MasterResponse; reload: () => Promise<void> }) {
+  const { me } = useSession();
+  const action = useAction();
+  const [saving, setSaving] = useState<string | null>(null);
+  const name = useCategoryName();
+
+  const known = me.segments.map((x) => x.key);
+  const options = (known.length ? known : [...new Set(m.variants.map((v) => v.category).filter(Boolean))].sort()).map((k) => ({ value: k, label: name(k) }));
+  const rows: ModelRow[] = useMemo(() => {
+    const by = new Map<string, MasterVariantRow[]>();
+    for (const v of m.variants) by.set(v.model, [...(by.get(v.model) ?? []), v]);
+    return [...by.entries()].map(([model, vs]) => {
+      const cats = [...new Set(vs.map((v) => v.category).filter(Boolean))];
+      return {
+        model,
+        category: cats.length === 1 && vs.every((v) => v.category) ? cats[0] : "",
+        split: cats.length > 1 || (cats.length === 1 && vs.some((v) => !v.category)),
+        variants: vs.length,
+        cars: vs.reduce((a, v) => a + v.cars_in_stock, 0),
+        bookings: vs.reduce((a, v) => a + v.open_bookings, 0),
+      };
+    });
+  }, [m.variants]);
+  const unknown = (r: ModelRow) => !r.category || (known.length > 0 && !known.includes(r.category));
+  const sorted = [...rows].sort((a, b) => Number(unknown(b)) - Number(unknown(a)) || a.model.localeCompare(b.model));
+  const needing = rows.filter(unknown).length;
+
+  const change = async (r: ModelRow, category: string) => {
+    if (!category || category === r.category) return;
+    setSaving(r.model);
+    const res = await action.run(() => api.setModelCategory(r.model, category), { success: (x) => `${x.model} is now in ${name(x.category)} — ${plural(x.variants, "variant")}.` });
+    setSaving(null);
+    if (res) await reload();
+  };
+
+  const columns: Column<ModelRow>[] = [
+    { header: "Model", primary: true, cell: (r) => <span className="strong">{r.model}</span> },
+    {
+      header: "Category",
+      cell: (r) => (
+        <span className="model-category">
+          <Select value={r.category} onChange={(v) => void change(r, v)} options={options} placeholder={r.split ? "Mixed — choose one" : "Not set — choose one"} disabled={saving !== null} />
+          {unknown(r) && <Chip tone="red">{r.split ? "Mixed" : r.category ? "Not recognised" : "Not set"}</Chip>}
+        </span>
+      ),
+    },
+    { header: "Variants", num: true, cell: (r) => fmtNumber(r.variants) },
+    { header: "Cars in stock", num: true, cell: (r) => fmtNumber(r.cars) },
+    { header: "Open bookings", num: true, cell: (r) => fmtNumber(r.bookings) },
+  ];
+
+  return (
+    <div className="model-categories">
+    <Disclosure summary={`Model categories — ${plural(rows.length, "model")}${needing ? `, ${needing} to set` : ""}`} open={needing > 0}>
+      <div className="form-stack">
+        <p className="muted">
+          A category is set for the whole model and applies to all its variants at once. It decides who sees the model: a person given only some categories on the Users screen sees only the models in them, so
+          a model marked Not set or Mixed is hidden from them until it is chosen here.
+        </p>
+        {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
+        <div className="boxed-table">
+          <DataTable columns={columns} rows={sorted} rowKey={(r) => r.model} caption="Model categories" />
+        </div>
+      </div>
+    </Disclosure>
+    </div>
   );
 }

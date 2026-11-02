@@ -1,6 +1,6 @@
 import { all } from "../lib/db";
 import { bad, toCsv } from "../lib/util";
-import { addVariant, catalog, exportMaster, importMaster, loadMaster, mapAlias, removeAlias, setColours, updateVariant } from "../domain/master";
+import { addVariant, catalog, exportMaster, importMaster, loadMaster, mapAlias, removeAlias, setColours, setModelCategory, updateVariant } from "../domain/master";
 import { jsonBody, need, type App } from "./app";
 
 /** The vehicle master: variants with their attributes, colours per model, and the mapping of DMS names. */
@@ -71,6 +71,13 @@ export function masterRoutes(app: App) {
   app.patch("/api/master/variants/:id", async (c) => {
     need(c, "master.manage");
     return c.json(await updateVariant(c.get("ctx"), c.req.param("id"), await jsonBody(c)));
+  });
+
+  /** Puts a whole model in one category, chosen from the manufacturer's list. */
+  app.post("/api/master/model-category", async (c) => {
+    need(c, "master.manage");
+    const b = await jsonBody<{ model?: string; category?: string }>(c);
+    return c.json(await setModelCategory(c.get("ctx"), b.model, b.category));
   });
 
   app.put("/api/master/colours", async (c) => {

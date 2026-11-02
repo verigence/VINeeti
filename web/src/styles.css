@@ -5517,3 +5517,16 @@ button.primary {
     width: 100%;
   }
 }
+
+/* ---------------------------------------------------------------- model categories */
+.model-categories {
+  margin-bottom: 16px;
+}
+.model-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-category select {
+  min-width: 220px;
+}
