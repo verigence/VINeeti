@@ -5392,4 +5392,126 @@ button.primary {
 .clear-columns ul {
   margin: 6px 0 0;
   padding-left: 18px;
+/* ---------------------------------------------------------------- the welcome screen, shown once */
+/* The sign-in card's frame and manners -- navy behind, one white card, the maker at the foot -- made
+   wide enough to carry four features two by two. */
+.welcome {
+  width: min(760px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 36px 40px 30px;
+  box-shadow: 0 18px 50px rgba(0, 20, 45, 0.22);
+  color: var(--text);
+}
+.welcome-head {
+  max-width: 600px;
+}
+.welcome-wordmark {
+  display: block;
+  height: 36px;
+  width: auto;
+  margin-bottom: 26px;
+}
+.welcome-eyebrow {
+  margin: 0 0 8px;
+  color: var(--gold-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.welcome-title {
+  margin: 0;
+  color: var(--navy);
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+.welcome-lead {
+  margin: 14px 0 0;
+  font-size: 15.5px;
+  line-height: 1.6;
+}
+.welcome-who {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.welcome-features {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 24px 0 0;
+  border-top: 1px solid var(--border-soft);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px 32px;
+}
+.welcome-feature {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.welcome-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--gold-soft);
+  color: var(--gold-text);
+}
+.welcome-feature-title {
+  display: block;
+  color: var(--navy);
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.welcome-feature-body {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.welcome-foot {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 28px;
+}
+.welcome-thanks {
+  margin: 0;
+  max-width: 440px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.welcome-foot .btn {
+  flex: none;
+  min-width: 150px;
+}
+@media (max-width: 640px) {
+  .welcome {
+    padding: 26px 20px 22px;
+  }
+  .welcome-title {
+    font-size: 24px;
+  }
+  .welcome-features {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .welcome-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .welcome-foot .btn {
+    width: 100%;
+  }
 }

@@ -191,6 +191,16 @@ export function authRoutes(app: App) {
     return authenticate(c, next);
   });
 
+  /**
+   * The person has seen the welcome screen. Recorded on the account rather than in the browser, so it
+   * is shown once per person, not once per phone. Saying it twice is harmless: the first time stands.
+   */
+  app.post("/api/auth/welcomed", async (c) => {
+    const ctx = c.get("ctx");
+    await run(ctx.db, `UPDATE users SET welcomed_at = COALESCE(welcomed_at, ?) WHERE id = ? AND tenant_id = ?`, iso(clock.now()), c.get("user").id, ctx.tenantId);
+    return c.json({ ok: true });
+  });
+
   app.get("/api/auth/me", async (c) => {
     const ctx = c.get("ctx");
     const scope = outletScope(c);

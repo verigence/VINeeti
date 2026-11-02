@@ -42,16 +42,16 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   const claims = token ? await verifySession(token, c.env.SESSION_SECRET, now) : null;
   if (!claims) throw new HttpError(401, "Please sign in", "UNAUTHENTICATED");
   const tenant = await first<TenantRow>(c.env.DB, `SELECT * FROM tenants WHERE id = ? AND is_active = 1`, claims.tid);
-  const u = await first<{ id: string; name: string; mobile: string; role: Role; all_outlets: number; must_change_password: number; token_version: number }>(
+  const u = await first<{ id: string; name: string; mobile: string; role: Role; all_outlets: number; must_change_password: number; welcomed_at: string | null; token_version: number }>(
     c.env.DB,
-    `SELECT id, name, mobile, role, all_outlets, must_change_password, token_version FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1`,
+    `SELECT id, name, mobile, role, all_outlets, must_change_password, welcomed_at, token_version FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1`,
     claims.uid,
     claims.tid,
   );
   if (!tenant || !u || u.token_version !== claims.tv) throw new HttpError(401, "Please sign in again", "UNAUTHENTICATED");
   const outletIds = u.all_outlets ? [] : (await all<{ outlet_id: string }>(c.env.DB, `SELECT outlet_id FROM user_outlets WHERE user_id = ? AND tenant_id = ?`, u.id, tenant.id)).map((r) => r.outlet_id);
   const segments = (await all<{ segment: string }>(c.env.DB, `SELECT segment FROM user_segments WHERE user_id = ? AND tenant_id = ? ORDER BY segment`, u.id, tenant.id)).map((r) => r.segment);
-  const user: SessionUser = { id: u.id, name: u.name, mobile: u.mobile, role: u.role, allOutlets: Boolean(u.all_outlets), outletIds, segments, mustChangePassword: Boolean(u.must_change_password) };
+  const user: SessionUser = { id: u.id, name: u.name, mobile: u.mobile, role: u.role, allOutlets: Boolean(u.all_outlets), outletIds, segments, mustChangePassword: Boolean(u.must_change_password), welcomed: Boolean(u.welcomed_at) };
   c.set("user", user);
   const ctx = buildCtx(c.env, tenant, user.id, now);
   c.set("ctx", ctx);

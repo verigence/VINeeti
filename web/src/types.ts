@@ -92,7 +92,7 @@ export interface OutletRef {
 }
 
 export interface Me {
-  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; segments: string[]; mustChangePassword: boolean; permissions: Permission[] };
+  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; segments: string[]; mustChangePassword: boolean; welcomed: boolean; permissions: Permission[] };
   tenant: { id: string; slug: string; name: string; oem: string; timezone: string };
   settings: TenantSettings;
   outlets: Outlet[];

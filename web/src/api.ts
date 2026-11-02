@@ -103,6 +103,7 @@ export const api = {
   // ---- session
   login: (dealer: string, mobile: string, password: string) => post<Ok>("/api/auth/login", { dealer: dealer || undefined, mobile, password }),
   logout: () => post<Ok>("/api/auth/logout"),
+  welcomed: () => post<Ok>("/api/auth/welcomed"),
   me: () => get<T.Me>("/api/auth/me"),
   changePassword: (current: string, next: string) => post<Ok>("/api/auth/change-password", { current, next }),
   authOptions: (dealer: string, mobile: string) => get<{ otp: boolean }>("/api/auth/options", { dealer, mobile }),
