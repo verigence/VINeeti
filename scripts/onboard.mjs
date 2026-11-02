@@ -29,7 +29,8 @@ main(async () => {
   if (!dealer.slug || !dealer.name || !dealer.admin?.mobile || !dealer.admin?.email || !dealer.admin?.password) throw new Stop(`${file} needs slug, name, oem and admin (name, mobile, email, password).`);
 
   if (rotate) {
-    const worker = readConfig().name;
+    // DEPLOY_WORKER names the second deployment (see the deploy workflow); otherwise the one in wrangler.jsonc.
+    const worker = (process.env.DEPLOY_WORKER ?? "").trim() || readConfig().name;
     base ??= workerUrl(worker);
     token = randomSecret();
     console.log(`Setting a fresh platform token on the Worker "${worker}"`);
