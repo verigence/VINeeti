@@ -34,7 +34,8 @@ export type Permission =
   | "admin.users"
   | "admin.settings"
   | "admin.reset" // empty the dealership's day-to-day record and start afresh: the System Admin only
-  | "audit.view";
+  | "audit.view"
+  | "report.day_end"; // read the day-end report and send it on demand: the roles it goes to, and whoever configures it
 
 /**
  * What each persona can do. Approver roles for bookings and exceptions, and who receives alarms, come
@@ -109,6 +110,8 @@ export function permissionsFor(role: Role, settings: TenantSettings): Permission
   // allocation by hand no longer exists, so this is the one door left to a named car. It gets its
   // own, narrower list of approvers.
   if (settings.release_approver_roles.includes(role)) set.add("release.decide");
+  // The day-end report is read by the roles it is sent to, and by whoever sets it up.
+  if ((settings.day_end_report?.roles ?? []).includes(role) || set.has("admin.settings")) set.add("report.day_end");
   // A dealership without WhatsApp has nothing to see, resend or set up, so nobody is given the right
   // to. Taking it away here rather than hiding a menu entry means the screens disappear and the routes
   // behind them refuse too: one switch, and no way round it from a saved link.
@@ -205,6 +208,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "admin.settings": "Change settings and allocation rules",
   "admin.reset": "Clear the dealership's data and start afresh",
   "audit.view": "See the audit trail",
+  "report.day_end": "Read the day-end report and send it on demand",
 };
 
 export function roleMatrix(settings: TenantSettings) {

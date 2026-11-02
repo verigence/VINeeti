@@ -8,6 +8,7 @@ import { useLoad } from "../hooks";
 import { Link } from "../router";
 import { useSession } from "../session";
 import { BusinessTab } from "./Insights";
+import { DayEndReportView } from "./DayEndReport";
 import { AllocationDashboard, AlternativesDashboard, DelayedDashboard, OrderQueueDashboard } from "./Dashboards";
 import { BoardPage } from "./Board";
 import { AGE_COLOURS, Chart, dayLabel, PALETTE } from "../components/Chart";
@@ -30,7 +31,8 @@ type Tab =
   | "control"
   | "writeback"
   | "business"
-  | "stock-days";
+  | "stock-days"
+  | "day-end";
 
 export function AnalyticsPage({ tab }: { tab: Tab }) {
   const { can } = useSession();
@@ -52,6 +54,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
     { to: "/analytics/writeback", label: "To update in DMS" },
     ...(can("booking.view_all") ? [{ to: "/analytics/business", label: "Business health (new)" }] : []),
     { to: "/analytics/stock-days", label: "Stock by day" },
+    ...(can("report.day_end") ? [{ to: "/analytics/day-end", label: "Day-end report" }] : []),
   ];
   return (
     <>
@@ -72,6 +75,7 @@ export function AnalyticsPage({ tab }: { tab: Tab }) {
       {tab === "writeback" && <Writeback />}
       {tab === "business" && <BusinessTab />}
       {tab === "stock-days" && <StockDays />}
+      {tab === "day-end" && <DayEndReportView />}
     </>
   );
 }

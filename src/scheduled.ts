@@ -114,10 +114,11 @@ export async function runScheduled(env: Env, now: Date): Promise<ScheduledReport
         reconBudget--;
         report.reconciliation = (await runReconciliation(ctx, "SCHEDULED")).run_id;
       }
-      // The day-end report goes once a day, after its time, to the people the dealership chose.
-      if (reportBudget > 0 && (await dayEndReportDue(ctx))) {
+      // The previous day's report goes once a day, at its time, to the people the dealership chose.
+      const reportDay = reportBudget > 0 ? await dayEndReportDue(ctx) : null;
+      if (reportDay) {
         reportBudget--;
-        const sent = await sendDayEndReport(ctx, localParts(now, tenant.timezone).date);
+        const sent = await sendDayEndReport(ctx, reportDay);
         report.day_end_report = `${sent.status} (${sent.sent.length} sent${sent.failed.length ? `, ${sent.failed.length} failed` : ""})`;
       }
     } catch (e) {

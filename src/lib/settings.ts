@@ -21,11 +21,11 @@ export const CAR_CRITERIA: Record<CarCriterion, { label: string; help: string }>
 /** Items of the booking submission checklist. The person submitting confirms each is on file; no copy is stored in this system. */
 export type DocumentKind = "DOCKET" | "KYC" | "PAN_AADHAAR" | "PAYMENT_PROOF";
 
-/** The day-end report: whether, when and to whom it is emailed. */
+/** The day-end report: whether, when and to whom it is emailed. The emailed report is the previous day's, complete. */
 export interface DayEndReportSettings {
-  /** Whether the report is sent at all. Off until the dealership turns it on. */
+  /** Whether the report is sent at all. */
   enabled: boolean;
-  /** Local time (HH:MM) from which the day's report is sent. */
+  /** Local time (HH:MM) at which the previous day's report is sent. */
   time: string;
   /** Days of the week it is sent on: 0 = Sunday ... 6 = Saturday. */
   days: number[];
@@ -36,8 +36,8 @@ export interface DayEndReportSettings {
 }
 
 export const DEFAULT_DAY_END_REPORT: DayEndReportSettings = {
-  enabled: false,
-  time: "20:00",
+  enabled: true,
+  time: "08:30",
   days: [0, 1, 2, 3, 4, 5, 6],
   roles: ["GM_SALES", "CEO_VP", "DEALER_PRINCIPAL"],
   emails: [],
@@ -280,7 +280,7 @@ export function mergeSettings(current: TenantSettings, patch: Record<string, unk
     const d = { ...next.day_end_report };
     if (v.enabled !== undefined) d.enabled = Boolean(v.enabled);
     if (v.time !== undefined) {
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v.time))) throw new Error("The day-end report time must be a time such as 20:00");
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v.time))) throw new Error("The day-end report time must be a time such as 08:30");
       d.time = String(v.time);
     }
     if (v.days !== undefined) {

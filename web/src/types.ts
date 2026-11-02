@@ -35,7 +35,8 @@ export type Permission =
   | "admin.users"
   | "admin.settings"
   | "admin.reset"
-  | "audit.view";
+  | "audit.view"
+  | "report.day_end";
 
 export type OutletScope = "SAME_OUTLET_FIRST" | "SAME_OUTLET_NEARBY" | "SAME_OUTLET_ONLY" | "ANY_OUTLET";
 export type QueueCriterion = "BOOKING_DATE" | "DELIVERY_COMMITMENT" | "BOOKING_AMOUNT";
@@ -91,7 +92,17 @@ export interface DayEndSetup {
   recipients: { name: string; role: string; email: string }[];
   without_email: { name: string; role: string }[];
   mail_ready: boolean;
-  history: { business_date: string; status: string; attempts: number; recipients: number; sent_at: string }[];
+  history: SentReport[];
+}
+
+export interface SentReport {
+  business_date: string;
+  how: string;
+  by: string;
+  status: string;
+  attempts: number;
+  recipients: number;
+  sent_at: string;
 }
 
 export interface Outlet {

@@ -50,12 +50,9 @@ export interface DayEndData {
   prepared_at: string;
   url: string;
   people: {
-    active: number;
     signed_in: number;
-    sign_ins: number;
-    refused: number;
-    by_role: { role: string; label: string; active: number; signed_in: number; sign_ins: number }[];
-    list: { name: string; role: string; first: string; last: string; count: number }[];
+    /** Each person who signed in, with the times they did. */
+    list: { name: string; role: string; times: string[] }[];
   };
   files: { kind: string; label: string; at: string; by: string; report_date: string | null; rows: number; created: number; updated: number; errors: number; brief: string }[];
   last_files: { kind: string; label: string; at: string | null }[];
@@ -106,39 +103,25 @@ export async function gatherDayEnd(ctx: Ctx, date: string): Promise<DayEndData> 
   const segment = (c: string) => (c ? segmentLabel(ctx.tenant.oem, c) : "Not set");
   const label = (r: string) => ROLE_LABELS[r as Role] ?? r;
 
-  // ---- 1. people
-  const users = await all<{ id: string; role: string }>(ctx.db, `SELECT id, role FROM users WHERE tenant_id = ? AND is_active = 1`, T);
-  const signIns = await all<{ user_id: string | null; name: string | null; role: string | null; outcome: string; at: string }>(
+  // ---- 1. people: who signed in, and when
+  const signIns = await all<{ user_id: string; name: string | null; role: string | null; at: string }>(
     ctx.db,
-    `SELECT user_id, name, role, outcome, at FROM sign_ins WHERE tenant_id = ? AND at >= ? AND at < ? ORDER BY at`,
+    `SELECT user_id, name, role, at FROM sign_ins WHERE tenant_id = ? AND outcome = 'IN' AND user_id IS NOT NULL AND at >= ? AND at < ? ORDER BY at`,
     T, start, end,
   );
-  const ok = signIns.filter((s) => s.outcome === "IN" && s.user_id);
-  const perUser = new Map<string, { name: string; role: string; first: string; last: string; count: number }>();
-  for (const s of ok) {
-    const cur = perUser.get(s.user_id!) ?? { name: s.name ?? "", role: s.role ?? "", first: s.at, last: s.at, count: 0 };
-    cur.last = s.at;
-    cur.count++;
-    perUser.set(s.user_id!, cur);
+  const perUser = new Map<string, { name: string; role: string; times: string[] }>();
+  for (const s of signIns) {
+    const cur = perUser.get(s.user_id) ?? { name: s.name ?? "", role: s.role ?? "", times: [] };
+    const t = at(s.at, tz);
+    if (!cur.times.includes(t)) cur.times.push(t);
+    perUser.set(s.user_id, cur);
   }
-  const roles = [...new Set([...users.map((u) => u.role), ...[...perUser.values()].map((p) => p.role)])].filter(Boolean);
   const order = Object.keys(ROLE_LABELS);
-  roles.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const people: DayEndData["people"] = {
-    active: users.length,
     signed_in: perUser.size,
-    sign_ins: ok.length,
-    refused: signIns.filter((s) => s.outcome !== "IN").length,
-    by_role: roles.map((r) => ({
-      role: r,
-      label: label(r),
-      active: users.filter((u) => u.role === r).length,
-      signed_in: [...perUser.values()].filter((p) => p.role === r).length,
-      sign_ins: [...perUser.values()].filter((p) => p.role === r).reduce((n, p) => n + p.count, 0),
-    })),
     list: [...perUser.values()]
       .sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role) || a.name.localeCompare(b.name))
-      .map((p) => ({ name: p.name, role: label(p.role), first: at(p.first, tz), last: at(p.last, tz), count: p.count })),
+      .map((p) => ({ name: p.name, role: label(p.role), times: p.times })),
   };
 
   // ---- 2. DMS files
@@ -321,18 +304,13 @@ function tiles(items: [string, number, string?][]): string {
 }
 
 /** The report as an HTML page. `logo` is how the page refers to the product mark (a cid: in a message, a path in the app). */
-export function dayEndHtml(d: DayEndData, opts: { logo?: string } = {}): string {
+export function dayEndHtml(d: DayEndData, opts: { logo?: string; greeting?: string } = {}): string {
   const r = d.requests;
   const a = d.allocations;
   const p = d.people;
   const sum = (list: { raised: number; approved: number; rejected: number; pending: number }[]) => list.reduce((t, x) => ({ raised: t.raised + x.raised, approved: t.approved + x.approved, rejected: t.rejected + x.rejected, pending: t.pending + x.pending }), { raised: 0, approved: 0, rejected: 0, pending: 0 });
 
-  const peopleBody =
-    (p.by_role.length
-      ? table(["Role", "Active users", "Signed in", "Sign-ins"], p.by_role.map((x) => [x.label, x.active, x.signed_in, x.sign_ins]), { total: ["Total", p.active, p.signed_in, p.sign_ins] })
-      : none("No users are set up.")) +
-    (p.list.length ? `<div style="height:12px;"></div>` + table(["Name", "Role", "First", "Last", "Sign-ins"], p.list.map((x) => [x.name, x.role, x.first, x.last, x.count]), { left: [1] }) : `<div style="height:8px;"></div>` + none("Nobody signed in on this day.")) +
-    (p.refused ? note(`${fmt(p.refused)} sign-in attempt${p.refused === 1 ? " was" : "s were"} refused (wrong password, unknown number or locked account).`) : "");
+  const peopleBody = p.list.length ? table(["Name", "Role", "Signed in at"], p.list.map((x) => [x.name, x.role, x.times.join(", ")]), { left: [1, 2] }) : none("Nobody signed in on this day.");
 
   const filesBody =
     (d.files.length
@@ -389,9 +367,17 @@ export function dayEndHtml(d: DayEndData, opts: { logo?: string } = {}): string 
         <h1 style="margin:0;font:700 22px/1.3 ${FONT};color:${NAVY};">${esc(d.dealership)}</h1>
         <p style="margin:4px 0 0;font:400 14px/1.5 ${FONT};color:${MUTED};">${esc(d.oem)} · ${esc(longDate(d.date))} · figures as at ${esc(d.prepared_at)}</p>
       </td></tr>
+      ${
+        opts.greeting
+          ? `<tr><td style="padding:16px 32px 0;">
+               <p style="margin:0 0 8px;font:400 14px/1.6 ${FONT};color:${INK};">${esc(opts.greeting)},</p>
+               <p style="margin:0;font:400 14px/1.6 ${FONT};color:${INK};">Please find below the summary of activity in VINeeti at ${esc(d.dealership)} for ${esc(longDate(d.date))}.</p>
+             </td></tr>`
+          : ""
+      }
       <tr><td style="padding:14px 28px 0;">
         ${tiles([
-          ["Signed in", p.signed_in, `of ${fmt(p.active)} active users`],
+          ["People signed in", p.signed_in],
           ["DMS files loaded", d.files.length],
           ["Requests raised", r.raised],
           ["Requests pending", r.pending, r.overdue ? `${fmt(r.overdue)} past ${r.sla_hours} h` : undefined],
@@ -405,7 +391,16 @@ export function dayEndHtml(d: DayEndData, opts: { logo?: string } = {}): string 
       ${section(2, "DMS data loaded", filesBody)}
       ${section(3, "Allocation and deallocation requests", requestsBody)}
       ${section(4, "Allocations, and allotments outside VINeeti", allocBody)}
-      <tr><td style="padding:28px 32px 26px;">
+      ${
+        opts.greeting
+          ? `<tr><td style="padding:24px 32px 0;">
+               <p style="margin:0;font:400 14px/1.6 ${FONT};color:${INK};">Regards,</p>
+               <p style="margin:2px 0 0;font:600 14px/1.6 ${FONT};color:${NAVY};">VINeeti</p>
+               <p style="margin:0;font:400 13px/1.6 ${FONT};color:${MUTED};">${esc(d.dealership)}</p>
+             </td></tr>`
+          : ""
+      }
+      <tr><td style="padding:24px 32px 26px;">
         <div style="height:1px;background:${LINE};margin-bottom:12px;"></div>
         <p style="margin:0;font:400 12px/1.6 ${FONT};color:${MUTED};">Business day ${esc(shortDate(d.date))}, midnight to midnight, dealership time. Prepared by VINeeti${d.url ? ` · <a href="${esc(d.url)}" style="color:${TEAL};">${esc(d.url.replace(/^https?:\/\//, ""))}</a>` : ""}. This is an automated report; please do not reply to it.</p>
         <p style="margin:6px 0 0;font:600 12px/1.6 ${FONT};color:${NAVY};">VINeeti · A product by JBR Consulting</p>
@@ -417,20 +412,22 @@ export function dayEndHtml(d: DayEndData, opts: { logo?: string } = {}): string 
 }
 
 /** The plain-text alternative: the headline figures. */
-export function dayEndText(d: DayEndData): string {
+export function dayEndText(d: DayEndData, greeting?: string): string {
   const r = d.requests;
   const a = d.allocations;
   return [
+    ...(greeting ? [`${greeting},`, "", `Please find below the summary of activity in VINeeti at ${d.dealership} for ${longDate(d.date)}.`, ""] : []),
     `Day-end report — ${d.dealership}`,
     `${longDate(d.date)}, figures as at ${d.prepared_at}`,
     "",
-    `Signed in: ${d.people.signed_in} of ${d.people.active} active users (${d.people.sign_ins} sign-ins)`,
+    `People signed in: ${d.people.signed_in}${d.people.list.length ? ` (${d.people.list.map((p) => p.name).join(", ")})` : ""}`,
     `DMS files loaded: ${d.files.length ? d.files.map((f) => `${f.label} at ${f.at}`).join(", ") : "none"}`,
     `Requests: ${r.raised} raised, ${r.approved} approved, ${r.rejected} rejected, ${r.pending} pending`,
     `Allocations: ${a.made_here} in VINeeti, ${a.released} released, ${a.outside} allotted in the DMS outside VINeeti`,
     "",
     "The full report is in the HTML version of this message.",
     d.url ? `VINeeti: ${d.url}` : "",
+    ...(greeting ? ["", "Regards,", "VINeeti", d.dealership] : []),
   ].join("\n");
 }
 
@@ -473,15 +470,22 @@ export async function dayEndRecipients(ctx: Ctx): Promise<{ to: Recipient[]; wit
   return { to: to.slice(0, 40), without_email };
 }
 
-/** Whether today's report is due now: switched on, a sending day, past the time, and not already sent. */
-export async function dayEndReportDue(ctx: Ctx): Promise<boolean> {
+/** The day before a date, `YYYY-MM-DD`. */
+export const dayBefore = (date: string) => new Date(Date.parse(`${date}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * The day whose report is due now, or null. The emailed report is the previous day's, complete: it is
+ * sent on a sending day once the set time has passed, once, with a failed send tried up to three times.
+ */
+export async function dayEndReportDue(ctx: Ctx): Promise<string | null> {
   const cfg = ctx.settings.day_end_report;
-  if (!cfg.enabled) return false;
+  if (!cfg.enabled) return null;
   const { date, time } = localParts(ctx.now, ctx.tenant.timezone);
-  if (time < cfg.time) return false;
-  if (!cfg.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) return false;
-  const row = await first<{ status: string; attempts: number }>(ctx.db, `SELECT status, attempts FROM day_end_reports WHERE tenant_id = ? AND business_date = ?`, ctx.tenantId, date);
-  return !row || (row.status === "FAILED" && row.attempts < 3);
+  if (time < cfg.time) return null;
+  if (!cfg.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) return null;
+  const covers = dayBefore(date);
+  const row = await first<{ status: string; attempts: number }>(ctx.db, `SELECT status, attempts FROM day_end_reports WHERE tenant_id = ? AND business_date = ?`, ctx.tenantId, covers);
+  return !row || (row.status === "FAILED" && row.attempts < 3) ? covers : null;
 }
 
 export interface SendResult {
@@ -492,28 +496,34 @@ export interface SendResult {
 }
 
 /**
- * Builds the day's report and emails it. `only` sends it to those addresses alone, as a test, and is
- * not recorded as the day's report; otherwise it goes to the configured recipients and the attempt is
- * recorded, so the scheduled job sends each day's report once.
+ * Builds a day's report and emails it, one message per recipient with their name on it.
+ *
+ *   SCHEDULED  to the configured recipients; recorded against the day, so it goes once.
+ *   ON_DEMAND  to the configured recipients, at somebody's request; recorded in the audit trail.
+ *   `only`     to the addresses given alone (a person sending it to themselves); recorded in the audit trail.
  */
-export async function sendDayEndReport(ctx: Ctx, date: string, only?: string[]): Promise<SendResult> {
+export async function sendDayEndReport(ctx: Ctx, date: string, opts: { trigger?: "SCHEDULED" | "ON_DEMAND"; only?: Recipient[] } = {}): Promise<SendResult> {
+  const trigger = opts.trigger ?? "SCHEDULED";
+  const only = opts.only;
   const post = mailer(ctx.env, () => ctx.now);
-  const list = only ? only.map((email) => ({ name: "", role: "", email })) : (await dayEndRecipients(ctx)).to;
+  const list = only ?? (await dayEndRecipients(ctx)).to;
   const result: SendResult = { date, sent: [], failed: [], status: "SENT" };
   if (!post) result.status = "MAIL_NOT_CONFIGURED";
   else if (!list.length) result.status = "NO_RECIPIENTS";
   else {
     const data = await gatherDayEnd(ctx, date);
     const logo = await emailMark(ctx.env, "email-logo.png");
-    const message = {
-      subject: `Day-end report · ${data.dealership} · ${shortDate(date)}${only ? " (test)" : ""}`,
-      body: dayEndText(data),
-      html: dayEndHtml(data, { logo: logo ? "cid:vineeti-logo" : undefined }),
-      ...(logo ? { images: { "vineeti-logo": logo } } : {}),
-    };
+    const subject = dayEndSubject(data);
     for (const r of list) {
+      const greeting = r.name ? `Dear ${r.name.split(" ")[0]}` : "Dear Sir / Madam";
       try {
-        await post.send({ ...message, to: r.email });
+        await post.send({
+          to: r.email,
+          subject,
+          body: dayEndText(data, greeting),
+          html: dayEndHtml(data, { logo: logo ? "cid:vineeti-logo" : undefined, greeting }),
+          ...(logo ? { images: { "vineeti-logo": logo } } : {}),
+        });
         result.sent.push(r.email);
       } catch (e) {
         result.failed.push({ email: r.email, error: e instanceof MailError ? e.code : String((e as Error)?.message ?? "").slice(0, 120) });
@@ -521,7 +531,14 @@ export async function sendDayEndReport(ctx: Ctx, date: string, only?: string[]):
     }
     result.status = !result.failed.length ? "SENT" : result.sent.length ? "PARTLY_SENT" : "FAILED";
   }
-  if (!only) {
+  if (only || trigger === "ON_DEMAND") {
+    await run(
+      ctx.db,
+      `INSERT INTO audit_log (id, tenant_id, actor, action, entity_type, entity_id, detail_json, at) VALUES (?,?,?,?,?,?,?,?)`,
+      newId("aud"), ctx.tenantId, ctx.actor, "DAY_END_REPORT_SENT", "tenant", ctx.tenantId,
+      JSON.stringify({ date, trigger: only ? "TO_SELF" : "ON_DEMAND", status: result.status, sent: result.sent, failed: result.failed }), iso(ctx.now),
+    );
+  } else {
     const now = iso(ctx.now);
     await run(
       ctx.db,
@@ -535,12 +552,37 @@ export async function sendDayEndReport(ctx: Ctx, date: string, only?: string[]):
   return result;
 }
 
-/** The last reports sent, for the settings screen. */
-export async function dayEndHistory(ctx: Ctx): Promise<{ business_date: string; status: string; attempts: number; recipients: number; sent_at: string }[]> {
-  const rows = await all<{ business_date: string; status: string; attempts: number; recipients_json: string; sent_at: string }>(
+/** The subject line: what it is, for whom, and the day. */
+export const dayEndSubject = (d: DayEndData) => `VINeeti Day-End Report | ${d.dealership} | ${longDate(d.date)}`;
+
+export interface SentReport {
+  business_date: string;
+  how: "Morning email" | "Sent on demand" | "Sent to self";
+  by: string;
+  status: string;
+  attempts: number;
+  recipients: number;
+  sent_at: string;
+}
+
+/** The reports sent lately, by the morning email and on demand, for the screens. */
+export async function dayEndHistory(ctx: Ctx): Promise<SentReport[]> {
+  const scheduled = await all<{ business_date: string; status: string; attempts: number; recipients_json: string; sent_at: string }>(
     ctx.db,
-    `SELECT business_date, status, attempts, recipients_json, sent_at FROM day_end_reports WHERE tenant_id = ? ORDER BY business_date DESC LIMIT 10`,
+    `SELECT business_date, status, attempts, recipients_json, sent_at FROM day_end_reports WHERE tenant_id = ? ORDER BY sent_at DESC LIMIT 15`,
     ctx.tenantId,
   );
-  return rows.map((r) => ({ business_date: r.business_date, status: r.status, attempts: r.attempts, recipients: safe<string[]>(r.recipients_json, []).length, sent_at: r.sent_at }));
+  const asked = await all<{ detail_json: string; at: string; name: string | null }>(
+    ctx.db,
+    `SELECT l.detail_json, l.at, u.name FROM audit_log l LEFT JOIN users u ON u.id = l.actor WHERE l.tenant_id = ? AND l.action = 'DAY_END_REPORT_SENT' ORDER BY l.at DESC LIMIT 15`,
+    ctx.tenantId,
+  );
+  const out: SentReport[] = [
+    ...scheduled.map((r) => ({ business_date: r.business_date, how: "Morning email" as const, by: "", status: r.status, attempts: r.attempts, recipients: safe<string[]>(r.recipients_json, []).length, sent_at: r.sent_at })),
+    ...asked.map((r) => {
+      const x = safe<{ date?: string; trigger?: string; status?: string; sent?: string[] }>(r.detail_json, {});
+      return { business_date: x.date ?? "", how: x.trigger === "TO_SELF" ? ("Sent to self" as const) : ("Sent on demand" as const), by: r.name ?? "", status: x.status ?? "", attempts: 1, recipients: (x.sent ?? []).length, sent_at: r.at };
+    }),
+  ];
+  return out.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1)).slice(0, 15);
 }

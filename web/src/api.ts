@@ -292,7 +292,8 @@ export const api = {
   clearData: (confirm: string, password: string) => post<{ name: string; total: number; removed: Record<string, number>; kept: string[] }>("/api/settings/clear-data", { confirm, password }),
   previewSettings: (s: Partial<T.TenantSettings>) => post<T.RulesPreview>("/api/settings/preview", s),
   dayEndSetup: () => get<T.DayEndSetup>("/api/reports/day-end/setup"),
-  dayEndTest: (date?: string) => post<{ sent_to: string[] }>("/api/reports/day-end/test", { date }),
+  dayEndSend: (date: string, to?: "me") => post<{ date: string; sent_to: string[]; failed: { email: string; error: string }[] }>("/api/reports/day-end/send", { date, to }),
+  dayEndSent: () => get<{ history: T.SentReport[]; recipients: number }>("/api/reports/day-end/sent"),
 
   // ---- audit trail
   audit: (q: Query) => get<T.AuditRow[]>("/api/audit", q),
