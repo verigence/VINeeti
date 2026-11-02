@@ -39,7 +39,7 @@ describe("the day-end report", () => {
     const signedIn = w.db.q<{ n: number }>(`SELECT COUNT(DISTINCT user_id) AS n FROM sign_ins WHERE outcome = 'IN'`)[0].n;
     expect(r.body.people.signed_in).toBe(signedIn);
     expect(r.body.people.list.length).toBe(signedIn);
-    expect(r.body.people.list.find((x: any) => x.name === "Girish GM")).toEqual({ name: "Girish GM", role: "GM Sales", times: ["10:00"] });
+    expect(r.body.people.list.find((x: any) => x.name === "Girish GM")).toEqual({ name: "Girish GM", role: "GM Sales", times: ["10:00"], count: 1, via: "Browser" });
   });
 
   it("lists the DMS files loaded, with what each said", async () => {

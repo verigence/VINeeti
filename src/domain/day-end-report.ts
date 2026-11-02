@@ -51,8 +51,8 @@ export interface DayEndData {
   url: string;
   people: {
     signed_in: number;
-    /** Each person who signed in, with the times they did. */
-    list: { name: string; role: string; times: string[] }[];
+    /** Each person who signed in: who, their role, when, how often, and from where (the app or a browser). */
+    list: { name: string; role: string; times: string[]; count: number; via: string }[];
   };
   files: { kind: string; label: string; at: string; by: string; report_date: string | null; rows: number; created: number; updated: number; errors: number; brief: string }[];
   last_files: { kind: string; label: string; at: string | null }[];
@@ -104,16 +104,18 @@ export async function gatherDayEnd(ctx: Ctx, date: string): Promise<DayEndData> 
   const label = (r: string) => ROLE_LABELS[r as Role] ?? r;
 
   // ---- 1. people: who signed in, and when
-  const signIns = await all<{ user_id: string; name: string | null; role: string | null; at: string }>(
+  const signIns = await all<{ user_id: string; name: string | null; role: string | null; client: string | null; at: string }>(
     ctx.db,
-    `SELECT user_id, name, role, at FROM sign_ins WHERE tenant_id = ? AND outcome = 'IN' AND user_id IS NOT NULL AND at >= ? AND at < ? ORDER BY at`,
+    `SELECT user_id, name, role, client, at FROM sign_ins WHERE tenant_id = ? AND outcome = 'IN' AND user_id IS NOT NULL AND at >= ? AND at < ? ORDER BY at`,
     T, start, end,
   );
-  const perUser = new Map<string, { name: string; role: string; times: string[] }>();
+  const perUser = new Map<string, { name: string; role: string; times: string[]; count: number; via: Set<string> }>();
   for (const s of signIns) {
-    const cur = perUser.get(s.user_id) ?? { name: s.name ?? "", role: s.role ?? "", times: [] };
+    const cur = perUser.get(s.user_id) ?? { name: s.name ?? "", role: s.role ?? "", times: [], count: 0, via: new Set<string>() };
     const t = at(s.at, tz);
     if (!cur.times.includes(t)) cur.times.push(t);
+    cur.count++;
+    cur.via.add(s.client === "APP" ? "App" : "Browser");
     perUser.set(s.user_id, cur);
   }
   const order = Object.keys(ROLE_LABELS);
@@ -121,7 +123,7 @@ export async function gatherDayEnd(ctx: Ctx, date: string): Promise<DayEndData> 
     signed_in: perUser.size,
     list: [...perUser.values()]
       .sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role) || a.name.localeCompare(b.name))
-      .map((p) => ({ name: p.name, role: label(p.role), times: p.times })),
+      .map((p) => ({ name: p.name, role: label(p.role), times: p.times, count: p.count, via: [...p.via].sort().join(", ") })),
   };
 
   // ---- 2. DMS files
@@ -310,7 +312,9 @@ export function dayEndHtml(d: DayEndData, opts: { logo?: string; greeting?: stri
   const p = d.people;
   const sum = (list: { raised: number; approved: number; rejected: number; pending: number }[]) => list.reduce((t, x) => ({ raised: t.raised + x.raised, approved: t.approved + x.approved, rejected: t.rejected + x.rejected, pending: t.pending + x.pending }), { raised: 0, approved: 0, rejected: 0, pending: 0 });
 
-  const peopleBody = p.list.length ? table(["Name", "Role", "Signed in at"], p.list.map((x) => [x.name, x.role, x.times.join(", ")]), { left: [1, 2] }) : none("Nobody signed in on this day.");
+  const peopleBody = p.list.length
+    ? table(["Name", "Role", "Signed in at", "Sign-ins", "Via"], p.list.map((x) => [x.name, x.role, x.times.join(", "), x.count, x.via]), { left: [1, 2, 4] })
+    : none("Nobody signed in on this day.");
 
   const filesBody =
     (d.files.length
