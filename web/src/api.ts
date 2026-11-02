@@ -147,6 +147,7 @@ export const api = {
   cancelBooking: (id: string, reason: string) => post<T.WithAllocations>(`/api/bookings/${enc(id)}/cancel`, { reason }),
   setChecklist: (id: string, ticks: Partial<Record<T.ChecklistKey, boolean>>) => put<{ checklist_missing: T.ChecklistKey[] }>(`/api/bookings/${enc(id)}/checklist`, ticks),
   setContact: (id: string, c: { customer_mobile?: string; wa_opt_in?: boolean }) => post<{ changed: boolean }>(`/api/bookings/${enc(id)}/contact`, c),
+  giveColour: (id: string, colour: string) => post<{ allocations: number }>(`/api/bookings/${enc(id)}/colour`, { colour }),
   invoiceBooking: (id: string) => post<T.Booking>(`/api/bookings/${enc(id)}/invoice`),
   deliverBooking: (id: string) => post<T.Booking>(`/api/bookings/${enc(id)}/deliver`),
   markReady: (id: string) => post<T.WithAllocations>(`/api/bookings/${enc(id)}/ready`),

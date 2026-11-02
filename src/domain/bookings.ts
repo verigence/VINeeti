@@ -3,7 +3,7 @@ import { all, alertStmt, auditStmt, doneAlertStmt, first, isGuardFailure, run, s
 import { bad, conflict, forbidden, iso, localParts, newId, norm, normMobile, notFound, parseDate, parseDateTime, safeJson } from "../lib/util";
 import { activeAllocationForBooking, allocateAll, allocateConfig, releaseAllocation, type AllocationOutcome } from "./allocation";
 import { eventStmt } from "./inventory";
-import { resolveConfig, type ConfigInput } from "./master";
+import { COLOUR_NOT_GIVEN, loadMaster, resolveColour, resolveConfig, type ConfigInput } from "./master";
 import { alarmStmts } from "./alarms";
 import { queueFor } from "./queue";
 import { salesExecMessage } from "./staff-notify";
@@ -157,6 +157,27 @@ export async function updateBooking(ctx: Ctx, id: string, patch: Partial<Booking
     auditStmt(ctx, "BOOKING_EDITED", "booking", id, patch),
   ]);
   return getBooking(ctx, id);
+}
+
+/**
+ * Gives the colour of a booking that was loaded from a DMS export with no colour column. It is a
+ * missing fact being supplied, not a change: only a booking still waiting under "colour not given"
+ * takes it, once. A booking that already has a colour is changed through an exception request, as any
+ * change to the car booked is. Once it has its colour, the booking is offered a car like any other.
+ */
+export async function giveColour(ctx: Ctx, id: string, colour: unknown): Promise<{ booking: Booking; allocations: number }> {
+  const b = await getBooking(ctx, id);
+  if (b.colour !== COLOUR_NOT_GIVEN) throw conflict("This booking already has a colour. A change to the car booked goes through an exception request.");
+  if (["INVOICED", "DELIVERED", "CANCELLED"].includes(b.status)) throw conflict(`This booking is ${b.status.toLowerCase()}; its colour is no longer needed.`);
+  const r = resolveColour(await loadMaster(ctx, true), b.model, colour);
+  if (!r.ok) throw bad(r.message);
+  if (r.value === COLOUR_NOT_GIVEN) throw bad("Give the colour the customer booked");
+  await ctx.db.batch([
+    stmt(ctx.db, `UPDATE bookings SET colour = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND colour = ?`, r.value, iso(ctx.now), id, ctx.tenantId, COLOUR_NOT_GIVEN),
+    auditStmt(ctx, "BOOKING_COLOUR_GIVEN", "booking", id, { colour: r.value }),
+  ]);
+  const allocations = b.status === "APPROVED" ? (await allocateConfig(ctx, { model: b.model, variant: b.variant, colour: r.value })).length : 0;
+  return { booking: await getBooking(ctx, id), allocations };
 }
 
 /** The booking submission checklist (step 3 of the process). The person submitting confirms each item is on file; no copy is kept here. */

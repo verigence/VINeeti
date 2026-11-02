@@ -3,12 +3,13 @@
 // that depends on that is behind one adapter per manufacturer, chosen by the dealership's OEM. The rest
 // of the system (queue, allocation, payment window, reconciliation, screens) is the same for all.
 //
-// Adapters in this version: Mahindra. A dealership of another manufacturer can be onboarded and worked
-// from the screens, but its DMS files are refused with a plain message until its adapter is written from
-// real exports. Nothing is guessed from an unknown layout.
+// Adapters in this version: Mahindra and Hyundai, each written from real exports. A dealership of another
+// manufacturer can be onboarded and worked from the screens, but its DMS files are refused with a plain
+// message until its adapter is written. Nothing is guessed from an unknown layout.
 
 import type { Sheet } from "../lib/xlsx";
-import { readBookingSheet as mahindraBookingSheet, readStockReport as mahindraStockReport, type BookingSheet, type StockReport } from "../dms/reports";
+import { readBookingSheet as mahindraBookingSheet, readRetailReport as mahindraRetailReport, readStockReport as mahindraStockReport, type BookingSheet, type RetailReport, type StockReport } from "../dms/reports";
+import * as hyundai from "./hyundai";
 
 export interface OemAdapter {
   key: string;
@@ -23,6 +24,12 @@ export interface OemAdapter {
   segments: { key: string; label: string; short: string }[];
   readStockReport(sheets: Sheet[], opts: { timeZone: string; asOf: string }): StockReport;
   readBookingSheet(sheets: Sheet[], opts: { timeZone: string }): BookingSheet;
+  readRetailReport(sheets: Sheet[], opts: { timeZone: string; asOf: string }): RetailReport;
+  /**
+   * True when the files name no outlet. The dealership is then worked as one outlet and every row of
+   * every file goes on it.
+   */
+  single_outlet?: boolean;
 }
 
 export const OEM_ADAPTERS: OemAdapter[] = [
@@ -38,6 +45,19 @@ export const OEM_ADAPTERS: OemAdapter[] = [
     ],
     readStockReport: mahindraStockReport,
     readBookingSheet: mahindraBookingSheet,
+    readRetailReport: mahindraRetailReport,
+  },
+  {
+    key: "HYUNDAI",
+    label: "Hyundai",
+    stock_file: "Stock report (GRN No, HMI Invoice No, Model Code, Model, Variant Code, Variant, Exterior Color Name, Vin Number, Stock Location, Stock Status, Bkng No, ...)",
+    booking_file: "Booking report (Enquiry No, Booking Date, Cust. No, Customer Name, Phone No, Enquiry Status, Model, Variant, CS Name, ...)",
+    // The Hyundai files give no segment. Categories are set per model on the Vehicle master screen.
+    segments: [],
+    readStockReport: hyundai.readStockReport,
+    readBookingSheet: hyundai.readBookingSheet,
+    readRetailReport: hyundai.readRetailReport,
+    single_outlet: true,
   },
 ];
 

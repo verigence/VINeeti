@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api } from "../api";
+import { useCatalog } from "../components/ConfigPicker";
 import { Dialog } from "../components/Dialog";
 import { Icon } from "../components/icons";
 import { Button, Card, Check, Chip, Empty, Field, KeyValues, Notice, StatusChip } from "../components/ui";
@@ -275,5 +276,66 @@ export function TimelineCard({ d }: { d: BookingDetail }) {
         <Empty title="Nothing recorded yet" />
       )}
     </Card>
+  );
+}
+
+/** The colour a booking is loaded under when the DMS export has no colour column. Matches the server. */
+export const COLOUR_NOT_GIVEN = "COLOUR NOT GIVEN";
+
+// ---------------------------------------------------------------- the colour the DMS file did not give
+export function ColourDialog({ booking: b, onClose, onDone }: { booking: Booking; onClose: () => void; onDone: () => void }) {
+  const action = useAction();
+  const catalog = useCatalog();
+  const colours = catalog.data?.colours?.[b.model] ?? [];
+  const [colour, setColour] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!colour.trim()) return setProblem("Choose the colour the customer booked.");
+    setProblem(null);
+    const res = await action.run(() => api.giveColour(b.id, colour.trim()), {
+      quiet: true,
+      success: (r) => (r.allocations ? "Colour saved, and a car was allocated." : "Colour saved. The booking now waits for a car of this colour."),
+    });
+    if (res) onDone();
+  };
+
+  return (
+    <Dialog
+      title={`Colour for booking ${b.booking_no}`}
+      onClose={() => !action.busy && onClose()}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={action.busy}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" busy={action.busy}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <div className="form-stack">
+        <p className="muted">
+          The DMS booking report does not say which colour was booked. Give it from the booking form. It can be given once; a later change goes through a request.
+        </p>
+        {colours.length ? (
+          <Field label={`Colour of the ${b.model}`}>
+            <select value={colour} onChange={(e) => setColour(e.target.value)}>
+              <option value="">Choose a colour</option>
+              {colours.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <Field label={`Colour of the ${b.model}`} hint="Type the colour as the DMS names it.">
+            <input value={colour} onChange={(e) => setColour(e.target.value.toUpperCase())} autoComplete="off" maxLength={60} />
+          </Field>
+        )}
+        {(problem || action.error) && <Notice tone="error">{problem ?? plainText(action.error)}</Notice>}
+      </div>
+    </Dialog>
   );
 }

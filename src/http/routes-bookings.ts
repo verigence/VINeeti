@@ -23,6 +23,7 @@ import {
   submitBooking,
   verifyPayment,
   updateBooking,
+  giveColour,
   type Booking,
 } from "../domain/bookings";
 import { decideException, listExceptions, requestException } from "../domain/exceptions";
@@ -268,6 +269,14 @@ export function bookingRoutes(app: App) {
       auditStmt(ctx, "CUSTOMER_CONTACT_CHANGED", "booking", b.id, { mobile_changed: mobile !== b.customer_mobile, wa_opt_in: Boolean(optIn) }),
     ]);
     return c.json({ changed: true });
+  });
+
+  /** Gives the colour of a booking whose DMS export carried none (Hyundai). Once, and only then. */
+  app.post("/api/bookings/:id/colour", async (c) => {
+    need(c, "booking.contact");
+    const b = await bookingFor(c, c.req.param("id"));
+    const body = await jsonBody(c);
+    return c.json(await giveColour(c.get("ctx"), b.id, body.colour));
   });
 
   app.post("/api/bookings/:id/invoice", async (c) => {

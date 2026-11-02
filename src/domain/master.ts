@@ -212,6 +212,12 @@ export async function notePending(ctx: Ctx, items: { kind: "VARIANT" | "COLOUR";
 // ---------------------------------------------------------------- colour
 
 /** The name a colour is matched by for a model: the dealership's mapping if it has one, otherwise the name itself. */
+/**
+ * The colour of a booking whose DMS export has no colour column (Hyundai's booking report). No car has
+ * this colour, so the booking is not offered a car until somebody gives the colour on the booking.
+ */
+export const COLOUR_NOT_GIVEN = "COLOUR NOT GIVEN";
+
 export function canonColour(m: Master, model: string, name: unknown): string {
   const n = norm(name);
   if (!n) return "";

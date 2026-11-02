@@ -22,14 +22,14 @@ import type { Ctx } from "../env";
 import { alertStmt, all, auditStmt, chunk, first, isGuardFailure, isUniqueViolation, run, stmt } from "../lib/db";
 import { readExport } from "../lib/xlsx";
 import { bad, conflict, HttpError, iso, localDayBounds, localParts, newId, norm } from "../lib/util";
-import { dateInFilename, readRetailReport, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
+import { dateInFilename, reportInstant, STOCK_ISSUES, type BookingSheetRow, type RowError, type StockRow } from "../dms/reports";
 import { alarmStmts } from "./alarms";
 import { recordStockPositions } from "./analytics";
 import { oemAdapter, SUPPORTED_OEMS } from "../oem";
 import { allocateAll, releaseAllocation, releaseStmts, vehicleLabel } from "./allocation";
 import { cancelBooking } from "./bookings";
 import { receiveVehicle } from "./inventory";
-import { bookingColour, canonColour, keyOf, loadMaster, refreshBookingColours, registerColours, registerDmsCars, type DmsCarInput, type Master } from "./master";
+import { bookingColour, canonColour, COLOUR_NOT_GIVEN, keyOf, loadMaster, refreshBookingColours, registerColours, registerDmsCars, type DmsCarInput, type Master } from "./master";
 import { queueKey, waitingQueues, type Waiting } from "./queue";
 import { queueCompare } from "./rules";
 
@@ -167,6 +167,36 @@ async function outletsFor(ctx: Ctx, seen: Map<string, string>, scope: string[] |
   return { byCode, created };
 }
 
+/**
+ * For a manufacturer whose files name no outlet (Hyundai): every row goes on the dealership's one
+ * outlet. That is the uploader's own outlet when they are limited to one; otherwise the dealership's
+ * only outlet, made from the dealership's name the first time a file is loaded. A dealership that has
+ * more than one outlet cannot tell from these files which a row is for, and is told so.
+ */
+async function fillOutlet(ctx: Ctx, rows: { outlet_code: string; outlet_name: string }[], scope: string[] | null): Promise<void> {
+  if (!rows.some((r) => !r.outlet_code)) return;
+  const all_ = await all<{ id: string; code: string; name: string }>(ctx.db, `SELECT id, code, name FROM outlets WHERE tenant_id = ? AND is_active = 1 ORDER BY created_at`, ctx.tenantId);
+  const mine = scope ? all_.filter((o) => scope.includes(o.id)) : all_;
+  let outlet = mine.length === 1 ? mine[0] : null;
+  if (!outlet && !all_.length && scope === null) {
+    outlet = { id: newId("out"), code: "MAIN", name: ctx.tenant.name };
+    await ctx.db.batch([
+      stmt(ctx.db, `INSERT INTO outlets (id, tenant_id, code, name, is_active, created_at) VALUES (?,?,?,?,1,?)`, outlet.id, ctx.tenantId, outlet.code, outlet.name, iso(ctx.now)),
+      auditStmt(ctx, "OUTLET_CREATED", "outlet", outlet.id, { code: outlet.code, name: outlet.name, source: "DMS file (the files name no outlet)" }),
+    ]);
+    ctx.cache.delete("outlets");
+  }
+  if (!outlet && scope && !mine.length) throw bad("You are not set up at any of this dealership's outlets, so this file cannot be loaded by you.");
+  if (!outlet) {
+    throw bad(
+      all_.length
+        ? `${ctx.tenant.oem} DMS files do not say which outlet a row is for, and this dealership has ${all_.length} outlets. Load them as a person who works at one outlet only.`
+        : "No outlet is set up for this dealership. Ask the administrator to load this file once.",
+    );
+  }
+  for (const r of rows) if (!r.outlet_code) (r.outlet_code = outlet.code), (r.outlet_name = outlet.name);
+}
+
 async function startUpload(ctx: Ctx, kind: "STOCK" | "BOOKINGS" | "RETAIL", continueId: string | null | undefined): Promise<{ id: string; continued: boolean; prior: Record<string, any> }> {
   if (continueId) {
     const row = await first<{ id: string; summary_json: string }>(ctx.db, `SELECT id, summary_json FROM uploads WHERE id = ? AND tenant_id = ? AND kind = ? AND status = 'RUNNING' AND uploaded_by = ?`, continueId, ctx.tenantId, kind, ctx.actor);
@@ -262,6 +292,7 @@ export async function importStockReport(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw bad("The report date is not valid");
   if (asOf > today(ctx)) throw bad(`The report date ${asOf} is in the future`);
   const report = adapterFor(ctx).readStockReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
+  await fillOutlet(ctx, report.rows, scope);
   if (report.rows.length > MAX_ROWS) throw bad(`The report has more than ${MAX_ROWS} cars`);
   await checkDealer(ctx, report.dealer_name);
   const newer = await first<{ report_date: string }>(ctx.db, `SELECT MAX(report_date) AS report_date FROM uploads WHERE tenant_id = ? AND kind = 'STOCK' AND status = 'DONE'`, ctx.tenantId);
@@ -886,11 +917,11 @@ interface BookingRow {
   id: string; booking_no: string; outlet_id: string; status: string; source: string; variant_id: string | null; model: string; variant: string; colour: string;
   customer_name: string; customer_mobile: string; booking_date: string; booking_amount: number; sales_exec_id: string | null; on_hold: number; hold_reason: string | null;
   description: string | null; oem_model_code: string | null; paint_alias: string; dms_colour: string | null; seating: string | null; dms_stage: string | null; dms_enquiry_stage: string | null;
-  dms_ref: string | null; enquiry_no: string | null; sc_name: string | null; sc_code: string | null; sm_name: string | null; cancel_reason: string | null;
+  dms_ref: string | null; enquiry_no: string | null; sc_name: string | null; sc_code: string | null; sm_name: string | null; cancel_reason: string | null; dms_customer_no: string | null;
 }
 
 const B_FIELDS = ["outlet_id", "customer_name", "customer_mobile", "wa_opt_in", "variant_id", "model", "variant", "colour", "booking_date", "priority_ts", "booking_amount", "sales_exec_id", "source",
-  "description", "oem_model_code", "paint_alias", "dms_colour", "seating", "dms_stage", "dms_enquiry_stage", "dms_ref", "enquiry_no", "sc_name", "sc_code", "sm_name"] as const;
+  "description", "oem_model_code", "paint_alias", "dms_colour", "seating", "dms_stage", "dms_enquiry_stage", "dms_ref", "enquiry_no", "sc_name", "sc_code", "sm_name", "dms_customer_no"] as const;
 
 export async function importBookingSheet(
   ctx: Ctx,
@@ -901,6 +932,7 @@ export async function importBookingSheet(
   const scope = opts.outletScope ?? null;
   const sheetDate = today(ctx);
   const sheet = adapterFor(ctx).readBookingSheet(await readExport(bytes, opts.filename), { timeZone: tz });
+  await fillOutlet(ctx, sheet.rows, scope);
   if (sheet.rows.length > MAX_ROWS) throw bad(`The sheet has more than ${MAX_ROWS} bookings; split it`);
   await checkDealer(ctx, sheet.dealer_name);
   const upload = await startUpload(ctx, "BOOKINGS", opts.continueUpload);
@@ -963,9 +995,13 @@ export async function importBookingSheet(
   for (const r of rows) {
     const variant = reg.byKey.get(keyOf(r.variant));
     if (!variant) { errors.push({ row: r.row, key: r.booking_no, message: `Variant ${r.variant} could not be registered in the vehicle master` }); continue; }
-    const colour = bookingColour(master, r);
-    if (!colour) { errors.push({ row: r.row, key: r.booking_no, message: "Colour is blank" }); continue; }
     const cur = existing.get(r.booking_no);
+    // An export with no colour column (Hyundai's booking report) cannot say what colour the customer
+    // booked. The booking waits under "colour not given" and is not offered a car until somebody gives
+    // the colour on the booking, because a car of the wrong colour is a different sale. A colour given
+    // that way is kept when the same file is loaded again.
+    const colour = sheet.has_colour === false ? (cur && cur.colour !== COLOUR_NOT_GIVEN ? cur.colour : COLOUR_NOT_GIVEN) : bookingColour(master, r);
+    if (!colour) { errors.push({ row: r.row, key: r.booking_no, message: "Colour is blank" }); continue; }
     if (cur && scope && !scope.includes(cur.outlet_id)) { errors.push({ row: r.row, key: r.booking_no, message: "This booking belongs to an outlet that is not one of yours" }); continue; }
     kept.push(r);
     const outletId = outletByCode.get(r.outlet_code)!;
@@ -976,6 +1012,7 @@ export async function importBookingSheet(
       booking_date: r.booking_date, priority_ts: r.booking_date, booking_amount: r.booking_amount, sales_exec_id: execId ?? cur?.sales_exec_id ?? null, source: "DMS",
       description: r.description, oem_model_code: r.oem_model_code || null, paint_alias: r.paint_alias, dms_colour: r.dms_colour, seating: r.seater || null,
       dms_stage: r.dms_stage, dms_enquiry_stage: r.dms_enquiry_stage, dms_ref: r.dms_ref, enquiry_no: r.enquiry_no, sc_name: r.sc_name, sc_code: r.sc_code, sm_name: r.sm_name,
+      dms_customer_no: r.customer_no ?? cur?.dms_customer_no ?? null,
     };
     // Only worth saying where the export has a phone column and this row's is unusable. One of the
     // two booking exports carries no phone numbers at all, and saying so on every row of it would
@@ -1143,7 +1180,8 @@ export async function importRetailExport(
 ): Promise<DmsUploadResult> {
   const tz = ctx.tenant.timezone;
   const asOf = opts.reportDate ?? dateInFilename(opts.filename) ?? today(ctx);
-  const report = readRetailReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
+  const report = adapterFor(ctx).readRetailReport(await readExport(bytes, opts.filename), { timeZone: tz, asOf });
+  await fillOutlet(ctx, report.rows, opts.outletScope ?? null);
   await checkDealer(ctx, report.dealer_name);
 
   const upload = await startUpload(ctx, "RETAIL", opts.continueUpload);
@@ -1175,6 +1213,13 @@ export async function importRetailExport(
   for (const part of chunk(vins, 200)) {
     for (const v of await all<{ id: string; vin: string }>(ctx.db, `SELECT id, vin FROM vehicles WHERE tenant_id = ?1 AND vin IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(part))) vehicleByVin.set(v.vin, v.id);
   }
+  // Where the export masks the VIN (Hyundai), the car is the one the manufacturer invoiced under the
+  // same wholesale invoice number, which the stock report gave when the car was in stock.
+  const oemInvoices = [...new Set(report.rows.filter((r) => !r.vin && r.oem_invoice_no).map((r) => r.oem_invoice_no!))];
+  const vehicleByOemInvoice = new Map<string, { id: string; vin: string }>();
+  for (const part of chunk(oemInvoices, 200)) {
+    for (const v of await all<{ id: string; vin: string; wholesale_invoice_no: string }>(ctx.db, `SELECT id, vin, wholesale_invoice_no FROM vehicles WHERE tenant_id = ?1 AND wholesale_invoice_no IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(part))) vehicleByOemInvoice.set(v.wholesale_invoice_no, { id: v.id, vin: v.vin });
+  }
   // The number the retail export calls "Booking No." is the dealer-side booking number, which the
   // booking sheet calls "Booking Number" and this system keeps as `dms_ref`. It is not the DMS order
   // number the booking is keyed by, so a lookup on `booking_no` alone matches nothing. Both are
@@ -1190,6 +1235,13 @@ export async function importRetailExport(
     );
     for (const b of found) if (b.booking_no) bookingByNo.set(b.booking_no, b.id);
     for (const b of found) if (b.dms_ref) bookingByNo.set(b.dms_ref, b.id);
+  }
+  // Where the export gives no booking number but the customer's DMS number (Hyundai's CustomerID),
+  // the booking is the one the booking report gave under the same number.
+  const customerNos = [...new Set(report.rows.filter((r) => !r.booking_no && r.customer_no).map((r) => r.customer_no!))];
+  const bookingByCustomer = new Map<string, { id: string; booking_no: string }>();
+  for (const part of chunk(customerNos, 200)) {
+    for (const b of await all<{ id: string; booking_no: string; dms_customer_no: string }>(ctx.db, `SELECT id, booking_no, dms_customer_no FROM bookings WHERE tenant_id = ?1 AND dms_customer_no IN (SELECT value FROM json_each(?2))`, ctx.tenantId, JSON.stringify(part))) bookingByCustomer.set(b.dms_customer_no, { id: b.id, booking_no: b.booking_no });
   }
 
   const COLS = [
@@ -1217,13 +1269,15 @@ export async function importRetailExport(
     if (norm(r.finance_arranged_by ?? "") === "DEALER") s.attached.dealer_arranged++;
     if ((r.insurance_amount ?? 0) > 0) s.attached.insured++;
     if (norm(r.exchange_indicator ?? "") === "YES") s.attached.exchanged++;
-    if (r.delivery_note_no) s.attached.delivered++;
+    if (r.delivery_note_no || r.delivery_note_date) s.attached.delivered++;
     if (r.invoice_date && r.invoice_date < earliest) earliest = r.invoice_date;
 
+    const byOem = !r.vin && r.oem_invoice_no ? vehicleByOemInvoice.get(r.oem_invoice_no) : undefined;
+    const byCustomer = !r.booking_no && r.customer_no ? bookingByCustomer.get(r.customer_no) : undefined;
     const want: Record<string, unknown> = {
       invoice_at: r.invoice_at, invoice_date: r.invoice_date, status: r.status, outlet_id: outletId,
-      vin: r.vin || null, chassis_no: r.chassis_no || null, vehicle_id: vehicleByVin.get(r.vin) ?? null,
-      booking_no: r.booking_no || null, booking_id: bookingByNo.get(r.booking_no) ?? null, allotment_id: r.allotment_id,
+      vin: r.vin || byOem?.vin || null, chassis_no: r.chassis_no || null, vehicle_id: vehicleByVin.get(r.vin) ?? byOem?.id ?? null,
+      booking_no: r.booking_no || byCustomer?.booking_no || null, booking_id: bookingByNo.get(r.booking_no) ?? byCustomer?.id ?? null, allotment_id: r.allotment_id,
       oem_model_code: r.oem_model_code || null, model: r.model || null, variant: r.variant || null, colour: r.colour || null,
       customer_name: r.customer_name || null, customer_type: r.customer_type || null, customer_gstin: r.customer_gstin, sc_name: r.sc_name,
       invoice_amount: r.invoice_amount, selling_price: r.selling_price, gst_amount: r.gst_amount, tcs_amount: r.tcs_amount,

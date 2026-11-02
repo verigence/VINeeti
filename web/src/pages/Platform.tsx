@@ -271,7 +271,7 @@ function AddDealership({ onClose, onDone }: { onClose: () => void; onDone: (made
         <Field label="Dealer code" hint="Lowercase letters, digits and hyphens. Only needed at sign-in when a mobile number is used at two dealerships.">
           <input value={form.slug} onChange={set("slug")} required />
         </Field>
-        <Field label="Manufacturer" hint="The DMS file layout follows this. Mahindra is the layout this version reads.">
+        <Field label="Manufacturer" hint="The DMS file layout follows this. This version reads Mahindra and Hyundai files.">
           <input value={form.oem} onChange={set("oem")} required />
         </Field>
         <Field label="System Admin: name">
