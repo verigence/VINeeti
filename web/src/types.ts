@@ -34,6 +34,7 @@ export type Permission =
   | "master.manage"
   | "admin.users"
   | "admin.settings"
+  | "admin.reset"
   | "audit.view";
 
 export type OutletScope = "SAME_OUTLET_FIRST" | "SAME_OUTLET_NEARBY" | "SAME_OUTLET_ONLY" | "ANY_OUTLET";

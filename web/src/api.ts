@@ -286,6 +286,7 @@ export const api = {
   roles: () => get<T.RolesResponse>("/api/roles"),
   settings: () => get<T.SettingsResponse>("/api/settings"),
   saveSettings: (s: Partial<T.TenantSettings>) => put<{ settings: T.TenantSettings; rules_changed: string[] }>("/api/settings", s),
+  clearData: (confirm: string, password: string) => post<{ name: string; total: number; removed: Record<string, number>; kept: string[] }>("/api/settings/clear-data", { confirm, password }),
   previewSettings: (s: Partial<T.TenantSettings>) => post<T.RulesPreview>("/api/settings/preview", s),
 
   // ---- audit trail
