@@ -44,9 +44,35 @@ const OPTIONAL_SECRETS = ["ANDROID_CERT_SHA256", "WA_APP_SECRET", "WA_VERIFY_TOK
 const CONFIG = "wrangler.deploy.json"; // written beside wrangler.jsonc so its relative paths still hold; not committed
 const step = (n, text) => console.log(`\n[${n}/5] ${text}`);
 
+/**
+ * One build, more than one deployment. wrangler.jsonc describes the first deployment exactly as it has
+ * always been, and is used as it is when nothing below is set. Another deployment of the same build
+ * names what must differ -- its Worker, its database, its bucket and its own address -- and everything
+ * else (the code, the migrations, the schedule, the settings) is shared. Each deployment has its own
+ * data and its own secrets: nothing one holds can be read by the other.
+ *
+ *   DEPLOY_WORKER    the Worker's name, which also gives its workers.dev address
+ *   DEPLOY_DATABASE  the D1 database, created on the first deployment
+ *   DEPLOY_BUCKET    the R2 bucket for support-ticket attachments, created on the first deployment
+ *   DEPLOY_DOMAINS   the addresses it answers on, comma-separated; replaces the first deployment's
+ */
+function forTarget(config) {
+  const env = (k) => (process.env[k] ?? "").trim();
+  if (env("DEPLOY_WORKER")) config.name = env("DEPLOY_WORKER");
+  if (env("DEPLOY_DATABASE") && config.d1_databases?.[0]) config.d1_databases[0].database_name = env("DEPLOY_DATABASE");
+  if (env("DEPLOY_BUCKET") && config.r2_buckets?.[0]) config.r2_buckets[0].bucket_name = env("DEPLOY_BUCKET");
+  if (env("DEPLOY_WORKER")) {
+    // A second deployment never inherits the first one's addresses: two Workers cannot hold the same
+    // custom domain, and a dealership must not land on the wrong one's data.
+    config.routes = env("DEPLOY_DOMAINS").split(",").map((d) => d.trim()).filter(Boolean).map((pattern) => ({ pattern, custom_domain: true }));
+    if (!config.routes.length) delete config.routes;
+  }
+  return config;
+}
+
 main(async () => {
   credentials();
-  const config = readConfig();
+  const config = forTarget(readConfig());
   const worker = config.name;
   const db = config.d1_databases?.[0];
   const bucket = config.r2_buckets?.[0];
