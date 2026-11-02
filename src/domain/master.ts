@@ -25,8 +25,9 @@
 // A dealership with no master loaded keeps working on free-text model / variant / colour.
 
 import type { Ctx } from "../env";
-import { all, audit, chunk, first, run, stmt } from "../lib/db";
+import { all, audit, auditStmt, chunk, first, run, stmt } from "../lib/db";
 import { bad, conflict, iso, newId, norm, notFound, parseCsv } from "../lib/util";
+import { oemAdapter, segmentLabel } from "../oem";
 
 export const keyOf = (s: unknown) => norm(s).replace(/[^A-Z0-9]/g, "");
 const clean = (s: unknown) => String(s ?? "").trim().replace(/\s+/g, " ");
@@ -433,8 +434,74 @@ function tidy(input: VariantInput, opts: { categoryOptional?: boolean } = {}) {
   return { ...v, variant_key: keyOf(v.variant) };
 }
 
+/**
+ * A category belongs to a model, not to a variant: the manufacturer puts the XUV700 in one segment, and
+ * every XUV700 variant is in it. Who may see a model -- a person given only the commercial segment, say
+ * -- is decided by it, so a model split across two categories, or put in one nobody is given, quietly
+ * disappears from somebody's screens. So a category is only ever chosen from the manufacturer's list,
+ * and only ever set for the whole model at once.
+ */
+async function allowedCategories(ctx: Ctx): Promise<string[]> {
+  const fromOem = oemAdapter(ctx.tenant.oem)?.segments.map((x) => x.key) ?? [];
+  if (fromOem.length) return fromOem;
+  // A manufacturer the system has no list for: the categories its own files have already used.
+  return (await all<{ category: string }>(ctx.db, `SELECT DISTINCT category FROM vehicle_variants WHERE tenant_id = ? AND category <> '' ORDER BY category`, ctx.tenantId)).map((r) => r.category);
+}
+
+/**
+ * The manufacturer's category from the way a person writes it: its own name (PERSONAL), the
+ * dealership's name for it (Passenger vehicles), the short form (PV), or the plain word (Passenger).
+ * Each of those is unambiguous among the three Mahindra segments, which is why the plain word is safe.
+ */
+export function categoryFromWords(segs: { key: string; label: string; short: string }[], raw: unknown): string | null {
+  const g = clean(raw).toUpperCase();
+  if (!g) return null;
+  return segs.find((x) => [x.key, x.label, x.short, x.label.split(" ")[0]].some((n) => n.toUpperCase() === g))?.key ?? null;
+}
+
+/**
+ * The category as the manufacturer spells it, or a refusal that names the ones there are. For a
+ * manufacturer with no list here, a category already in use is matched whatever its capitals, and a
+ * new one is accepted as typed: there is nothing to hold it to, and refusing would leave the first
+ * model of a new manufacturer with nowhere to go.
+ */
+async function checkCategory(ctx: Ctx, raw: unknown): Promise<string> {
+  const given = clean(raw);
+  if (!given) throw bad("Choose a category.");
+  const segs = oemAdapter(ctx.tenant.oem)?.segments ?? [];
+  if (segs.length) {
+    const key = categoryFromWords(segs, given);
+    if (key) return key;
+  }
+  const allowed = await allowedCategories(ctx);
+  const hit = allowed.find((c) => c.toUpperCase() === given.toUpperCase());
+  if (hit) return hit;
+  if (!segs.length) return given;
+  throw bad(`Choose one of the categories: ${allowed.map((c) => segmentLabel(ctx.tenant.oem, c)).join(", ")}.`);
+}
+
+/** Puts every variant of a model in one category, in one step, and records the change. */
+export async function setModelCategory(ctx: Ctx, modelRaw: unknown, categoryRaw: unknown): Promise<{ model: string; category: string; variants: number }> {
+  const model = norm(modelRaw);
+  if (!model) throw bad("Which model?");
+  const category = await checkCategory(ctx, categoryRaw);
+  const rows = await all<{ category: string; n: number }>(ctx.db, `SELECT category, COUNT(*) AS n FROM vehicle_variants WHERE tenant_id = ? AND model = ? GROUP BY category`, ctx.tenantId, model);
+  if (!rows.length) throw notFound("Model");
+  const variants = rows.reduce((a, r) => a + r.n, 0);
+  const before = rows.map((r) => r.category).filter(Boolean);
+  await ctx.db.batch([
+    stmt(ctx.db, `UPDATE vehicle_variants SET category = ?, updated_at = ? WHERE tenant_id = ? AND model = ?`, category, iso(ctx.now), ctx.tenantId, model),
+    auditStmt(ctx, "MODEL_CATEGORY_CHANGED", "model", model, { model, before, after: category, variants }),
+  ]);
+  ctx.cache.delete("master");
+  return { model, category, variants };
+}
+
 export async function addVariant(ctx: Ctx, input: VariantInput): Promise<Variant> {
   const v = tidy(input);
+  v.category = await checkCategory(ctx, v.category);
+  const held = await first<{ category: string }>(ctx.db, `SELECT category FROM vehicle_variants WHERE tenant_id = ? AND model = ? AND category <> '' LIMIT 1`, ctx.tenantId, v.model);
+  if (held && held.category !== v.category) throw bad(`${v.model} is in ${segmentLabel(ctx.tenant.oem, held.category)}. A new variant joins its model's category; change the model's category if that is what is wrong.`);
   if (await first(ctx.db, `SELECT id FROM vehicle_variants WHERE tenant_id = ? AND variant_key = ?`, ctx.tenantId, v.variant_key)) throw conflict(`Variant "${v.variant}" is already in the vehicle master`);
   const id = newId("var");
   const at = iso(ctx.now);
@@ -450,13 +517,17 @@ export async function updateVariant(ctx: Ctx, id: string, patch: VariantInput): 
   if (!cur) throw notFound("Variant");
   // The name of a variant registered from the DMS is its identity in the DMS files (model and OEM model code): it cannot be renamed here.
   if (cur.origin === "DMS" && ((patch.variant !== undefined && norm(patch.variant) !== cur.variant) || (patch.model !== undefined && norm(patch.model) !== cur.model))) throw bad("This variant comes from the DMS files; its model and name follow the DMS. The other attributes can be edited.");
-  const v = tidy({ category: patch.category ?? cur.category, model: patch.model ?? cur.model, trim: patch.trim ?? cur.trim, transmission: patch.transmission ?? cur.transmission, fuel: patch.fuel ?? cur.fuel, drive: patch.drive ?? cur.drive, seater: patch.seater ?? cur.seater, variant: patch.variant ?? cur.variant }, { categoryOptional: cur.origin === "DMS" });
+  // A category change, from here too, is a change to the whole model (see setModelCategory).
+  const recategorised = patch.category !== undefined && clean(patch.category) !== cur.category;
+  const category = recategorised ? await checkCategory(ctx, patch.category) : cur.category;
+  const v = tidy({ category, model: patch.model ?? cur.model, trim: patch.trim ?? cur.trim, transmission: patch.transmission ?? cur.transmission, fuel: patch.fuel ?? cur.fuel, drive: patch.drive ?? cur.drive, seater: patch.seater ?? cur.seater, variant: patch.variant ?? cur.variant }, { categoryOptional: cur.origin === "DMS" });
   if (v.variant_key !== cur.variant_key && (await first(ctx.db, `SELECT id FROM vehicle_variants WHERE tenant_id = ? AND variant_key = ? AND id <> ?`, ctx.tenantId, v.variant_key, id))) throw conflict(`Variant "${v.variant}" is already in the vehicle master`);
   const active = patch.is_active === undefined ? cur.is_active : patch.is_active ? 1 : 0;
   const at = iso(ctx.now);
   const renamed = v.model !== cur.model || v.variant !== cur.variant;
   await ctx.db.batch([
     stmt(ctx.db, `UPDATE vehicle_variants SET category = ?, model = ?, trim_level = ?, transmission = ?, fuel = ?, drive = ?, seater = ?, variant = ?, variant_key = ?, is_active = ?, fuel_source = CASE WHEN ? THEN 'Entered on the Vehicle master screen' ELSE fuel_source END, updated_at = ? WHERE id = ? AND tenant_id = ?`, v.category, v.model, v.trim, v.transmission, v.fuel, v.drive, v.seater, v.variant, v.variant_key, active, v.fuel !== cur.fuel ? 1 : 0, at, id, ctx.tenantId),
+    ...(recategorised ? [stmt(ctx.db, `UPDATE vehicle_variants SET category = ?, updated_at = ? WHERE tenant_id = ? AND model = ?`, v.category, at, ctx.tenantId, v.model)] : []),
     ...(renamed
       ? [
           stmt(ctx.db, `UPDATE order_requests SET model = ?, variant = ? WHERE tenant_id = ? AND model = ? AND variant = ?`, v.model, v.variant, ctx.tenantId, cur.model, cur.variant),
@@ -591,6 +662,11 @@ export async function importMaster(ctx: Ctx, csvText: string, opts: { filename?:
   for (const need of ["category", "model", "variant"]) if (!cols.includes(need)) throw bad(`Column "${need}" is missing from the file`);
   const m = await loadMaster(ctx, true);
   const result: MasterUploadResult = { row_count: rows.length - 1, created: 0, updated: 0, unchanged: 0, colours_added: 0, errors: [] };
+  // A sheet is held to the same two rules as the screen: a category from the manufacturer's list, and
+  // one category per model. A sheet that names a model's category moves the whole model.
+  const segs = oemAdapter(ctx.tenant.oem)?.segments ?? [];
+  const resolveCategory = (raw: string): string | null => (segs.length ? categoryFromWords(segs, raw) : raw);
+  const modelCategory = new Map<string, string>();
   const at = iso(ctx.now);
   const stmts: D1PreparedStatement[] = [];
   const seen = new Set<string>();
@@ -608,6 +684,14 @@ export async function importMaster(ctx: Ctx, csvText: string, opts: { filename?:
     } catch (e) {
       fail((e as Error).message);
       continue;
+    }
+    if (v.category) {
+      const r = resolveCategory(v.category);
+      if (!r) { fail(`Category "${v.category}" is not one of the manufacturer's: ${segs.map((x) => `${x.key} (${x.label}, ${x.short})`).join(", ")}`); continue; }
+      const prior = modelCategory.get(v.model);
+      if (prior && prior !== r) { fail(`${v.model} is given two categories in this file, ${prior} and ${r}; a model has one`); continue; }
+      v.category = r;
+      modelCategory.set(v.model, r);
     }
     if (seen.has(v.variant_key)) { fail("This variant appears more than once in the file"); continue; }
     seen.add(v.variant_key);
@@ -641,6 +725,8 @@ export async function importMaster(ctx: Ctx, csvText: string, opts: { filename?:
       result.colours_added++;
     }
   }
+  // Every variant of a model the sheet names follows it, including variants the sheet left out.
+  for (const [model, category] of modelCategory) stmts.push(stmt(ctx.db, `UPDATE vehicle_variants SET category = ?, updated_at = ? WHERE tenant_id = ? AND model = ? AND category <> ?`, category, at, ctx.tenantId, model, category));
   for (let i = 0; i < stmts.length; i += 40) await ctx.db.batch(stmts.slice(i, i + 40));
   await audit(ctx, "MASTER_LOADED", "tenant", ctx.tenantId, { filename: opts.filename ?? null, created: result.created, updated: result.updated, unchanged: result.unchanged, colours_added: result.colours_added, errors: result.errors.length });
   ctx.cache.delete("master");

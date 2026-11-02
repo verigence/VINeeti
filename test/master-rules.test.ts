@@ -49,9 +49,11 @@ describe("vehicle master", () => {
     const m = await loadMasterSheet(w, d);
     expect(m.upload).toMatchObject({ created: 10, updated: 0, colours_added: 5, errors: [] });
     expect(m.catalog.master).toBe(true);
-    expect(m.v(AX7L)).toMatchObject({ category: "Passenger", model: "XUV700", trim: "AX7 L", transmission: "Automatic", fuel: "Diesel", drive: "AWD", seater: "7", variant: "XUV700 AX7 L DIESEL AT 7 STR AWD" });
+    expect(m.v(AX7L)).toMatchObject({ category: "PERSONAL", model: "XUV700", trim: "AX7 L", transmission: "Automatic", fuel: "Diesel", drive: "AWD", seater: "7", variant: "XUV700 AX7 L DIESEL AT 7 STR AWD" });
     expect(m.catalog.colours.XUV700).toContain("NAPOLI BLACK");
-    expect(new Set(m.catalog.variants.map((v: any) => v.category))).toEqual(new Set(["Passenger", "EV", "Commercial"]));
+    // The sheet writes categories as people do -- Passenger, EV, Commercial -- and the master keeps the
+    // manufacturer's own name for each, which is what decides who sees the model.
+    expect(new Set(m.catalog.variants.map((v: any) => v.category))).toEqual(new Set(["PERSONAL", "BEV", "PROSPER"]));
     // The same sheet with different spacing and one changed attribute: matched by variant name, nothing duplicated.
     const again = await w.api("POST", "/api/uploads/master", `Category,Model,Trim,Transmission,Fuel,Drive,Seater,Variant,Ex-showroom Price\nPassenger,XUV700,AX7 L,Automatic,Diesel,AWD,7,xuv700  ax7-l diesel AT 7STR awd,2499000\nPassenger,XUV700,MX,Manual,Petrol,FWD,7,XUV700 MX Petrol MT 5 STR,1399000\nPassenger,XUV700,,,,,,,\nPassenger,XUV700,MX,Manual,Petrol,FWD,5,XUV700 MX Petrol MT 5 STR,1`, d.users.admin.session);
     expect(again.body).toMatchObject({ created: 0, updated: 1, unchanged: 1 });
@@ -89,7 +91,7 @@ describe("vehicle master", () => {
     const m = await loadMasterSheet(w, d);
     // A booking picked on the screen carries the master variant's id.
     const b = await approvedBooking(w, d, "se1", { variant_id: m.v(AX7L).id, colour: "napoli black" }, "PATIA", "Rahul Sharma", "9876500001");
-    expect((await booking(w, d, b.id)).booking).toMatchObject({ variant_id: m.v(AX7L).id, model: "XUV700", variant: "XUV700 AX7 L DIESEL AT 7 STR AWD", colour: "NAPOLI BLACK", trim: "AX7 L", fuel: "Diesel", transmission: "Automatic", drive: "AWD", seater: "7", category: "Passenger" });
+    expect((await booking(w, d, b.id)).booking).toMatchObject({ variant_id: m.v(AX7L).id, model: "XUV700", variant: "XUV700 AX7 L DIESEL AT 7 STR AWD", colour: "NAPOLI BLACK", trim: "AX7 L", fuel: "Diesel", transmission: "Automatic", drive: "AWD", seater: "7", category: "PERSONAL" });
     // The stock in-charge types the same variant differently, and gives model and variant separately for the next car.
     const typed = await addCar(w, d, "MA1TEST0000000001", { variant: "xuv700 ax7-l Diesel AT 7 str AWD", colour: "Napoli-Black" }, "PATIA", "RECEIVED", { wholesale_invoice_date: "01/10/2026" });
     expect(typed.allocations).toHaveLength(1);
@@ -271,9 +273,9 @@ describe("vehicle master", () => {
     await addCar(w, d, "MA1FILT0000000003", { variant_id: m.v("Thar LX Petrol AT 4WD Hard Top").id, colour: "Red Rage" }, "CUTTACK", "IN_TRANSIT");
     const cars = (q: string) => w.api("GET", `/api/vehicles?${q}`, undefined, d.users.se1.session).then((r) => r.body.map((v: any) => v.vin));
     expect(await cars("fuel=Electric")).toEqual(["MA1FILT0000000002"]);
-    expect(await cars("category=Passenger&transmission=Automatic&drive=4WD")).toEqual(["MA1FILT0000000003"]);
+    expect(await cars("category=PERSONAL&transmission=Automatic&drive=4WD")).toEqual(["MA1FILT0000000003"]);
     expect(await cars("model=xuv700")).toEqual(["MA1FILT0000000001"]);
-    const summary = (await w.api("GET", "/api/stock/summary?category=EV", undefined, d.users.se1.session)).body;
+    const summary = (await w.api("GET", "/api/stock/summary?category=BEV", undefined, d.users.se1.session)).body;
     expect(summary).toHaveLength(1);
     expect(summary[0]).toMatchObject({ model: "BE 6", trim: "Pack Three", fuel: "Electric", yard_free: 1 });
     const avail = await w.api("GET", `/api/stock/availability?variant_id=${m.v(AX7L).id}&colour=Napoli%20Black&outlet_id=${d.outlets.PATIA}`, undefined, d.users.se1.session);
@@ -487,5 +489,71 @@ describe("naming the car", () => {
     expect(vehicleLabel({ model: "XUV700", variant: "XUV700 AX7 L DIESEL AT", colour: "NAPOLI BLACK" })).toBe("XUV700 AX7 L DIESEL AT NAPOLI BLACK");
     expect(vehicleLabel({ model: "XUV 3XO", variant: "XUV3XO AX5 PETROL MT", colour: "WHITE" })).toBe("XUV3XO AX5 PETROL MT WHITE");
     expect(vehicleLabel({ model: "CRETA", variant: "SX(O) 1.5 PETROL IVT", colour: "ABYSS BLACK" })).toBe("CRETA SX(O) 1.5 PETROL IVT ABYSS BLACK");
+  });
+});
+
+describe("a model's category", () => {
+  // Who sees a model is decided by its category: a person given only commercial vehicles sees only
+  // commercial models. So a category belongs to the whole model, and is only ever one of the
+  // manufacturer's -- a model split across two, or put in one nobody is given, vanishes from screens.
+  const variantsOf = (w: World, d: Dealer, model: string) =>
+    w.db.q<{ category: string }>(`SELECT category FROM vehicle_variants WHERE tenant_id = ? AND model = ?`, d.tenantId, model).map((r) => r.category);
+
+  it("is set for the whole model at once, from the manufacturer's list", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    await loadMasterSheet(w, d);
+    expect(new Set(variantsOf(w, d, "XUV700"))).toEqual(new Set(["PERSONAL"]));
+
+    // Written as a person would -- the short form -- and kept as the manufacturer's own name.
+    const res = await w.api("POST", "/api/master/model-category", { model: "XUV700", category: "CV" }, d.users.admin.session);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ model: "XUV700", category: "PROSPER", variants: 2 });
+    expect(new Set(variantsOf(w, d, "XUV700"))).toEqual(new Set(["PROSPER"]));
+    // Every other model is left where it was.
+    expect(new Set(variantsOf(w, d, "SCORPIO-N"))).toEqual(new Set(["PERSONAL"]));
+    // And it is on the record, with what it was before.
+    const line = w.db.q<{ detail_json: string }>(`SELECT detail_json FROM audit_log WHERE tenant_id = ? AND action = 'MODEL_CATEGORY_CHANGED'`, d.tenantId);
+    expect(JSON.parse(line[0].detail_json)).toMatchObject({ model: "XUV700", before: ["PERSONAL"], after: "PROSPER", variants: 2 });
+  });
+
+  it("refuses a category the manufacturer does not have, and a model there is not", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    await loadMasterSheet(w, d);
+    const wrong = await w.api("POST", "/api/master/model-category", { model: "XUV700", category: "SUV" }, d.users.admin.session);
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error.message).toContain("Passenger vehicles (PV)");
+    expect(new Set(variantsOf(w, d, "XUV700"))).toEqual(new Set(["PERSONAL"]));
+    expect((await w.api("POST", "/api/master/model-category", { model: "NO SUCH MODEL", category: "PERSONAL" }, d.users.admin.session)).status).toBe(404);
+    // Only those who keep the vehicle master.
+    expect((await w.api("POST", "/api/master/model-category", { model: "XUV700", category: "BEV" }, d.users.se1.session)).status).toBe(403);
+  });
+
+  it("cannot be split from the variant screen or by a sheet", async () => {
+    const w = makeWorld();
+    const d = await makeDealer(w);
+    const m = await loadMasterSheet(w, d);
+
+    // A category changed on one variant moves the whole model with it.
+    const edit = await w.api("PATCH", `/api/master/variants/${m.v(AX7L).id}`, { category: "BEV" }, d.users.admin.session);
+    expect(edit.status, JSON.stringify(edit.body)).toBe(200);
+    expect(new Set(variantsOf(w, d, "XUV700"))).toEqual(new Set(["BEV"]));
+
+    // A new variant joins its model's category; a different one is refused, not quietly split off.
+    const added = await w.api("POST", "/api/master/variants", { category: "PERSONAL", model: "XUV700", variant: "XUV700 AX5 Petrol MT 5 STR" }, d.users.admin.session);
+    expect(added.status).toBe(400);
+    expect(added.body.error.message).toContain("change the model's category");
+
+    // A sheet that gives one model two categories is refused on the second row; one that names a
+    // model's category moves every variant of it, including variants the sheet does not list.
+    const sheet = ["Category,Model,Variant", "Electric,XUV700,XUV700 AX7 L Diesel AT 7 STR AWD", "Passenger,XUV700,XUV700 MX Petrol MT 5 STR", "Commercial,Thar,Thar LX Diesel AT 4WD Hard Top"].join("\n");
+    const up = (await w.api("POST", "/api/uploads/master?filename=fix.csv", sheet, d.users.admin.session)).body;
+    expect(up.errors.map((e: any) => e.message)).toEqual(["XUV700 is given two categories in this file, BEV and PERSONAL; a model has one"]);
+    expect(new Set(variantsOf(w, d, "THAR"))).toEqual(new Set(["PROSPER"]));
+    // A word that is no category is reported against its row, naming the ones there are.
+    const bad = (await w.api("POST", "/api/uploads/master?filename=bad.csv", "Category,Model,Variant\nSUV,Thar,Thar LX Diesel AT 4WD Hard Top", d.users.admin.session)).body;
+    expect(bad.errors[0].message).toContain('Category "SUV" is not one of the manufacturer\'s');
+    expect(new Set(variantsOf(w, d, "THAR"))).toEqual(new Set(["PROSPER"]));
   });
 });
