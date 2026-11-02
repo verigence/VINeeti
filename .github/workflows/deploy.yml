@@ -74,10 +74,33 @@ jobs:
       - run: npm test
 
   deploy:
-    name: Deploy Worker
+    name: Deploy Worker (${{ matrix.target }})
     runs-on: ubuntu-latest
     needs: check
     timeout-minutes: 20
+    # One build, deployed twice. Each deployment has its own Worker, database, bucket, secrets and
+    # address, so neither can see the other's data; the code, the migrations and the schedule are the
+    # same, from the same commit. The first entry is the original deployment, untouched: it sets none
+    # of the overrides and is deployed from wrangler.jsonc exactly as before. A failure in one does not
+    # stop the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: mahindra
+            url: https://verigence-vineeti.jbrconsulting-it.workers.dev
+          - target: hyundai
+            url: https://verigence-vineeti-hyundai.jbrconsulting-it.workers.dev
+            worker: verigence-vineeti-hyundai
+            database: verigence-vineeti-hyundai
+            bucket: verigence-vineeti-hyundai-files
+            domains: vineeti.jbrconsulting.in
+    env:
+      VINEETI_URL: ${{ matrix.url }}
+      DEPLOY_WORKER: ${{ matrix.worker }}
+      DEPLOY_DATABASE: ${{ matrix.database }}
+      DEPLOY_BUCKET: ${{ matrix.bucket }}
+      DEPLOY_DOMAINS: ${{ matrix.domains }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -150,11 +173,23 @@ jobs:
         run: node scripts/deploy.mjs
 
   smoke:
-    name: Post-deploy checks
+    name: Post-deploy checks (${{ matrix.target }})
     runs-on: ubuntu-latest
     needs: deploy
-    if: ${{ github.event.inputs.dry_run != 'true' }}
+    # Checks each deployment that went out, even when the other did not: a failure deploying the
+    # second must not hide whether the first is healthy.
+    if: ${{ !cancelled() && github.event.inputs.dry_run != 'true' }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: mahindra
+            url: https://verigence-vineeti.jbrconsulting-it.workers.dev
+          - target: hyundai
+            url: https://verigence-vineeti-hyundai.jbrconsulting-it.workers.dev
+    env:
+      VINEETI_URL: ${{ matrix.url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
