@@ -1,9 +1,19 @@
 ##############################################################################
 # deploy.yml — VINeeti to Cloudflare Workers + D1
 #
-# Deployment happens here, not by hand: every push to `main` runs the checks and
-# then deploys. It can also be started from the Actions tab, with a dry run that
-# changes nothing.
+# Deployment happens here, not by hand. Two builds of the same code:
+#
+#   test build      worker verigence-vineeti-hyundai, vineeti.jbrconsulting.in
+#   Aditya Motors   worker verigence-vineeti, adityamotors.mh.jbrconsulting.in
+#
+# Release policy (docs/RELEASE_POLICY.md): a change is checked on the test build
+# before it reaches Aditya Motors.
+#   - Every push to `main` runs the checks and deploys to the test build only.
+#   - Aditya Motors is updated only by starting this workflow by hand with
+#     target "aditya-motors", for a commit that has already been deployed to the
+#     test build and passed its post-deploy checks there, and with the box ticked
+#     to say it was checked there. The run refuses anything else.
+# It can also be started with a dry run that changes nothing.
 #
 # Secrets (Settings → Secrets and variables → Actions; organization secrets of
 # the same names also work, as for the other Verigence deployments):
@@ -37,6 +47,19 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      target:
+        description: 'Which build to deploy'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - 'test'
+          - 'aditya-motors'
+      checked_on_test:
+        description: 'For Aditya Motors: this commit has been checked on the test build (vineeti.jbrconsulting.in)'
+        required: false
+        default: false
+        type: boolean
       dry_run:
         description: 'Dry run only (say what would happen, change nothing)'
         required: false
@@ -48,6 +71,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # to look up whether a commit passed on the test build before it goes to Aditya Motors
 
 concurrency:
   group: deploy-production
@@ -59,6 +83,56 @@ env:
   VINEETI_URL: https://verigence-vineeti.jbrconsulting-it.workers.dev
 
 jobs:
+  # Which builds this run deploys, under the release policy. A push goes to the test build only;
+  # Aditya Motors only by hand, and only for a commit the test build has already passed.
+  plan:
+    name: Release policy
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.plan.outputs.deploy }}
+      smoke: ${{ steps.plan.outputs.smoke }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TARGET: ${{ github.event.inputs.target }}
+          CHECKED: ${{ github.event.inputs.checked_on_test }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test_build='{"target":"hyundai","label":"test build","url":"https://verigence-vineeti-hyundai.jbrconsulting-it.workers.dev","worker":"verigence-vineeti-hyundai","database":"verigence-vineeti-hyundai","bucket":"verigence-vineeti-hyundai-files","domains":"vineeti.jbrconsulting.in"}'
+          aditya='{"target":"mahindra","label":"Aditya Motors","url":"https://verigence-vineeti.jbrconsulting-it.workers.dev"}'
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$TARGET" = "aditya-motors" ]; then
+            if [ "$DRY_RUN" != "true" ]; then
+              if [ "$CHECKED" != "true" ]; then
+                echo "::error title=Not checked on the test build::Aditya Motors is updated only after the change has been checked on the test build. Tick the box to say it was."
+                exit 1
+              fi
+              # The same commit must have been deployed to the test build by this workflow and passed
+              # its post-deploy checks there.
+              passed=""
+              for run in $(gh api "repos/$REPO/actions/workflows/deploy.yml/runs?head_sha=$SHA&per_page=50" --jq '.workflow_runs[].id'); do
+                ok=$(gh api "repos/$REPO/actions/runs/$run/jobs?per_page=100" --jq '[.jobs[] | select(.name == "Post-deploy checks (hyundai)" and .conclusion == "success")] | length')
+                if [ "$ok" -gt 0 ]; then passed="$run"; break; fi
+              done
+              if [ -z "$passed" ]; then
+                echo "::error title=Not on the test build yet::Commit ${SHA:0:7} has not been deployed to the test build and passed its checks there. Deploy it to the test build first (merge to main, or run this workflow with target test), check it, then promote."
+                exit 1
+              fi
+              echo "::notice title=Passed on the test build::Commit ${SHA:0:7} passed on the test build in run $passed."
+            fi
+            echo "deploy=[$aditya]" >> "$GITHUB_OUTPUT"
+            echo "smoke=[$aditya]" >> "$GITHUB_OUTPUT"
+            echo "Deploying ${SHA:0:7} to Aditya Motors" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "deploy=[$test_build]" >> "$GITHUB_OUTPUT"
+            echo "smoke=[$test_build]" >> "$GITHUB_OUTPUT"
+            echo "Deploying ${SHA:0:7} to the test build (vineeti.jbrconsulting.in). Aditya Motors is not changed: it is updated by promotion once this is checked." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   check:
     name: Type check and tests
     runs-on: ubuntu-latest
@@ -76,25 +150,17 @@ jobs:
   deploy:
     name: Deploy Worker (${{ matrix.target }})
     runs-on: ubuntu-latest
-    needs: check
+    needs: [plan, check]
     timeout-minutes: 20
-    # One build, deployed twice. Each deployment has its own Worker, database, bucket, secrets and
+    # One build, deployed to two places. Each has its own Worker, database, bucket, secrets and
     # address, so neither can see the other's data; the code, the migrations and the schedule are the
-    # same, from the same commit. The first entry is the original deployment, untouched: it sets none
-    # of the overrides and is deployed from wrangler.jsonc exactly as before. A failure in one does not
-    # stop the other.
+    # same, from the same commit. Aditya Motors ("mahindra") is the original deployment: it sets none
+    # of the overrides and is deployed from wrangler.jsonc exactly as before. Which of the two this
+    # run deploys is the plan job's decision.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: mahindra
-            url: https://verigence-vineeti.jbrconsulting-it.workers.dev
-          - target: hyundai
-            url: https://verigence-vineeti-hyundai.jbrconsulting-it.workers.dev
-            worker: verigence-vineeti-hyundai
-            database: verigence-vineeti-hyundai
-            bucket: verigence-vineeti-hyundai-files
-            domains: vineeti.jbrconsulting.in
+        include: ${{ fromJSON(needs.plan.outputs.deploy) }}
     env:
       VINEETI_URL: ${{ matrix.url }}
       DEPLOY_WORKER: ${{ matrix.worker }}
@@ -175,19 +241,15 @@ jobs:
   smoke:
     name: Post-deploy checks (${{ matrix.target }})
     runs-on: ubuntu-latest
-    needs: deploy
-    # Checks each deployment that went out, even when the other did not: a failure deploying the
-    # second must not hide whether the first is healthy.
-    if: ${{ !cancelled() && github.event.inputs.dry_run != 'true' }}
+    needs: [plan, deploy]
+    # Checks the deployment that went out. A passing check on the test build is what lets the same
+    # commit be promoted to Aditya Motors.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && github.event.inputs.dry_run != 'true' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: mahindra
-            url: https://verigence-vineeti.jbrconsulting-it.workers.dev
-          - target: hyundai
-            url: https://verigence-vineeti-hyundai.jbrconsulting-it.workers.dev
+        include: ${{ fromJSON(needs.plan.outputs.smoke) }}
     env:
       VINEETI_URL: ${{ matrix.url }}
     steps:
