@@ -50,7 +50,6 @@ describe("the Reader", () => {
       ["POST", "/api/recon/run", {}],
       ["POST", "/api/reports/day-end/send", { date: "2026-10-13", to: "me" }],
       ["POST", "/api/settings/clear-data", { confirm: "x", password: "ReaderOwn1234" }],
-      ["POST", "/api/support/tickets", { subject: "x", body: "y" }],
     ];
     for (const [method, path, body] of tries) {
       const res = await w.api(method, path, body, reader);
@@ -59,6 +58,13 @@ describe("the Reader", () => {
     }
     expect(w.db.q(`SELECT status FROM bookings WHERE id = ?`, bookingId)).toEqual([{ status: "APPROVED" }]);
     expect(w.db.q(`SELECT COUNT(*) AS n FROM users WHERE mobile = '9000000099'`)).toEqual([{ n: 0 }]);
+  });
+
+  it("can raise a support ticket with the VINeeti team", async () => {
+    const res = await w.api("POST", "/api/support/tickets", { subject: "A screen does not load", body: "The stock screen stays blank." }, reader);
+    expect(res.status).toBe(201);
+    const mine = (await w.api("GET", "/api/support/tickets", undefined, reader)).body;
+    expect(Array.isArray(mine) ? mine.length : mine.tickets.length).toBe(1);
   });
 
   it("can still sign out", async () => {

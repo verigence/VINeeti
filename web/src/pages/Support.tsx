@@ -7,14 +7,12 @@ import { api } from "../api";
 import { Async, Button, Card, Chip, Empty, Field, Notice, PageHeader } from "../components/ui";
 import { useAction, useLoad } from "../hooks";
 import { plainText } from "../labels";
-import { useSession } from "../session";
 import type { SupportTicket } from "../types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const size = (n: number | null) => (n == null ? "" : n > 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 export function SupportPage() {
-  const { readOnly } = useSession();
   const tickets = useLoad(() => api.myTickets(), "support");
   const action = useAction();
   const [subject, setSubject] = useState("");
@@ -40,11 +38,6 @@ export function SupportPage() {
   return (
     <>
       <PageHeader title="Support" subtitle="Raise a ticket with the team that looks after VINeeti. It does not go to anybody at your dealership." />
-      {readOnly ? (
-        <Card title="Raise a ticket">
-          <Notice>Your role is read-only, so it cannot raise a ticket. Ask your System Admin to raise it for you.</Notice>
-        </Card>
-      ) : (
       <Card title="Raise a ticket">
         <form
           className="form-stack"
@@ -71,7 +64,6 @@ export function SupportPage() {
           </div>
         </form>
       </Card>
-      )}
       <Card title="Your tickets" note="Only yours. Nobody at the dealership sees them." flush>
         <Async load={tickets} empty={<Empty title="You have not raised a ticket" hint="When something does not work as you expect, raise one here." />}>
           {(res) => (
