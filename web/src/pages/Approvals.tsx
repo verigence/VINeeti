@@ -11,7 +11,8 @@ import type { BookingListRow } from "../types";
 import { ExceptionItem } from "./Exceptions";
 
 export function ApprovalsPage() {
-  const { can } = useSession();
+  // What shows is what the person may open: a Reader sees both lists, without the buttons that decide.
+  const { canSee: can } = useSession();
   return (
     <>
       <PageHeader title="Approvals" subtitle="Bookings and special requests waiting for a decision. You cannot decide something you created or raised yourself." />

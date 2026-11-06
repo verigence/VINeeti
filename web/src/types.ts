@@ -1,6 +1,6 @@
 // Shapes of the JSON the API returns. Kept in step with src/http/routes-*.ts and src/domain/*.ts.
 
-export type Role = "ADMIN" | "DEALER_PRINCIPAL" | "CEO_VP" | "GM_SALES" | "AGM_SALES" | "SALES_LEAD" | "SALES_CONSULTANT" | "EDP_MANAGER" | "FINANCE" | "AUDITOR";
+export type Role = "ADMIN" | "DEALER_PRINCIPAL" | "CEO_VP" | "GM_SALES" | "AGM_SALES" | "SALES_LEAD" | "SALES_CONSULTANT" | "EDP_MANAGER" | "FINANCE" | "AUDITOR" | "READER";
 
 export type Permission =
   | "stock.view"
@@ -121,7 +121,7 @@ export interface OutletRef {
 }
 
 export interface Me {
-  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; segments: string[]; mustChangePassword: boolean; welcomed: boolean; permissions: Permission[] };
+  user: { id: string; name: string; mobile: string; role: Role; allOutlets: boolean; outletIds: string[]; segments: string[]; mustChangePassword: boolean; welcomed: boolean; permissions: Permission[]; read_only?: boolean };
   tenant: { id: string; slug: string; name: string; oem: string; timezone: string };
   settings: TenantSettings;
   outlets: Outlet[];

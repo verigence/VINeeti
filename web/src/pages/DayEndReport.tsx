@@ -68,6 +68,7 @@ function SentTable({ history }: { history: SentReport[] }) {
 
 // ---------------------------------------------------------------- Reports → Day-end report
 export function DayEndReportView() {
+  const { readOnly } = useSession();
   const action = useAction();
   const sent = useLoad(() => api.dayEndSent(), "day-end:sent");
   const [date, setDate] = useState(yesterday());
@@ -92,12 +93,16 @@ export function DayEndReportView() {
           <Field label="Day">
             <input type="date" value={date} max={today()} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ maxWidth: 200 }} />
           </Field>
-          <Button variant="primary" busy={action.busy} onClick={() => setConfirm(true)}>
-            Email to all recipients
-          </Button>
-          <Button busy={action.busy} onClick={() => void send("me")}>
-            Email it to me
-          </Button>
+          {!readOnly && (
+            <>
+              <Button variant="primary" busy={action.busy} onClick={() => setConfirm(true)}>
+                Email to all recipients
+              </Button>
+              <Button busy={action.busy} onClick={() => void send("me")}>
+                Email it to me
+              </Button>
+            </>
+          )}
           <a className="btn btn-secondary" href={src} target="_blank" rel="noopener">
             Open in a new tab
           </a>
@@ -143,7 +148,7 @@ export function DayEndReportTab() {
 }
 
 function DayEndForm({ data, reload }: { data: DayEndSetup; reload: () => Promise<void> }) {
-  const { me } = useSession();
+  const { me, readOnly } = useSession();
   const action = useAction();
   const [s, setS] = useState<DayEndReportSettings>(data.settings);
   const [emails, setEmails] = useState(data.settings.emails.join("\n"));
@@ -164,7 +169,7 @@ function DayEndForm({ data, reload }: { data: DayEndSetup; reload: () => Promise
         title="Day-end report"
         note="Every morning, the previous day in numbers: who signed in and when, the DMS files loaded, requests raised and decided by outlet and segment, and allocations made outside VINeeti. No customer is named and no money is shown."
       >
-        <div className="form-stack">
+        <fieldset className="form-stack" disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           {!data.mail_ready && <Notice tone="warn">This deployment has no mail account set up, so the report cannot be emailed. It can still be read under Reports.</Notice>}
           <Check checked={s.enabled} onChange={(v) => set("enabled", v)} hint="Untick to stop the morning email. The report can still be read and sent from Reports.">
             Email the day-end report every morning
@@ -198,14 +203,16 @@ function DayEndForm({ data, reload }: { data: DayEndSetup; reload: () => Promise
           </Field>
           {action.error && <Notice tone="error">{plainText(action.error)}</Notice>}
           <div style={ROW}>
-            <Button variant="primary" busy={action.busy} onClick={() => void save()}>
-              Save
-            </Button>
+            {!readOnly && (
+              <Button variant="primary" busy={action.busy} onClick={() => void save()}>
+                Save
+              </Button>
+            )}
             <Link to="/analytics/day-end" className="btn btn-secondary">
               See or send a report
             </Link>
           </div>
-        </div>
+        </fieldset>
       </Card>
 
       <Card title="Who receives it now" note="As saved. Save first to see the effect of a change.">

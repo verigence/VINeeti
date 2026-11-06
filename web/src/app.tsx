@@ -104,6 +104,8 @@ function Root() {
     return {
       me,
       can: (p: Permission) => me.user.permissions.includes(p),
+      canSee: (p: Permission) => (me.user.read_only ? p !== "admin.reset" : me.user.permissions.includes(p)),
+      readOnly: Boolean(me.user.read_only),
       refresh: load,
       signOut,
       outletName: (id) => (id ? names.get(id) ?? "another outlet" : "—"),

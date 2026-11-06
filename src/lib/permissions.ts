@@ -100,7 +100,25 @@ const MATRIX: Record<Role, Permission[]> = {
   FINANCE: [...VIEW_ALL, "stock.value", "booking.payment", "booking.deliver", "recon.view"],
   // Reads, and changes nothing at all.
   AUDITOR: [...VIEW_ALL, "stock.value", "recon.view", "wa.view", "audit.view"],
+  // Sees every screen and changes nothing but their own password. These are the rights the screens use
+  // to decide what to show; every other screen is opened to the role read-only (READ_ONLY_ROLES below),
+  // and the server refuses any change the role asks for, whatever a screen offers.
+  READER: [...VIEW_ALL, "stock.value", "owner.view", "recon.view", "wa.view", "audit.view", "report.day_end"],
 };
+
+/**
+ * Roles that may look at everything and change nothing. A person in one of these roles can open every
+ * screen and read what it reads (any GET passes `need`, whatever right it names, bar emptying the
+ * dealership), and every request that would change something is refused at the door, except the few
+ * that only concern the person: changing their own password, signing out, the welcome, marking an alert
+ * read. The refusal is in `authenticate`, so no route can forget it.
+ */
+export const READ_ONLY_ROLES: Role[] = ["READER"];
+export const isReadOnly = (role: Role) => READ_ONLY_ROLES.includes(role);
+/** The calls a read-only person may still make: about themselves, not the dealership's data. */
+export const READ_ONLY_WRITES: RegExp[] = [/^\/api\/auth\/(change-password|logout|welcomed)$/, /^\/api\/alerts\/[^/]+\/read$/];
+/** The one right no read-only person is ever opened to, even to look: the screen that empties the dealership. */
+export const NEVER_READ_ONLY: Permission[] = ["admin.reset"];
 
 export function permissionsFor(role: Role, settings: TenantSettings): Permission[] {
   const set = new Set<Permission>(MATRIX[role] ?? []);
@@ -128,7 +146,7 @@ export function canSeeOutlet(user: SessionUser, outletId: string): boolean {
 }
 
 /** Roles that default to seeing every outlet of the dealership. */
-export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "EDP_MANAGER", "FINANCE", "AUDITOR"];
+export const TENANT_WIDE_ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "EDP_MANAGER", "FINANCE", "AUDITOR", "READER"];
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "System Admin",
@@ -141,6 +159,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   EDP_MANAGER: "EDP Manager",
   FINANCE: "Finance",
   AUDITOR: "Auditor",
+  READER: "Reader",
 };
 
 export const ROLE_PURPOSE: Record<Role, string> = {
@@ -154,6 +173,7 @@ export const ROLE_PURPOSE: Record<Role, string> = {
   EDP_MANAGER: "Loads the DMS files and settles the differences; keeps the vehicle master, orders and stock corrections.",
   FINANCE: "Verifies that payments have been received; records invoicing and delivery.",
   AUDITOR: "Reads everything, changes nothing.",
+  READER: "Sees every screen and every outlet, read-only. Changes nothing but their own password.",
 };
 
 /**
@@ -172,6 +192,7 @@ export const ROLE_TO_YOU: Record<Role, string> = {
   EDP_MANAGER: "You upload the daily DMS files and resolve the differences, and you maintain the vehicle master and orders.",
   FINANCE: "You verify that payments have been received, and record invoicing and delivery.",
   AUDITOR: "You have read-only access to all records.",
+  READER: "You can see every screen in VINeeti, read-only. The only thing you change is your own password.",
 };
 
 export const PERMISSION_LABELS: Record<Permission, string> = {

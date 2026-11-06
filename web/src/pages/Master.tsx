@@ -38,6 +38,7 @@ export function MasterPage({ tab }: { tab: "variants" | "colours" }) {
 
 // ---------------------------------------------------------------- variants
 function VariantsTab({ m, reload }: { m: MasterResponse; reload: () => Promise<void> }) {
+  const { readOnly } = useSession();
   const [query, setQuery] = useQuery();
   const model = query.get("model") ?? "";
   const blanks = query.get("blanks") === "1";
@@ -76,7 +77,7 @@ function VariantsTab({ m, reload }: { m: MasterResponse; reload: () => Promise<v
 
   return (
     <>
-      <SheetCard reload={reload} />
+      {!readOnly && <SheetCard reload={reload} />}
       <ModelCategories m={m} reload={reload} />
       <FilterBar active={(model ? 1 : 0) + (blanks ? 1 : 0)} onClear={() => setQuery({ model: null, blanks: null })}>
         <Filter label="Model">
@@ -436,7 +437,7 @@ interface ModelRow {
  * invisible to anybody restricted to a segment -- and those are put at the top, marked.
  */
 function ModelCategories({ m, reload }: { m: MasterResponse; reload: () => Promise<void> }) {
-  const { me } = useSession();
+  const { me, readOnly } = useSession();
   const action = useAction();
   const [saving, setSaving] = useState<string | null>(null);
   const name = useCategoryName();
@@ -476,7 +477,7 @@ function ModelCategories({ m, reload }: { m: MasterResponse; reload: () => Promi
       header: "Category",
       cell: (r) => (
         <span className="model-category">
-          <Select value={r.category} onChange={(v) => void change(r, v)} options={options} placeholder={r.split ? "Mixed — choose one" : "Not set — choose one"} disabled={saving !== null} />
+          <Select value={r.category} onChange={(v) => void change(r, v)} options={options} placeholder={r.split ? "Mixed — choose one" : "Not set — choose one"} disabled={saving !== null || readOnly} />
           {unknown(r) && <Chip tone="red">{r.split ? "Mixed" : r.category ? "Not recognised" : "Not set"}</Chip>}
         </span>
       ),

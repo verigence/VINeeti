@@ -3,7 +3,15 @@ import type { AlertRow, Me, Outlet, Permission } from "./types";
 
 export interface Session {
   me: Me;
+  /** Whether the person may do this. Decides which actions a screen offers. */
   can: (p: Permission) => boolean;
+  /**
+   * Whether the person may open a screen that needs this. The same as `can`, except for a read-only
+   * role (the Reader), who may open every screen bar emptying the dealership, and acts on none of them.
+   */
+  canSee: (p: Permission) => boolean;
+  /** A role that sees everything and changes nothing but its own password. */
+  readOnly: boolean;
   /** Re-reads the signed-in user, settings and outlets (after a password change, settings change, ...). */
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;

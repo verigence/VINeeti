@@ -18,7 +18,7 @@ import { Button } from "./ui";
 const countText = (n: number) => (n > 99 ? "99+" : String(n));
 
 export function Shell() {
-  const { me, can, signOut, roleLabel } = useSession();
+  const { me, can, canSee, readOnly, signOut, roleLabel } = useSession();
   const { path } = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const [alerts, setAlerts] = useState<{ rows: AlertRow[]; loading: boolean; error: string | null }>({ rows: [], loading: true, error: null });
@@ -49,9 +49,10 @@ export function Shell() {
   const unreadAlarms = me.receives_alarms ? alerts.rows.filter((a) => a.is_alarm && !a.read_at).length : 0;
   const state = useMemo<AlertsState>(() => ({ alerts: alerts.rows, unread, unreadAlarms, loading: alerts.loading, error: alerts.error, pendingApprovals: pending, reload }), [alerts, unread, unreadAlarms, pending, reload]);
 
-  const all = destinationsFor(can);
-  const work = workDestinations(can);
-  const admin = adminDestinations(can);
+  // Every screen the person may open (a Reader may open them all); the phone tabs follow what they work in.
+  const all = destinationsFor(canSee);
+  const work = workDestinations(canSee);
+  const admin = adminDestinations(canSee);
   const tabs = tabsFor(can);
   const more = all.filter((d) => !tabs.includes(d));
   // People who receive alarms see the count of unread alarms on Home; everyone else, their unread alerts.
@@ -140,7 +141,7 @@ export function Shell() {
             <div className="topbar-user">
               <div className="user-id">
                 <span className="user-name">{personName(me.user.name)}</span>
-                <span className="user-role">{roleLabel(me.user.role)}</span>
+                <span className="user-role">{roleLabel(me.user.role)}{readOnly ? " · read-only" : ""}</span>
               </div>
               <Link to="/account/password" className="user-link">
                 <Icon name="key" size={16} />

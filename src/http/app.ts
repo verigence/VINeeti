@@ -3,7 +3,7 @@ import type { Ctx, Env, Role, SessionUser, TenantRow } from "../env";
 import { verifySession } from "../lib/crypto";
 import { all, first, marks } from "../lib/db";
 import { segmentLabel } from "../oem";
-import { can, permissionsFor, type Permission } from "../lib/permissions";
+import { can, isReadOnly, NEVER_READ_ONLY, permissionsFor, READ_ONLY_WRITES, type Permission } from "../lib/permissions";
 import { parseSettings } from "../lib/settings";
 import { forbidden, HttpError } from "../lib/util";
 import { dispatchQueued } from "../whatsapp/outbox";
@@ -55,6 +55,11 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   c.set("user", user);
   const ctx = buildCtx(c.env, tenant, user.id, now);
   c.set("ctx", ctx);
+  // A read-only role looks and never touches: any change it asks for is refused here, before any route
+  // runs, bar the few calls that only concern the person themselves.
+  if (isReadOnly(user.role) && !["GET", "HEAD"].includes(c.req.method) && !READ_ONLY_WRITES.some((r) => r.test(new URL(c.req.url).pathname))) {
+    throw new HttpError(403, "Your role can see every screen but cannot change anything.", "READ_ONLY");
+  }
   // A password set by an administrator is temporary: nothing else works until the user replaces it.
   if (user.mustChangePassword && !["/api/auth/me", "/api/auth/change-password"].includes(new URL(c.req.url).pathname)) {
     throw new HttpError(403, "Set a new password before continuing", "PASSWORD_CHANGE_REQUIRED");
@@ -66,7 +71,13 @@ export async function authenticate(c: C, next: () => Promise<void>) {
 
 export function need(c: C, p: Permission) {
   const user = c.get("user");
+  if (readsEverything(c) && !NEVER_READ_ONLY.includes(p)) return;
   if (!can(user, c.get("ctx").settings, p)) throw forbidden();
+}
+
+/** A read-only person asking to read: every screen's data is theirs to see. Changes never reach a route. */
+export function readsEverything(c: C): boolean {
+  return isReadOnly(c.get("user").role) && ["GET", "HEAD"].includes(c.req.method);
 }
 
 /** Outlets the user may see: null means every outlet of the tenant. */
@@ -134,5 +145,5 @@ export async function jsonBody<T = Record<string, any>>(c: C): Promise<T> {
 export function describeUser(c: C) {
   const user = c.get("user");
   const ctx = c.get("ctx");
-  return { ...user, permissions: permissionsFor(user.role, ctx.settings) };
+  return { ...user, permissions: permissionsFor(user.role, ctx.settings), read_only: isReadOnly(user.role) };
 }

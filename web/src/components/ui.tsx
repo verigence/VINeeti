@@ -1,9 +1,10 @@
 // Small building blocks shared by every screen.
 
-import { Fragment, useId, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Fragment, useContext, useId, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Loaded } from "../hooks";
 import type { Label, Tone } from "../labels";
 import { Link } from "../router";
+import { SessionContext } from "../session";
 import { Icon, type IconName } from "./icons";
 
 // ---------------------------------------------------------------- buttons
@@ -254,6 +255,9 @@ export function DataTable<R>({
   /** Extra content shown directly under a row (for "Show details"); return null for rows that are closed. */
   detail?: (row: R) => ReactNode;
 }) {
+  // A read-only person (the Reader) sees every table without its actions column: those are buttons that
+  // change something, and the server would refuse them anyway. (The platform console has no session.)
+  if (useContext(SessionContext)?.readOnly) columns = columns.filter((c) => !c.actions);
   return (
     <div className={scroll ? "table-scroll" : "table-wrap"}>
       <table className={`table${scroll ? "" : " table-stack"}`}>

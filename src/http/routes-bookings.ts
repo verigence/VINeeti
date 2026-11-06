@@ -30,7 +30,7 @@ import { decideException, listExceptions, requestException } from "../domain/exc
 import { resolveConfig } from "../domain/master";
 import { queueFor, queuePositions } from "../domain/queue";
 import { windowSchedule } from "../domain/timers";
-import { jsonBody, modelScope, need, needOutlet, needSegment, needSegmentOfCar, outletScope, type App, type C } from "./app";
+import { jsonBody, modelScope, need, needOutlet, needSegment, needSegmentOfCar, outletScope, readsEverything, type App, type C } from "./app";
 
 /** A sales executive sees only their own bookings; everyone else sees bookings of their outlets. */
 function canSeeBooking(c: C, b: Pick<Booking, "outlet_id" | "sales_exec_id" | "created_by">): boolean {
@@ -342,9 +342,10 @@ export function bookingRoutes(app: App) {
     const ctx = c.get("ctx");
     const user = c.get("user");
     const decides = can(user, ctx.settings, "exception.decide") || can(user, ctx.settings, "release.decide");
-    if (!decides && !can(user, ctx.settings, "exception.request")) throw forbidden();
+    const reads = readsEverything(c);
+    if (!decides && !reads && !can(user, ctx.settings, "exception.request")) throw forbidden();
     const scope = outletScope(c);
-    let rows = (await listExceptions(ctx, c.req.query("status") ?? null, decides ? null : scope)) as any[];
+    let rows = (await listExceptions(ctx, c.req.query("status") ?? null, decides || reads ? null : scope)) as any[];
     if (!can(user, ctx.settings, "booking.view_all")) rows = rows.filter((r) => r.requested_by === user.id);
     const models = await modelScope(c);
     if (models) rows = rows.filter((r) => models.includes(r.model));

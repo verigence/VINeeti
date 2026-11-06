@@ -251,7 +251,7 @@ describe("roles and controls", () => {
     const res = await w.api("GET", "/api/roles", undefined, d.users.lead.session);
     expect(res.status).toBe(200);
     const roles: any[] = res.body.roles;
-    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "CEO / VP", "GM Sales", "AGM Sales", "Sales Lead", "Sales Consultant", "EDP Manager", "Finance", "Auditor"]);
+    expect(roles.map((r) => r.label)).toEqual(["System Admin", "Dealer Principal", "CEO / VP", "GM Sales", "AGM Sales", "Sales Lead", "Sales Consultant", "EDP Manager", "Finance", "Auditor", "Reader"]);
     const perms = (role: string) => roles.find((r) => r.role === role).permissions as string[];
     expect(perms("FINANCE")).toContain("booking.payment");
     expect(perms("SALES_CONSULTANT")).toContain("booking.payment_report");

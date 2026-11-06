@@ -148,7 +148,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
 
 // Every role there is. (A mechanical rename once left GM Sales and AGM Sales out of this list, which made
 // any roles setting naming them fail to save.)
-const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "GM_SALES", "AGM_SALES", "SALES_LEAD", "SALES_CONSULTANT", "EDP_MANAGER", "FINANCE", "AUDITOR"];
+const ROLES: Role[] = ["ADMIN", "DEALER_PRINCIPAL", "CEO_VP", "GM_SALES", "AGM_SALES", "SALES_LEAD", "SALES_CONSULTANT", "EDP_MANAGER", "FINANCE", "AUDITOR", "READER"];
 const DOC_KINDS: DocumentKind[] = ["DOCKET", "KYC", "PAN_AADHAAR", "PAYMENT_PROOF"];
 const SCOPES: OutletScope[] = ["SAME_OUTLET_FIRST", "SAME_OUTLET_NEARBY", "SAME_OUTLET_ONLY", "ANY_OUTLET"];
 
