@@ -51,6 +51,7 @@ const BY_ROLE: Record<Role, Key[]> = {
   EDP_MANAGER: ["dms", "differences", "stock", "record"],
   FINANCE: ["payments", "bookings", "differences", "record"],
   AUDITOR: ["record", "differences", "fair", "stock"],
+  READER: ["overview", "stock", "bookings", "record"],
 };
 const FALLBACK: Key[] = ["fair", "stock", "bookings", "record"];
 

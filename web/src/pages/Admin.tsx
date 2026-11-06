@@ -15,7 +15,8 @@ import { DayEndReportTab } from "./DayEndReport";
 type Tab = "outlets" | "users" | "roles" | "rules" | "report" | "health" | "clear";
 
 export function AdminPage({ tab }: { tab: Tab }) {
-  const { can } = useSession();
+  // Which tabs show: what the person may open (a Reader opens them all, read-only), never the clearing.
+  const { canSee: can } = useSession();
   const tabs = [
     ...(can("admin.users") ? [{ to: "/admin/users", label: "Users" }] : []),
     { to: "/admin/roles", label: "Roles and controls" },
@@ -42,7 +43,8 @@ export function AdminPage({ tab }: { tab: Tab }) {
 
 // ---------------------------------------------------------------- outlets
 function OutletsTab() {
-  const { refresh } = useSession();
+  const { refresh, can } = useSession();
+  const edits = can("admin.users");
   const load = useLoad(() => api.outlets(), "admin:outlets");
   const action = useAction();
   const [dialog, setDialog] = useState<{ outlet?: Outlet } | null>(null);
@@ -79,14 +81,16 @@ function OutletsTab() {
         title="Outlets"
         note="Showrooms and stockyards of the dealership. Outlets are also created automatically from the DMS files, by their Dealer Location Code."
         actions={
-          <Button variant="primary" icon="plus" onClick={() => setDialog({})}>
-            Add outlet
-          </Button>
+          edits ? (
+            <Button variant="primary" icon="plus" onClick={() => setDialog({})}>
+              Add outlet
+            </Button>
+          ) : undefined
         }
         flush
       >
         <Async load={load} empty={<Empty title="No outlets yet" />}>
-          {(rows) => <DataTable columns={columns} rows={rows} rowKey={(o) => o.id} caption="Outlets" />}
+          {(rows) => <DataTable columns={edits ? columns : columns.filter((c) => !c.actions)} rows={rows} rowKey={(o) => o.id} caption="Outlets" />}
         </Async>
       </Card>
       {dialog && (
@@ -185,7 +189,8 @@ function OutletDialog({ outlet, onClose, onDone }: { outlet?: Outlet; onClose: (
 
 // ---------------------------------------------------------------- users
 function UsersTab() {
-  const { me, roleLabel, outletName } = useSession();
+  const { me, roleLabel, outletName, can } = useSession();
+  const edits = can("admin.users");
   const users = useLoad(() => api.users(), "admin:users");
   const outlets = useLoad(() => api.outlets(), "admin:outlets");
   const roles = useLoad(() => api.roles(), "admin:roles");
@@ -258,9 +263,11 @@ function UsersTab() {
         title="Users"
         note="A person's mobile number is their ID: they sign in with it and a password."
         actions={
-          <Button variant="primary" icon="plus" onClick={() => setDialog({})}>
-            Add user
-          </Button>
+          edits ? (
+            <Button variant="primary" icon="plus" onClick={() => setDialog({})}>
+              Add user
+            </Button>
+          ) : undefined
         }
         flush
       >
@@ -268,13 +275,13 @@ function UsersTab() {
           {(rows) => (
             <>
               <p className="list-count">{plural(rows.length, "user")}</p>
-              <DataTable columns={columns} rows={rows} rowKey={(u) => u.id} caption="Users" />
+              <DataTable columns={edits ? columns : columns.filter((c) => !c.actions)} rows={rows} rowKey={(u) => u.id} caption="Users" />
             </>
           )}
         </Async>
       </Card>
-      <EmployeeSheetCard onLoaded={() => void users.reload()} />
-      <MailCheckCard />
+      {edits && <EmployeeSheetCard onLoaded={() => void users.reload()} />}
+      {edits && <MailCheckCard />}
       {dialog && (
         <UserDialog
           user={dialog.user}

@@ -60,7 +60,8 @@ export type Role =
   | "SALES_CONSULTANT"
   | "EDP_MANAGER"
   | "FINANCE"
-  | "AUDITOR";
+  | "AUDITOR"
+  | "READER";
 
 export interface TenantRow {
   id: string;

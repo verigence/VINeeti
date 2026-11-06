@@ -168,7 +168,7 @@ function NotFound() {
 
 export function Routes(): ReactNode {
   const { path } = useRouter();
-  const { can } = useSession();
+  const { canSee: can } = useSession();
   for (const route of ROUTES) {
     const params = matchPath(route.path, path);
     if (!params) continue;
